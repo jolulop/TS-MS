@@ -54,11 +54,13 @@ def create_business_unit_configuration(
     business_unit: BusinessUnit,
     approval_mode_code: str = "PROJECT",
     allow_employee_withdraw_flag: bool = False,
+    timesheet_cutoff_date: date | None = None,
 ) -> BusinessUnitConfiguration:
     return BusinessUnitConfiguration.objects.create(
         business_unit=business_unit,
         approval_mode=ref_value("APPROVAL_MODE", approval_mode_code),
         allow_employee_withdraw_flag=allow_employee_withdraw_flag,
+        timesheet_cutoff_date=timesheet_cutoff_date,
         count_non_billable_in_daily_limit_flag=False,
         archive_after_years=5,
         enable_timer_flag=False,

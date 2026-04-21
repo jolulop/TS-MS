@@ -997,6 +997,110 @@ def test_approved_timesheet_is_locked_until_admin_reopen() -> None:
 
 
 @pytest.mark.django_db
+def test_admin_can_withdraw_approved_timesheet_back_to_submitted() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user12a@example.com",
+        employee_code="EMP-2012A",
+        full_name="User Twelve A",
+    )
+    admin = create_ts_admin_for_business_unit(
+        business_unit=context["business_unit"],
+        email="admin12a@example.com",
+        employee_code="EMP-ADMIN-12A",
+        full_name="Admin Twelve A",
+    )
+
+    employee_client = Client()
+    initialize_session(employee_client, "user12a@example.com")
+    timesheet = create_timesheet(employee_client, "2026-05-04")
+    employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "4.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    employee_client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    approval_item = ApprovalItem.objects.get(submission_cycle__weekly_timesheet_id=timesheet["id"])
+
+    pm_client = Client()
+    initialize_session(pm_client, context["project_manager"].email)
+    pm_client.post(
+        f"/api/v1/approvals/{approval_item.id}/approve/",
+        data=json.dumps({"comment_text": "Approved"}),
+        content_type="application/json",
+    )
+
+    employee_withdraw_response = employee_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/withdraw/",
+        data=json.dumps({"reason_text": "Recall final approval"}),
+        content_type="application/json",
+    )
+
+    admin_client = Client()
+    initialize_session(admin_client, admin.email)
+    missing_reason_response = admin_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/withdraw/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    admin_withdraw_response = admin_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/withdraw/",
+        data=json.dumps({"reason_text": "Recall final approval"}),
+        content_type="application/json",
+    )
+
+    locked_edit_response = employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-05",
+                        "project_id": context["project"].id,
+                        "hours": "2.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert employee_withdraw_response.status_code == 400
+    assert (
+        employee_withdraw_response.json()["error"]["code"] == "TIMESHEET_ADMIN_WITHDRAW_NOT_ALLOWED"
+    )
+    assert missing_reason_response.status_code == 400
+    assert missing_reason_response.json()["error"]["code"] == "TIMESHEET_WITHDRAW_REASON_REQUIRED"
+    assert admin_withdraw_response.status_code == 200
+    assert admin_withdraw_response.json()["timesheet"]["status"] == "SUBMITTED"
+    assert admin_withdraw_response.json()["timesheet"]["final_approval_datetime"] is None
+    assert admin_withdraw_response.json()["timesheet"]["lines"][0]["approval_state"] == "APPROVED"
+    assert locked_edit_response.status_code == 400
+    assert locked_edit_response.json()["error"]["code"] == "TIMESHEET_NOT_EDITABLE"
+    assert (
+        AuditLog.objects.filter(
+            entity_name="weekly_timesheet",
+            action_type__value_code="WITHDRAW",
+        ).count()
+        >= 1
+    )
+
+
+@pytest.mark.django_db
 def test_admin_can_archive_only_eligible_approved_timesheet() -> None:
     seed_reference_data()
     context = setup_project_approval_context(
@@ -1178,6 +1282,118 @@ def test_admin_can_restore_archived_timesheet() -> None:
         AuditLog.objects.filter(
             entity_name="weekly_timesheet",
             action_type__value_code="RESTORE",
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_period_cutoff_blocks_edit_and_submit_until_admin_override() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user14@example.com",
+        employee_code="EMP-2014",
+        full_name="User Fourteen",
+    )
+    admin = create_ts_admin_for_business_unit(
+        business_unit=context["business_unit"],
+        email="admin14@example.com",
+        employee_code="EMP-ADMIN-14",
+        full_name="Admin Fourteen",
+    )
+
+    employee_client = Client()
+    initialize_session(employee_client, "user14@example.com")
+    timesheet = create_timesheet(employee_client, "2026-05-04")
+    save_response = employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "4.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    assert save_response.status_code == 200
+
+    configuration = context["business_unit"].configuration
+    configuration.timesheet_cutoff_date = date(2026, 5, 10)
+    configuration.updated_by = "system@test.local"
+    configuration.save(update_fields=["timesheet_cutoff_date", "updated_by", "updated_at"])
+
+    blocked_edit_response = employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-05",
+                        "project_id": context["project"].id,
+                        "hours": "5.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    blocked_submit_response = employee_client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    employee_override_response = employee_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/override-period-lock/",
+        data=json.dumps({"reason_text": "Need late correction"}),
+        content_type="application/json",
+    )
+
+    admin_client = Client()
+    initialize_session(admin_client, admin.email)
+    missing_reason_response = admin_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/override-period-lock/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    override_response = admin_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/override-period-lock/",
+        data=json.dumps({"reason_text": "Need late correction"}),
+        content_type="application/json",
+    )
+    submit_after_override_response = employee_client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+
+    assert blocked_edit_response.status_code == 400
+    assert blocked_edit_response.json()["error"]["code"] == "TIMESHEET_PERIOD_LOCKED"
+    assert blocked_submit_response.status_code == 400
+    assert blocked_submit_response.json()["error"]["code"] == "TIMESHEET_PERIOD_LOCKED"
+    assert employee_override_response.status_code == 400
+    assert (
+        employee_override_response.json()["error"]["code"]
+        == "TIMESHEET_PERIOD_OVERRIDE_NOT_ALLOWED"
+    )
+    assert missing_reason_response.status_code == 400
+    assert (
+        missing_reason_response.json()["error"]["code"]
+        == "TIMESHEET_PERIOD_OVERRIDE_REASON_REQUIRED"
+    )
+    assert override_response.status_code == 200
+    assert override_response.json()["timesheet"]["period_lock_override_flag"] is True
+    assert submit_after_override_response.status_code == 200
+    assert submit_after_override_response.json()["timesheet"]["status"] == "SUBMITTED"
+    assert (
+        AuditLog.objects.filter(
+            entity_name="weekly_timesheet",
+            field_name="period_lock_override_flag",
+            action_type__value_code="UPDATE",
         ).count()
         == 1
     )

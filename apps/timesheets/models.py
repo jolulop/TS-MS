@@ -27,6 +27,7 @@ class WeeklyTimesheet(AuditFieldsModel):
     final_approval_datetime = models.DateTimeField(null=True, blank=True)
     comment_text = models.TextField(blank=True)
     archive_eligible_date = models.DateField(null=True, blank=True)
+    period_lock_override_flag = models.BooleanField(default=False)
 
     class Meta:
         db_table = "weekly_timesheet"

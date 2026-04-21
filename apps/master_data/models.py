@@ -447,6 +447,7 @@ class BusinessUnitConfiguration(AuditFieldsModel):
         related_name="+",
     )
     allow_employee_withdraw_flag = models.BooleanField(default=False)
+    timesheet_cutoff_date = models.DateField(null=True, blank=True)
     count_non_billable_in_daily_limit_flag = models.BooleanField(default=False)
     archive_after_years = models.PositiveSmallIntegerField(default=0)
     enable_timer_flag = models.BooleanField(default=False)

@@ -187,6 +187,14 @@ Audit events to add/update:
 - archived-timesheet restore lifecycle
 - restore authorization and audit coverage
 
+### Milestone 6
+- approved-timesheet admin withdrawal lifecycle
+- withdrawal authorization and audit coverage
+
+### Milestone 7
+- period-lock / cutoff enforcement
+- TS Admin period-lock override
+
 ## 14. Test plan
 
 Unit tests:
@@ -232,6 +240,10 @@ Integration tests:
 - Assumption: Milestone 4 implements TS Admin reopen and archive first. Approved-timesheet admin withdrawal and restore remain deferred.
 - Assumption: reopening an approved timesheet clears current line approval state and requires a fresh approval cycle on resubmission for all current lines.
 - Assumption: Milestone 5 restores archived timesheets back to `APPROVED`, preserving prior approval state and approval history.
+- Assumption: Milestone 6 interprets approved-timesheet admin withdrawal as `APPROVED -> SUBMITTED`, preserving line approval state and approval history while removing final-approval status until a later admin decision.
+- Assumption: Milestone 7 models cutoff behavior with a nullable `BusinessUnitConfiguration.timesheet_cutoff_date`.
+- Assumption: Milestone 7 models administrative overrides with a persisted `WeeklyTimesheet.period_lock_override_flag` so employees can complete late corrections after explicit admin approval.
+- Assumption: cutoff enforcement applies to edit and submit operations first; weekly timesheet creation itself remains allowed so users and admins can work with existing historical records without introducing employee-creation-as-admin scope in this phase.
 
 ## 18. Definition of done
 
@@ -245,7 +257,7 @@ Integration tests:
 ## 19. Implementation status
 
 Status:
-- in progress
+- completed
 
 Completed milestone:
 - Milestone 1: weekly timesheet create/list/detail and line validation engine
@@ -253,6 +265,8 @@ Completed milestone:
 - Milestone 3: project-scoped approval worklist and approval actions
 - Milestone 4: TS Admin reopen/archive lifecycle and locked-state enforcement
 - Milestone 5: archived-timesheet restore lifecycle
+- Milestone 6: approved-timesheet admin withdrawal lifecycle
+- Milestone 7: period-lock / cutoff enforcement and admin override
 
 Delivered in Milestone 1:
 - user weekly timesheet create/list/detail APIs
@@ -296,11 +310,25 @@ Delivered in Milestone 5:
 - restore audit coverage
 - integration test coverage for restore authorization and restored-state behavior
 
-Still pending:
-- approved-timesheet admin withdrawal
-- cutoff / period-lock administrative overrides
+Delivered in Milestone 6:
+- TS Admin approved-timesheet withdrawal API within assigned BU scope
+- withdrawal-reason validation and audit coverage
+- approved timesheets now move back to `SUBMITTED` when withdrawn by TS Admin
+- line approval state and historical approval records remain preserved after admin withdrawal
+- integration test coverage for admin withdrawal authorization, reason requirement, and locked-state behavior after withdrawal
 
-Validation run for Milestones 1-5:
+Delivered in Milestone 7:
+- Business Unit cutoff date support through `BusinessUnitConfiguration.timesheet_cutoff_date`
+- persisted per-timesheet override support through `WeeklyTimesheet.period_lock_override_flag`
+- employee edit and submit operations now block when the timesheet falls before the configured cutoff date
+- TS Admin period-lock override API within assigned BU scope
+- override-reason validation and audit coverage
+- integration test coverage for cutoff enforcement, override authorization, and successful submission after override
+
+Still pending:
+- none for the Phase IV backend scope
+
+Validation run for Milestones 1-7:
 - `make format`
 - `make lint`
 - `.venv/bin/python manage.py check`

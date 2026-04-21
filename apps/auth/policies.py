@@ -69,6 +69,19 @@ class AuthorizationPolicyService:
         )
 
     @staticmethod
+    def can_admin_withdraw_timesheet(current_user: CurrentUser, timesheet) -> bool:
+        return current_user.is_ts_admin and (
+            timesheet.business_unit_id in current_user.scoped_business_unit_ids
+            and timesheet.status.value_code == "APPROVED"
+        )
+
+    @staticmethod
+    def can_override_period_lock(current_user: CurrentUser, timesheet) -> bool:
+        return current_user.is_ts_admin and (
+            timesheet.business_unit_id in current_user.scoped_business_unit_ids
+        )
+
+    @staticmethod
     def can_archive_timesheet(current_user: CurrentUser, timesheet) -> bool:
         return current_user.is_ts_admin and (
             timesheet.business_unit_id in current_user.scoped_business_unit_ids

@@ -123,6 +123,7 @@ def _serialize_timesheet(timesheet: WeeklyTimesheet) -> dict:
         "archive_eligible_date": (
             timesheet.archive_eligible_date.isoformat() if timesheet.archive_eligible_date else None
         ),
+        "period_lock_override_flag": timesheet.period_lock_override_flag,
         "comment_text": timesheet.comment_text,
         "lines": [
             _serialize_line(line) for line in timesheet.lines.all().order_by("work_date", "id")
@@ -316,6 +317,14 @@ def _archive_after_years(business_unit_id: int) -> int:
     return configuration.archive_after_years or 5
 
 
+def _timesheet_cutoff_date(business_unit_id: int) -> date | None:
+    try:
+        configuration = BusinessUnitConfiguration.objects.get(business_unit_id=business_unit_id)
+    except BusinessUnitConfiguration.DoesNotExist:
+        return None
+    return configuration.timesheet_cutoff_date
+
+
 def _add_years(base_date: date, years: int) -> date:
     try:
         return base_date.replace(year=base_date.year + years)
@@ -327,6 +336,24 @@ def _archive_eligible_date_for_timesheet(timesheet: WeeklyTimesheet) -> date:
     if timesheet.archive_eligible_date is not None:
         return timesheet.archive_eligible_date
     return _add_years(timesheet.created_at.date(), _archive_after_years(timesheet.business_unit_id))
+
+
+def _is_period_locked(timesheet: WeeklyTimesheet) -> bool:
+    cutoff_date = _timesheet_cutoff_date(timesheet.business_unit_id)
+    if cutoff_date is None:
+        return False
+    if timesheet.period_lock_override_flag:
+        return False
+    return timesheet.week_end_date < cutoff_date
+
+
+def _ensure_period_unlocked(timesheet: WeeklyTimesheet) -> None:
+    if _is_period_locked(timesheet):
+        raise AuthError(
+            "TIMESHEET_PERIOD_LOCKED",
+            "This timesheet is in a locked period and requires an administrative override.",
+            400,
+        )
 
 
 def _serialize_approval_item(approval_item: ApprovalItem, *, include_lines: bool = False) -> dict:
@@ -506,6 +533,7 @@ class TimesheetService:
                 "This timesheet is not editable.",
                 400,
             )
+        _ensure_period_unlocked(timesheet)
 
         employee = _employee_for_current_user(current_user)
         raw_lines = payload.get("lines", [])
@@ -618,6 +646,7 @@ class TimesheetService:
                 "This timesheet cannot be submitted in its current state.",
                 400,
             )
+        _ensure_period_unlocked(timesheet)
         if not timesheet.lines.exists():
             raise AuthError(
                 "TIMESHEET_SUBMIT_EMPTY",
@@ -1074,6 +1103,114 @@ class TimesheetService:
             actor_employee=actor_employee,
             actor_email=current_user.email,
             business_unit=timesheet.business_unit,
+            reason_text=reason_text,
+        )
+
+        refreshed = _get_timesheet_for_view(current_user, timesheet.id)
+        return _serialize_timesheet(refreshed)
+
+    @staticmethod
+    @transaction.atomic
+    def admin_withdraw_timesheet(
+        current_user: CurrentUser,
+        timesheet_id: int,
+        payload: dict,
+    ) -> dict:
+        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        if not AuthorizationPolicyService.can_admin_withdraw_timesheet(current_user, timesheet):
+            raise AuthError(
+                "TIMESHEET_ADMIN_WITHDRAW_NOT_ALLOWED",
+                "This timesheet cannot be withdrawn by the current user.",
+                400,
+            )
+
+        reason_text = str(payload.get("reason_text") or payload.get("comment_text") or "").strip()
+        if not reason_text:
+            raise AuthError(
+                "TIMESHEET_WITHDRAW_REASON_REQUIRED",
+                "A withdrawal reason is required.",
+                400,
+            )
+
+        actor_employee = _employee_for_current_user(current_user)
+
+        timesheet.status = _ref_value("TIMESHEET_STATUS", "SUBMITTED")
+        timesheet.final_approval_datetime = None
+        timesheet.updated_by = current_user.email
+        timesheet.save(
+            update_fields=[
+                "status",
+                "final_approval_datetime",
+                "updated_by",
+                "updated_at",
+            ]
+        )
+
+        write_audit_event(
+            action_code="WITHDRAW",
+            entity_name="weekly_timesheet",
+            entity_id=timesheet.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=timesheet.business_unit,
+            reason_text=reason_text,
+        )
+
+        refreshed = _get_timesheet_for_view(current_user, timesheet.id)
+        return _serialize_timesheet(refreshed)
+
+    @staticmethod
+    @transaction.atomic
+    def override_period_lock(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
+        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        if not AuthorizationPolicyService.can_override_period_lock(current_user, timesheet):
+            raise AuthError(
+                "TIMESHEET_PERIOD_OVERRIDE_NOT_ALLOWED",
+                "This timesheet period lock cannot be overridden by the current user.",
+                400,
+            )
+        if not _timesheet_cutoff_date(timesheet.business_unit_id):
+            raise AuthError(
+                "TIMESHEET_PERIOD_LOCK_NOT_CONFIGURED",
+                "No Business Unit cutoff date is configured for this timesheet.",
+                400,
+            )
+        if not _is_period_locked(timesheet):
+            raise AuthError(
+                "TIMESHEET_PERIOD_NOT_LOCKED",
+                "This timesheet is not currently in a locked period.",
+                400,
+            )
+
+        reason_text = str(payload.get("reason_text") or payload.get("comment_text") or "").strip()
+        if not reason_text:
+            raise AuthError(
+                "TIMESHEET_PERIOD_OVERRIDE_REASON_REQUIRED",
+                "A period lock override reason is required.",
+                400,
+            )
+
+        actor_employee = _employee_for_current_user(current_user)
+        timesheet.period_lock_override_flag = True
+        timesheet.updated_by = current_user.email
+        timesheet.save(
+            update_fields=[
+                "period_lock_override_flag",
+                "updated_by",
+                "updated_at",
+            ]
+        )
+
+        write_audit_event(
+            action_code="UPDATE",
+            entity_name="weekly_timesheet",
+            entity_id=timesheet.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=timesheet.business_unit,
+            field_name="period_lock_override_flag",
+            old_value="false",
+            new_value="true",
             reason_text=reason_text,
         )
 

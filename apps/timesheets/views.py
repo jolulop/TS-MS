@@ -136,6 +136,30 @@ def reopen_timesheet(request: HttpRequest, timesheet_id: int) -> JsonResponse:
 
 
 @require_http_methods(["POST"])
+def admin_withdraw_timesheet(request: HttpRequest, timesheet_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        payload = parse_json_request(request)
+        timesheet = TimesheetService.admin_withdraw_timesheet(current_user, timesheet_id, payload)
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"timesheet": timesheet})
+
+
+@require_http_methods(["POST"])
+def override_period_lock(request: HttpRequest, timesheet_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        payload = parse_json_request(request)
+        timesheet = TimesheetService.override_period_lock(current_user, timesheet_id, payload)
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"timesheet": timesheet})
+
+
+@require_http_methods(["POST"])
 def archive_timesheet(request: HttpRequest, timesheet_id: int) -> JsonResponse:
     try:
         current_user = CurrentUserService.get_from_request(request)

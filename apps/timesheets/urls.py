@@ -26,6 +26,16 @@ urlpatterns = [
         name="timesheet-reopen",
     ),
     path(
+        "admin/timesheets/<int:timesheet_id>/withdraw/",
+        views.admin_withdraw_timesheet,
+        name="timesheet-admin-withdraw",
+    ),
+    path(
+        "admin/timesheets/<int:timesheet_id>/override-period-lock/",
+        views.override_period_lock,
+        name="timesheet-period-lock-override",
+    ),
+    path(
         "admin/timesheets/<int:timesheet_id>/archive/",
         views.archive_timesheet,
         name="timesheet-archive",
