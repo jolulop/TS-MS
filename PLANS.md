@@ -8,6 +8,9 @@
 - `2026-04-21`: `docs/plans/2026-04-21-phase-2-employee-admin-scope.md`
   - status: completed
   - focus: scoped TS Admin management for employees, roles, and BU assignments
+- `2026-04-21`: `docs/plans/2026-04-21-phase-3-classification-masters.md`
+  - status: completed
+  - focus: scoped TS Admin classification master data for clients, internal categories, cost centers, and general charge codes
 
 ## Purpose
 

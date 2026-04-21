@@ -4,19 +4,22 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('master_data', '0001_initial'),
-        ('reference_data', '0002_refdomain_refvalue_delete_referencevalue_and_more'),
+        ("master_data", "0001_initial"),
+        ("reference_data", "0002_refdomain_refvalue_delete_referencevalue_and_more"),
     ]
 
     operations = [
         migrations.RemoveConstraint(
-            model_name='employeebusinessunit',
-            name='employee_business_unit_single_primary_uniq',
+            model_name="employeebusinessunit",
+            name="employee_business_unit_single_primary_uniq",
         ),
         migrations.AddConstraint(
-            model_name='employeebusinessunit',
-            constraint=models.UniqueConstraint(condition=models.Q(('is_primary_flag', True), ('valid_to__isnull', True)), fields=('employee',), name='employee_business_unit_active_primary_uniq'),
+            model_name="employeebusinessunit",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("is_primary_flag", True), ("valid_to__isnull", True)),
+                fields=("employee",),
+                name="employee_business_unit_active_primary_uniq",
+            ),
         ),
     ]

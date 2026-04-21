@@ -3,6 +3,38 @@ from django.urls import path
 from apps.master_data import views
 
 urlpatterns = [
+    path("admin/clients/", views.clients_collection, name="admin-client-collection"),
+    path("admin/clients/<int:client_id>/", views.client_detail, name="admin-client-detail"),
+    path(
+        "admin/internal-categories/",
+        views.internal_categories_collection,
+        name="admin-internal-category-collection",
+    ),
+    path(
+        "admin/internal-categories/<int:category_id>/",
+        views.internal_category_detail,
+        name="admin-internal-category-detail",
+    ),
+    path(
+        "admin/cost-centers/",
+        views.cost_centers_collection,
+        name="admin-cost-center-collection",
+    ),
+    path(
+        "admin/cost-centers/<int:cost_center_id>/",
+        views.cost_center_detail,
+        name="admin-cost-center-detail",
+    ),
+    path(
+        "admin/general-charge-codes/",
+        views.general_charge_codes_collection,
+        name="admin-general-charge-code-collection",
+    ),
+    path(
+        "admin/general-charge-codes/<int:general_charge_code_id>/",
+        views.general_charge_code_detail,
+        name="admin-general-charge-code-detail",
+    ),
     path("admin/employees/", views.create_employee, name="admin-employee-create"),
     path("admin/employees/<int:employee_id>/", views.update_employee, name="admin-employee-update"),
     path(
