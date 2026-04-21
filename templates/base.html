@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}TS Management System{% endblock %}</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f3ea;
+        --panel: #fffaf0;
+        --ink: #18212b;
+        --muted: #566273;
+        --line: #d9ceb3;
+        --accent: #095256;
+        --accent-soft: #d9efe7;
+      }
+
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        background:
+          radial-gradient(circle at top right, rgba(9, 82, 86, 0.08), transparent 24rem),
+          linear-gradient(180deg, #fbf8f1 0%, var(--bg) 100%);
+        color: var(--ink);
+      }
+
+      .shell {
+        max-width: 72rem;
+        margin: 0 auto;
+        padding: 2rem 1.25rem 3rem;
+      }
+
+      .masthead {
+        padding: 1.5rem;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: 0 1rem 3rem rgba(24, 33, 43, 0.06);
+      }
+
+      .eyebrow {
+        margin: 0 0 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 0.8rem;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 4vw, 3.25rem);
+      }
+
+      .lede {
+        max-width: 44rem;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .grid {
+        display: grid;
+        gap: 1rem;
+        margin-top: 1.5rem;
+      }
+
+      @media (min-width: 900px) {
+        .grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      .card {
+        padding: 1.25rem;
+        border: 1px solid var(--line);
+        background: rgba(255, 250, 240, 0.84);
+      }
+
+      .card h2 {
+        margin-top: 0;
+      }
+
+      .card p {
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .pill {
+        display: inline-block;
+        margin-top: 0.5rem;
+        padding: 0.35rem 0.65rem;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

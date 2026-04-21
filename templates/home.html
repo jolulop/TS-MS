@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}TS Management System{% endblock %}
+
+{% block content %}
+  <section class="masthead">
+    <p class="eyebrow">Phase 1 Foundation</p>
+    <h1>Timesheet Management System</h1>
+    <p class="lede">
+      The repository scaffold is live. This phase is intentionally limited to the
+      engineering foundation: project structure, local tooling, CI, migrations,
+      and reference-data setup for later business features.
+    </p>
+    <div class="grid">
+      <article class="card">
+        <h2>System Management</h2>
+        <p>Navigation, domain modules, and authorization-aware screens will be layered in later phases.</p>
+        <span class="pill">Scaffold only</span>
+      </article>
+      <article class="card">
+        <h2>TS Management</h2>
+        <p>Timesheet entry, submission, approval, and reporting remain out of scope for this milestone.</p>
+        <span class="pill">Not implemented yet</span>
+      </article>
+    </div>
+  </section>
+{% endblock %}
