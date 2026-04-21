@@ -29,3 +29,54 @@ class AuthorizationPolicyService:
     @staticmethod
     def can_view_business_unit(current_user: CurrentUser, business_unit_id: int) -> bool:
         return business_unit_id in current_user.scoped_business_unit_ids
+
+    @staticmethod
+    def can_view_timesheet(current_user: CurrentUser, timesheet) -> bool:
+        if current_user.employee_id == timesheet.employee_id:
+            return True
+        if current_user.is_ts_admin:
+            return timesheet.business_unit_id in current_user.scoped_business_unit_ids
+        return False
+
+    @staticmethod
+    def can_edit_timesheet(current_user: CurrentUser, timesheet) -> bool:
+        editable_status_codes = {"CREATED", "REJECTED"}
+        return (
+            current_user.employee_id == timesheet.employee_id
+            and timesheet.status.value_code in editable_status_codes
+        )
+
+    @staticmethod
+    def can_submit_timesheet(current_user: CurrentUser, timesheet) -> bool:
+        submittable_status_codes = {"CREATED", "REJECTED"}
+        return (
+            current_user.employee_id == timesheet.employee_id
+            and timesheet.status.value_code in submittable_status_codes
+        )
+
+    @staticmethod
+    def can_withdraw_timesheet(current_user: CurrentUser, timesheet) -> bool:
+        return (
+            current_user.employee_id == timesheet.employee_id
+            and timesheet.status.value_code == "SUBMITTED"
+        )
+
+    @staticmethod
+    def can_view_approval_item(current_user: CurrentUser, approval_item) -> bool:
+        return current_user.has_role("PROJECT_MANAGER") and (
+            approval_item.approver_employee_id == current_user.employee_id
+        )
+
+    @staticmethod
+    def can_approve_approval_item(current_user: CurrentUser, approval_item) -> bool:
+        if not AuthorizationPolicyService.can_view_approval_item(current_user, approval_item):
+            return False
+        if approval_item.status.value_code != "PENDING":
+            return False
+        return (
+            approval_item.submission_cycle.weekly_timesheet.employee_id != current_user.employee_id
+        )
+
+    @staticmethod
+    def can_reject_approval_item(current_user: CurrentUser, approval_item) -> bool:
+        return AuthorizationPolicyService.can_approve_approval_item(current_user, approval_item)

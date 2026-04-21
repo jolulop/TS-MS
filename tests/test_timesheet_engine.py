@@ -1,0 +1,976 @@
+import json
+from datetime import date
+
+import pytest
+from django.test import Client
+
+from apps.audit.models import AuditLog
+from apps.timesheets.models import (
+    ApprovalAction,
+    ApprovalItem,
+    TimesheetLine,
+    TimesheetSubmissionCycle,
+)
+from tests.helpers import (
+    assign_calendar,
+    assign_employee_to_business_unit,
+    assign_project,
+    assign_role,
+    create_business_unit,
+    create_business_unit_configuration,
+    create_calendar_period_rule,
+    create_client,
+    create_cost_center,
+    create_employee,
+    create_general_charge_code,
+    create_internal_category,
+    create_project,
+    create_yearly_calendar,
+    seed_reference_data,
+)
+
+
+def initialize_session(client: Client, validated_email: str) -> None:
+    response = client.post(
+        "/api/v1/auth/session/initialize",
+        data=json.dumps({"validated_email": validated_email}),
+        content_type="application/json",
+    )
+    assert response.status_code == 201
+
+
+def create_timesheet(client: Client, week_start_date: str) -> dict:
+    response = client.post(
+        "/api/v1/timesheets/",
+        data=json.dumps({"week_start_date": week_start_date}),
+        content_type="application/json",
+    )
+    assert response.status_code == 201
+    return response.json()["timesheet"]
+
+
+def setup_project_approval_context(*, email: str, employee_code: str, full_name: str) -> dict:
+    business_unit = create_business_unit(bu_code=f"BU-{employee_code}", name=f"{full_name} BU")
+    create_business_unit_configuration(business_unit=business_unit, approval_mode_code="PROJECT")
+
+    employee = create_employee(
+        employee_code=employee_code,
+        full_name=full_name,
+        email=email,
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    project_owner = create_employee(
+        employee_code=f"{employee_code}-OWNER",
+        full_name=f"{full_name} Owner",
+        email=f"owner-{email}",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=project_owner,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_owner, role_code="PROJECT_OWNER")
+
+    project_manager = create_employee(
+        employee_code=f"{employee_code}-PM",
+        full_name=f"{full_name} PM",
+        email=f"pm-{email}",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=project_manager,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_manager, role_code="PROJECT_MANAGER")
+
+    calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="Default 2026",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+
+    client_record = create_client(
+        business_unit=business_unit,
+        client_code=f"C-{employee_code}",
+        name="Client 1",
+    )
+    category = create_internal_category(
+        business_unit=business_unit,
+        category_code=f"CAT-{employee_code}",
+        name="Category 1",
+    )
+    cost_center = create_cost_center(
+        business_unit=business_unit,
+        cost_center_code=f"CC-{employee_code}",
+        name="Cost Center 1",
+    )
+    project = create_project(
+        business_unit=business_unit,
+        project_code=f"PRJ-{employee_code}",
+        name="Project 1",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=client_record,
+        internal_category=category,
+        cost_center=cost_center,
+        start_date=date(2026, 1, 1),
+        billable_flag=True,
+    )
+    assign_project(project=project, employee=employee, assignment_start_date=date(2026, 1, 1))
+
+    general_charge_code = create_general_charge_code(
+        business_unit=business_unit,
+        code=f"GCC-{employee_code}",
+        name="General Code",
+        valid_from=date(2026, 1, 1),
+        billable_flag=False,
+    )
+
+    return {
+        "business_unit": business_unit,
+        "employee": employee,
+        "project_owner": project_owner,
+        "project_manager": project_manager,
+        "project": project,
+        "general_charge_code": general_charge_code,
+    }
+
+
+@pytest.mark.django_db
+def test_user_can_create_list_and_view_own_weekly_timesheet() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-1", name="Business Unit 1")
+    employee = create_employee(
+        employee_code="EMP-2001",
+        full_name="User One",
+        email="user1@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee, business_unit=business_unit, is_primary_flag=True
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "user1@example.com")
+
+    created = create_timesheet(client, "2026-05-04")
+    list_response = client.get("/api/v1/timesheets/")
+    detail_response = client.get(f"/api/v1/timesheets/{created['id']}/")
+
+    assert created["week_start_date"] == "2026-05-04"
+    assert created["week_end_date"] == "2026-05-08"
+    assert created["status"] == "CREATED"
+    assert list_response.status_code == 200
+    assert len(list_response.json()["timesheets"]) == 1
+    assert detail_response.status_code == 200
+    assert detail_response.json()["timesheet"]["id"] == created["id"]
+
+
+@pytest.mark.django_db
+def test_timesheet_creation_rejects_duplicate_week_or_non_monday_start() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-1", name="Business Unit 1")
+    employee = create_employee(
+        employee_code="EMP-2002",
+        full_name="User Two",
+        email="user2@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee, business_unit=business_unit, is_primary_flag=True
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "user2@example.com")
+
+    first_response = client.post(
+        "/api/v1/timesheets/",
+        data=json.dumps({"week_start_date": "2026-05-04"}),
+        content_type="application/json",
+    )
+    duplicate_response = client.post(
+        "/api/v1/timesheets/",
+        data=json.dumps({"week_start_date": "2026-05-04"}),
+        content_type="application/json",
+    )
+    invalid_start_response = client.post(
+        "/api/v1/timesheets/",
+        data=json.dumps({"week_start_date": "2026-05-05"}),
+        content_type="application/json",
+    )
+
+    assert first_response.status_code == 201
+    assert duplicate_response.status_code == 400
+    assert duplicate_response.json()["error"]["code"] == "TIMESHEET_ALREADY_EXISTS"
+    assert invalid_start_response.status_code == 400
+    assert invalid_start_response.json()["error"]["code"] == "TIMESHEET_WEEK_START_INVALID"
+
+
+@pytest.mark.django_db
+def test_user_can_replace_timesheet_lines_when_targets_and_day_limits_are_valid() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-1", name="Business Unit 1")
+    employee = create_employee(
+        employee_code="EMP-2003",
+        full_name="User Three",
+        email="user3@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee, business_unit=business_unit, is_primary_flag=True
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="Default 2026",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+        monday_max_hours="8.00",
+        tuesday_max_hours="8.00",
+        wednesday_max_hours="8.00",
+        thursday_max_hours="8.00",
+        friday_max_hours="8.00",
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+
+    client_record = create_client(business_unit=business_unit, client_code="C1", name="Client 1")
+    category = create_internal_category(
+        business_unit=business_unit,
+        category_code="CAT1",
+        name="Category 1",
+    )
+    cost_center = create_cost_center(
+        business_unit=business_unit,
+        cost_center_code="CC1",
+        name="Cost Center 1",
+    )
+    project = create_project(
+        business_unit=business_unit,
+        project_code="PRJ-1",
+        name="Project 1",
+        project_owner_employee=employee,
+        project_manager_employee=employee,
+        client=client_record,
+        internal_category=category,
+        cost_center=cost_center,
+        start_date=date(2026, 1, 1),
+        billable_flag=True,
+    )
+    assign_project(project=project, employee=employee, assignment_start_date=date(2026, 1, 1))
+    general_charge_code = create_general_charge_code(
+        business_unit=business_unit,
+        code="GCC-1",
+        name="General Code",
+        valid_from=date(2026, 1, 1),
+        billable_flag=False,
+    )
+
+    client = Client()
+    initialize_session(client, "user3@example.com")
+    timesheet = create_timesheet(client, "2026-05-04")
+
+    response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": project.id,
+                        "hours": "4.00",
+                        "comment_text": "Project work",
+                    },
+                    {
+                        "work_date": "2026-05-05",
+                        "general_charge_code_id": general_charge_code.id,
+                        "hours": "2.50",
+                        "comment_text": "Admin work",
+                    },
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["timesheet"]
+    assert len(payload["lines"]) == 2
+    assert payload["lines"][0]["billable_flag"] is True
+    assert payload["lines"][1]["billable_flag"] is False
+
+
+@pytest.mark.django_db
+def test_replace_lines_rejects_weekend_or_daily_limit_exceeded() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-1", name="Business Unit 1")
+    employee = create_employee(
+        employee_code="EMP-2004",
+        full_name="User Four",
+        email="user4@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee, business_unit=business_unit, is_primary_flag=True
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="Default 2026",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+        monday_max_hours="8.00",
+        tuesday_max_hours="8.00",
+        wednesday_max_hours="8.00",
+        thursday_max_hours="8.00",
+        friday_max_hours="8.00",
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+
+    general_charge_code = create_general_charge_code(
+        business_unit=business_unit,
+        code="GCC-2",
+        name="General Code",
+        valid_from=date(2026, 1, 1),
+    )
+
+    client = Client()
+    initialize_session(client, "user4@example.com")
+    timesheet = create_timesheet(client, "2026-05-04")
+
+    weekend_response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-09",
+                        "general_charge_code_id": general_charge_code.id,
+                        "hours": "1.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    limit_response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "general_charge_code_id": general_charge_code.id,
+                        "hours": "9.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert weekend_response.status_code == 400
+    assert weekend_response.json()["error"]["code"] == "TIMESHEET_WORK_DATE_OUT_OF_RANGE"
+    assert limit_response.status_code == 400
+    assert limit_response.json()["error"]["code"] == "TIMESHEET_DAILY_LIMIT_EXCEEDED"
+
+
+@pytest.mark.django_db
+def test_replace_lines_rejects_unassigned_project() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-1", name="Business Unit 1")
+    employee = create_employee(
+        employee_code="EMP-2005",
+        full_name="User Five",
+        email="user5@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee, business_unit=business_unit, is_primary_flag=True
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="Default 2026",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+
+    client_record = create_client(business_unit=business_unit, client_code="C1", name="Client 1")
+    category = create_internal_category(
+        business_unit=business_unit,
+        category_code="CAT1",
+        name="Category 1",
+    )
+    cost_center = create_cost_center(
+        business_unit=business_unit,
+        cost_center_code="CC1",
+        name="Cost Center 1",
+    )
+    project = create_project(
+        business_unit=business_unit,
+        project_code="PRJ-2",
+        name="Project 2",
+        project_owner_employee=employee,
+        project_manager_employee=employee,
+        client=client_record,
+        internal_category=category,
+        cost_center=cost_center,
+        start_date=date(2026, 1, 1),
+    )
+
+    client = Client()
+    initialize_session(client, "user5@example.com")
+    timesheet = create_timesheet(client, "2026-05-04")
+
+    response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": project.id,
+                        "hours": "1.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "TIMESHEET_PROJECT_NOT_ASSIGNED"
+
+
+@pytest.mark.django_db
+def test_user_can_submit_and_withdraw_timesheet() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user6@example.com",
+        employee_code="EMP-2006",
+        full_name="User Six",
+    )
+
+    client = Client()
+    initialize_session(client, "user6@example.com")
+    timesheet = create_timesheet(client, "2026-05-04")
+
+    save_response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "3.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    submit_response = client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({"comment_text": "Ready for approval"}),
+        content_type="application/json",
+    )
+    assert save_response.status_code == 200
+    assert submit_response.status_code == 200
+    assert submit_response.json()["timesheet"]["status"] == "SUBMITTED"
+    assert submit_response.json()["timesheet"]["current_submission_no"] == 1
+    assert submit_response.json()["timesheet"]["submission_datetime"] is not None
+
+    submission_cycle = TimesheetSubmissionCycle.objects.get(
+        weekly_timesheet_id=timesheet["id"], submission_no=1
+    )
+    assert submission_cycle.cycle_status.value_code == "OPEN"
+    assert submission_cycle.outcome_status.value_code == "PENDING"
+    assert ApprovalItem.objects.filter(submission_cycle=submission_cycle).count() == 1
+
+    withdraw_response = client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/withdraw/",
+        data=json.dumps({"comment_text": "Need one more edit"}),
+        content_type="application/json",
+    )
+
+    assert withdraw_response.status_code == 200
+    assert withdraw_response.json()["timesheet"]["status"] == "CREATED"
+    assert withdraw_response.json()["timesheet"]["submission_datetime"] is None
+    assert withdraw_response.json()["timesheet"]["current_submission_no"] == 1
+
+    submission_cycle.refresh_from_db()
+    assert submission_cycle.cycle_status.value_code == "COMPLETED"
+    assert submission_cycle.outcome_status.value_code == "CANCELLED"
+    assert (
+        ApprovalItem.objects.get(submission_cycle=submission_cycle).status.value_code == "CANCELLED"
+    )
+    assert (
+        AuditLog.objects.filter(
+            entity_name="weekly_timesheet", action_type__value_code="SUBMIT"
+        ).count()
+        == 1
+    )
+    assert (
+        AuditLog.objects.filter(
+            entity_name="weekly_timesheet", action_type__value_code="WITHDRAW"
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_timesheet_submit_requires_lines_and_submitted_timesheet_is_not_editable() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user7@example.com",
+        employee_code="EMP-2007",
+        full_name="User Seven",
+    )
+
+    client = Client()
+    initialize_session(client, "user7@example.com")
+    timesheet = create_timesheet(client, "2026-05-04")
+
+    empty_submit_response = client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    save_response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "2.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    submit_response = client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    edit_after_submit_response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-05",
+                        "project_id": context["project"].id,
+                        "hours": "1.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert empty_submit_response.status_code == 400
+    assert empty_submit_response.json()["error"]["code"] == "TIMESHEET_SUBMIT_EMPTY"
+    assert save_response.status_code == 200
+    assert submit_response.status_code == 200
+    assert edit_after_submit_response.status_code == 400
+    assert edit_after_submit_response.json()["error"]["code"] == "TIMESHEET_NOT_EDITABLE"
+
+
+@pytest.mark.django_db
+def test_submit_creates_project_approval_items_and_pm_worklist() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user8@example.com",
+        employee_code="EMP-2008",
+        full_name="User Eight",
+    )
+
+    employee_client = Client()
+    initialize_session(employee_client, "user8@example.com")
+    timesheet = create_timesheet(employee_client, "2026-05-04")
+
+    save_response = employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "5.00",
+                        "comment_text": "Project delivery",
+                    },
+                    {
+                        "work_date": "2026-05-05",
+                        "general_charge_code_id": context["general_charge_code"].id,
+                        "hours": "2.00",
+                        "comment_text": "Internal admin",
+                    },
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    submit_response = employee_client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({"comment_text": "Ready for review"}),
+        content_type="application/json",
+    )
+
+    assert save_response.status_code == 200
+    assert submit_response.status_code == 200
+    assert submit_response.json()["timesheet"]["status"] == "SUBMITTED"
+
+    approval_item = ApprovalItem.objects.get(submission_cycle__weekly_timesheet_id=timesheet["id"])
+    assert approval_item.scope_type.value_code == "PROJECT"
+    assert approval_item.status.value_code == "PENDING"
+    assert approval_item.project_id == context["project"].id
+    assert approval_item.approver_employee_id == context["project_manager"].id
+
+    project_line = TimesheetLine.objects.get(
+        weekly_timesheet_id=timesheet["id"], project_id=context["project"].id
+    )
+    general_code_line = TimesheetLine.objects.get(
+        weekly_timesheet_id=timesheet["id"],
+        general_charge_code_id=context["general_charge_code"].id,
+    )
+    assert project_line.approval_state.value_code == "PENDING"
+    assert general_code_line.approval_state.value_code == "APPROVED"
+
+    pm_client = Client()
+    initialize_session(pm_client, context["project_manager"].email)
+    worklist_response = pm_client.get("/api/v1/approvals/")
+    detail_response = pm_client.get(f"/api/v1/approvals/{approval_item.id}/")
+
+    assert worklist_response.status_code == 200
+    assert len(worklist_response.json()["approval_items"]) == 1
+    assert worklist_response.json()["approval_items"][0]["id"] == approval_item.id
+    assert detail_response.status_code == 200
+    assert len(detail_response.json()["approval_item"]["lines"]) == 1
+    assert (
+        detail_response.json()["approval_item"]["lines"][0]["project"]["id"]
+        == context["project"].id
+    )
+
+
+@pytest.mark.django_db
+def test_project_manager_can_approve_final_pending_item_and_finalize_timesheet() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user9@example.com",
+        employee_code="EMP-2009",
+        full_name="User Nine",
+    )
+
+    employee_client = Client()
+    initialize_session(employee_client, "user9@example.com")
+    timesheet = create_timesheet(employee_client, "2026-05-04")
+    save_response = employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "4.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    submit_response = employee_client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    assert save_response.status_code == 200
+    assert submit_response.status_code == 200
+
+    approval_item = ApprovalItem.objects.get(submission_cycle__weekly_timesheet_id=timesheet["id"])
+
+    pm_client = Client()
+    initialize_session(pm_client, context["project_manager"].email)
+    approve_response = pm_client.post(
+        f"/api/v1/approvals/{approval_item.id}/approve/",
+        data=json.dumps({"comment_text": "Looks good"}),
+        content_type="application/json",
+    )
+
+    assert approve_response.status_code == 200
+    assert approve_response.json()["approval_item"]["status"] == "APPROVED"
+
+    approval_item.refresh_from_db()
+    submission_cycle = approval_item.submission_cycle
+    submission_cycle.refresh_from_db()
+    timesheet_record = submission_cycle.weekly_timesheet
+    timesheet_record.refresh_from_db()
+
+    assert approval_item.status.value_code == "APPROVED"
+    assert submission_cycle.cycle_status.value_code == "COMPLETED"
+    assert submission_cycle.outcome_status.value_code == "APPROVED"
+    assert timesheet_record.status.value_code == "APPROVED"
+    assert timesheet_record.final_approval_datetime is not None
+    assert (
+        TimesheetLine.objects.get(
+            weekly_timesheet=timesheet_record,
+            project=context["project"],
+        ).approval_state.value_code
+        == "APPROVED"
+    )
+    assert (
+        ApprovalAction.objects.filter(
+            approval_item=approval_item,
+            action_type__value_code="APPROVE",
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_project_manager_reject_requires_reason_and_rejects_timesheet() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user10@example.com",
+        employee_code="EMP-2010",
+        full_name="User Ten",
+    )
+
+    employee_client = Client()
+    initialize_session(employee_client, "user10@example.com")
+    timesheet = create_timesheet(employee_client, "2026-05-04")
+    employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "6.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    employee_client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+
+    approval_item = ApprovalItem.objects.get(submission_cycle__weekly_timesheet_id=timesheet["id"])
+    pm_client = Client()
+    initialize_session(pm_client, context["project_manager"].email)
+
+    missing_reason_response = pm_client.post(
+        f"/api/v1/approvals/{approval_item.id}/reject/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    reject_response = pm_client.post(
+        f"/api/v1/approvals/{approval_item.id}/reject/",
+        data=json.dumps({"reason_text": "Please split the hours by day"}),
+        content_type="application/json",
+    )
+
+    assert missing_reason_response.status_code == 400
+    assert missing_reason_response.json()["error"]["code"] == "APPROVAL_REJECTION_REASON_REQUIRED"
+    assert reject_response.status_code == 200
+    assert reject_response.json()["approval_item"]["status"] == "REJECTED"
+
+    approval_item.refresh_from_db()
+    submission_cycle = approval_item.submission_cycle
+    submission_cycle.refresh_from_db()
+    timesheet_record = submission_cycle.weekly_timesheet
+    timesheet_record.refresh_from_db()
+
+    assert approval_item.status.value_code == "REJECTED"
+    assert approval_item.rejection_reason == "Please split the hours by day"
+    assert submission_cycle.cycle_status.value_code == "COMPLETED"
+    assert submission_cycle.outcome_status.value_code == "REJECTED"
+    assert timesheet_record.status.value_code == "REJECTED"
+    assert (
+        TimesheetLine.objects.get(
+            weekly_timesheet=timesheet_record,
+            project=context["project"],
+        ).approval_state.value_code
+        == "REJECTED"
+    )
+    assert (
+        ApprovalAction.objects.filter(
+            approval_item=approval_item,
+            action_type__value_code="REJECT",
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_self_approval_is_blocked_on_submit_and_required_general_code_approval_is_not_supported() -> (
+    None
+):
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-SELF", name="Self Approval BU")
+    create_business_unit_configuration(business_unit=business_unit, approval_mode_code="PROJECT")
+
+    employee = create_employee(
+        employee_code="EMP-SELF",
+        full_name="Self Manager",
+        email="self@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+    assign_role(employee=employee, role_code="PROJECT_MANAGER")
+    assign_role(employee=employee, role_code="PROJECT_OWNER")
+
+    calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="Default 2026",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+
+    client_record = create_client(
+        business_unit=business_unit,
+        client_code="C-SELF",
+        name="Client Self",
+    )
+    category = create_internal_category(
+        business_unit=business_unit,
+        category_code="CAT-SELF",
+        name="Category Self",
+    )
+    cost_center = create_cost_center(
+        business_unit=business_unit,
+        cost_center_code="CC-SELF",
+        name="Cost Center Self",
+    )
+    project = create_project(
+        business_unit=business_unit,
+        project_code="PRJ-SELF",
+        name="Project Self",
+        project_owner_employee=employee,
+        project_manager_employee=employee,
+        client=client_record,
+        internal_category=category,
+        cost_center=cost_center,
+        start_date=date(2026, 1, 1),
+    )
+    assign_project(project=project, employee=employee, assignment_start_date=date(2026, 1, 1))
+
+    requiring_code = create_general_charge_code(
+        business_unit=business_unit,
+        code="GCC-REQ",
+        name="Requires Approval",
+        valid_from=date(2026, 1, 1),
+        requires_approval_flag=True,
+    )
+
+    client = Client()
+    initialize_session(client, "self@example.com")
+
+    project_timesheet = create_timesheet(client, "2026-05-04")
+    client.put(
+        f"/api/v1/timesheets/{project_timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": project.id,
+                        "hours": "4.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    self_approval_submit_response = client.post(
+        f"/api/v1/timesheets/{project_timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+
+    general_code_timesheet = create_timesheet(client, "2026-05-11")
+    client.put(
+        f"/api/v1/timesheets/{general_code_timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-11",
+                        "general_charge_code_id": requiring_code.id,
+                        "hours": "2.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    general_code_submit_response = client.post(
+        f"/api/v1/timesheets/{general_code_timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+
+    assert self_approval_submit_response.status_code == 400
+    assert (
+        self_approval_submit_response.json()["error"]["code"]
+        == "TIMESHEET_SELF_APPROVAL_NOT_ALLOWED"
+    )
+    assert general_code_submit_response.status_code == 400
+    assert (
+        general_code_submit_response.json()["error"]["code"]
+        == "TIMESHEET_GENERAL_CODE_APPROVAL_NOT_CONFIGURED"
+    )

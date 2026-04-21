@@ -11,6 +11,10 @@
 - `2026-04-21`: `docs/plans/2026-04-21-phase-3-classification-masters.md`
   - status: completed
   - focus: scoped TS Admin classification master data for clients, internal categories, cost centers, and general charge codes
+- `2026-04-21`: `docs/plans/2026-04-21-phase-4-timesheet-engine.md`
+  - status: in progress
+  - focus: weekly timesheet engine, line validation, day limits, lifecycle, approvals, and admin state transitions
+  - progress: milestones 1-3 completed; milestone 4 remains
 
 ## Purpose
 
