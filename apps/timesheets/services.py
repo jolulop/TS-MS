@@ -115,6 +115,14 @@ def _serialize_timesheet(timesheet: WeeklyTimesheet) -> dict:
         "submission_datetime": (
             timesheet.submission_datetime.isoformat() if timesheet.submission_datetime else None
         ),
+        "final_approval_datetime": (
+            timesheet.final_approval_datetime.isoformat()
+            if timesheet.final_approval_datetime
+            else None
+        ),
+        "archive_eligible_date": (
+            timesheet.archive_eligible_date.isoformat() if timesheet.archive_eligible_date else None
+        ),
         "comment_text": timesheet.comment_text,
         "lines": [
             _serialize_line(line) for line in timesheet.lines.all().order_by("work_date", "id")
@@ -300,6 +308,27 @@ def _approval_mode_code(business_unit_id: int) -> str:
     return configuration.approval_mode.value_code
 
 
+def _archive_after_years(business_unit_id: int) -> int:
+    try:
+        configuration = BusinessUnitConfiguration.objects.get(business_unit_id=business_unit_id)
+    except BusinessUnitConfiguration.DoesNotExist:
+        return 5
+    return configuration.archive_after_years or 5
+
+
+def _add_years(base_date: date, years: int) -> date:
+    try:
+        return base_date.replace(year=base_date.year + years)
+    except ValueError:
+        return base_date.replace(month=2, day=28, year=base_date.year + years)
+
+
+def _archive_eligible_date_for_timesheet(timesheet: WeeklyTimesheet) -> date:
+    if timesheet.archive_eligible_date is not None:
+        return timesheet.archive_eligible_date
+    return _add_years(timesheet.created_at.date(), _archive_after_years(timesheet.business_unit_id))
+
+
 def _serialize_approval_item(approval_item: ApprovalItem, *, include_lines: bool = False) -> dict:
     submission_cycle = approval_item.submission_cycle
     timesheet = submission_cycle.weekly_timesheet
@@ -368,11 +397,13 @@ def _finalize_approved_timesheet(
 
     timesheet.status = _ref_value("TIMESHEET_STATUS", "APPROVED")
     timesheet.final_approval_datetime = acted_at
+    timesheet.archive_eligible_date = _archive_eligible_date_for_timesheet(timesheet)
     timesheet.updated_by = actor_email
     timesheet.save(
         update_fields=[
             "status",
             "final_approval_datetime",
+            "archive_eligible_date",
             "updated_by",
             "updated_at",
         ]
@@ -993,3 +1024,142 @@ class TimesheetService:
         )
 
         return TimesheetService.get_approval_item(current_user, approval_item.id)
+
+    @staticmethod
+    @transaction.atomic
+    def reopen_timesheet(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
+        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        if not AuthorizationPolicyService.can_reopen_timesheet(current_user, timesheet):
+            raise AuthError(
+                "TIMESHEET_REOPEN_NOT_ALLOWED",
+                "This timesheet cannot be reopened by the current user.",
+                400,
+            )
+
+        reason_text = str(payload.get("reason_text") or payload.get("comment_text") or "").strip()
+        if not reason_text:
+            raise AuthError(
+                "TIMESHEET_REOPEN_REASON_REQUIRED",
+                "A reopen reason is required.",
+                400,
+            )
+
+        actor_employee = _employee_for_current_user(current_user)
+
+        timesheet.status = _ref_value("TIMESHEET_STATUS", "CREATED")
+        timesheet.submission_datetime = None
+        timesheet.final_approval_datetime = None
+        timesheet.archive_eligible_date = None
+        timesheet.updated_by = current_user.email
+        timesheet.save(
+            update_fields=[
+                "status",
+                "submission_datetime",
+                "final_approval_datetime",
+                "archive_eligible_date",
+                "updated_by",
+                "updated_at",
+            ]
+        )
+
+        _set_line_approval_state(
+            line_ids=list(timesheet.lines.values_list("id", flat=True)),
+            approval_state_code=None,
+        )
+
+        write_audit_event(
+            action_code="REOPEN",
+            entity_name="weekly_timesheet",
+            entity_id=timesheet.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=timesheet.business_unit,
+            reason_text=reason_text,
+        )
+
+        refreshed = _get_timesheet_for_view(current_user, timesheet.id)
+        return _serialize_timesheet(refreshed)
+
+    @staticmethod
+    @transaction.atomic
+    def archive_timesheet(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
+        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        if not AuthorizationPolicyService.can_archive_timesheet(current_user, timesheet):
+            raise AuthError(
+                "TIMESHEET_ARCHIVE_NOT_ALLOWED",
+                "This timesheet cannot be archived by the current user.",
+                400,
+            )
+
+        reason_text = str(payload.get("reason_text") or payload.get("comment_text") or "").strip()
+        archive_eligible_date = _archive_eligible_date_for_timesheet(timesheet)
+        if archive_eligible_date > timezone.localdate():
+            raise AuthError(
+                "TIMESHEET_NOT_ARCHIVE_ELIGIBLE",
+                "This timesheet is not yet archive eligible.",
+                400,
+            )
+
+        actor_employee = _employee_for_current_user(current_user)
+
+        timesheet.status = _ref_value("TIMESHEET_STATUS", "ARCHIVED")
+        timesheet.archive_eligible_date = archive_eligible_date
+        timesheet.updated_by = current_user.email
+        timesheet.save(
+            update_fields=[
+                "status",
+                "archive_eligible_date",
+                "updated_by",
+                "updated_at",
+            ]
+        )
+
+        write_audit_event(
+            action_code="ARCHIVE",
+            entity_name="weekly_timesheet",
+            entity_id=timesheet.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=timesheet.business_unit,
+            reason_text=reason_text,
+        )
+
+        refreshed = _get_timesheet_for_view(current_user, timesheet.id)
+        return _serialize_timesheet(refreshed)
+
+    @staticmethod
+    @transaction.atomic
+    def restore_timesheet(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
+        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        if not AuthorizationPolicyService.can_restore_timesheet(current_user, timesheet):
+            raise AuthError(
+                "TIMESHEET_RESTORE_NOT_ALLOWED",
+                "This timesheet cannot be restored by the current user.",
+                400,
+            )
+
+        reason_text = str(payload.get("reason_text") or payload.get("comment_text") or "").strip()
+        actor_employee = _employee_for_current_user(current_user)
+
+        timesheet.status = _ref_value("TIMESHEET_STATUS", "APPROVED")
+        timesheet.updated_by = current_user.email
+        timesheet.save(
+            update_fields=[
+                "status",
+                "updated_by",
+                "updated_at",
+            ]
+        )
+
+        write_audit_event(
+            action_code="RESTORE",
+            entity_name="weekly_timesheet",
+            entity_id=timesheet.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=timesheet.business_unit,
+            reason_text=reason_text,
+        )
+
+        refreshed = _get_timesheet_for_view(current_user, timesheet.id)
+        return _serialize_timesheet(refreshed)

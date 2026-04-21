@@ -183,6 +183,10 @@ Audit events to add/update:
 - locked-state enforcement after approval/archive
 - final audit coverage and regression pass
 
+### Milestone 5
+- archived-timesheet restore lifecycle
+- restore authorization and audit coverage
+
 ## 14. Test plan
 
 Unit tests:
@@ -225,6 +229,9 @@ Integration tests:
 - Assumption: line save behavior will replace the sheet’s editable lines in one request to keep the first slice small and deterministic.
 - Assumption: Milestone 3 implements project-scoped approval routing first. `APPROVAL_MODE=PROJECT` is supported, missing BU configuration defaults to `PROJECT`, and `LINE`/`MIXED` modes remain deferred.
 - Assumption: non-required general charge-code lines are treated as already approved on submit, while general charge codes that require routed approval are blocked until approver configuration exists in a later slice.
+- Assumption: Milestone 4 implements TS Admin reopen and archive first. Approved-timesheet admin withdrawal and restore remain deferred.
+- Assumption: reopening an approved timesheet clears current line approval state and requires a fresh approval cycle on resubmission for all current lines.
+- Assumption: Milestone 5 restores archived timesheets back to `APPROVED`, preserving prior approval state and approval history.
 
 ## 18. Definition of done
 
@@ -244,6 +251,8 @@ Completed milestone:
 - Milestone 1: weekly timesheet create/list/detail and line validation engine
 - Milestone 2: submission lifecycle with submit/withdraw transitions
 - Milestone 3: project-scoped approval worklist and approval actions
+- Milestone 4: TS Admin reopen/archive lifecycle and locked-state enforcement
+- Milestone 5: archived-timesheet restore lifecycle
 
 Delivered in Milestone 1:
 - user weekly timesheet create/list/detail APIs
@@ -271,10 +280,27 @@ Delivered in Milestone 3:
 - self-approval prevention during approval routing and action handling
 - integration tests for approval creation, approve/reject transitions, worklist scope, self-approval blocking, and unsupported required general-code approval routing
 
-Still pending:
-- Milestone 4: reopen, withdraw, archive, and locked-state enforcement
+Delivered in Milestone 4:
+- TS Admin reopen API for approved timesheets within assigned BU scope
+- reopen-reason validation and audit coverage
+- approved-timesheet locked-state enforcement validated for employees
+- line approval-state reset when a timesheet is reopened for correction
+- archive-eligibility calculation from creation date with BU configuration fallback to five years
+- TS Admin archive API for eligible approved timesheets within assigned BU scope
+- archived-timesheet locked-state enforcement validated
+- integration tests for reopen authorization, reopen reason requirement, archive eligibility, and archive locking
 
-Validation run for Milestones 1-3:
+Delivered in Milestone 5:
+- TS Admin restore API for archived timesheets within assigned BU scope
+- archived timesheets now return to `APPROVED` when restored
+- restore audit coverage
+- integration test coverage for restore authorization and restored-state behavior
+
+Still pending:
+- approved-timesheet admin withdrawal
+- cutoff / period-lock administrative overrides
+
+Validation run for Milestones 1-5:
 - `make format`
 - `make lint`
 - `.venv/bin/python manage.py check`

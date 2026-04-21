@@ -14,7 +14,7 @@
 - `2026-04-21`: `docs/plans/2026-04-21-phase-4-timesheet-engine.md`
   - status: in progress
   - focus: weekly timesheet engine, line validation, day limits, lifecycle, approvals, and admin state transitions
-  - progress: milestones 1-3 completed; milestone 4 remains
+  - progress: milestones 1-5 completed; follow-up items remain for approved-timesheet admin withdrawal and cutoff behavior
 
 ## Purpose
 

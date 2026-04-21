@@ -20,6 +20,21 @@ urlpatterns = [
         views.withdraw_timesheet,
         name="timesheet-withdraw",
     ),
+    path(
+        "admin/timesheets/<int:timesheet_id>/reopen/",
+        views.reopen_timesheet,
+        name="timesheet-reopen",
+    ),
+    path(
+        "admin/timesheets/<int:timesheet_id>/archive/",
+        views.archive_timesheet,
+        name="timesheet-archive",
+    ),
+    path(
+        "admin/timesheets/<int:timesheet_id>/restore/",
+        views.restore_timesheet,
+        name="timesheet-restore",
+    ),
     path("approvals/", views.approvals_collection, name="approval-collection"),
     path("approvals/<int:approval_item_id>/", views.approval_detail, name="approval-detail"),
     path(

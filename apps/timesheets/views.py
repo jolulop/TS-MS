@@ -121,3 +121,39 @@ def reject_approval_item(request: HttpRequest, approval_item_id: int) -> JsonRes
         return error_response(exc.code, exc.message, exc.status)
 
     return JsonResponse({"approval_item": approval_item})
+
+
+@require_http_methods(["POST"])
+def reopen_timesheet(request: HttpRequest, timesheet_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        payload = parse_json_request(request)
+        timesheet = TimesheetService.reopen_timesheet(current_user, timesheet_id, payload)
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"timesheet": timesheet})
+
+
+@require_http_methods(["POST"])
+def archive_timesheet(request: HttpRequest, timesheet_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        payload = parse_json_request(request)
+        timesheet = TimesheetService.archive_timesheet(current_user, timesheet_id, payload)
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"timesheet": timesheet})
+
+
+@require_http_methods(["POST"])
+def restore_timesheet(request: HttpRequest, timesheet_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        payload = parse_json_request(request)
+        timesheet = TimesheetService.restore_timesheet(current_user, timesheet_id, payload)
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"timesheet": timesheet})

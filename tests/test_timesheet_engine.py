@@ -10,6 +10,7 @@ from apps.timesheets.models import (
     ApprovalItem,
     TimesheetLine,
     TimesheetSubmissionCycle,
+    WeeklyTimesheet,
 )
 from tests.helpers import (
     assign_calendar,
@@ -149,6 +150,28 @@ def setup_project_approval_context(*, email: str, employee_code: str, full_name:
         "project": project,
         "general_charge_code": general_charge_code,
     }
+
+
+def create_ts_admin_for_business_unit(
+    *,
+    business_unit,
+    email: str,
+    employee_code: str,
+    full_name: str,
+):
+    admin = create_employee(
+        employee_code=employee_code,
+        full_name=full_name,
+        email=email,
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin, role_code="TS_ADMIN")
+    return admin
 
 
 @pytest.mark.django_db
@@ -841,6 +864,320 @@ def test_project_manager_reject_requires_reason_and_rejects_timesheet() -> None:
         ApprovalAction.objects.filter(
             approval_item=approval_item,
             action_type__value_code="REJECT",
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_approved_timesheet_is_locked_until_admin_reopen() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user11@example.com",
+        employee_code="EMP-2011",
+        full_name="User Eleven",
+    )
+    admin = create_ts_admin_for_business_unit(
+        business_unit=context["business_unit"],
+        email="admin11@example.com",
+        employee_code="EMP-ADMIN-11",
+        full_name="Admin Eleven",
+    )
+
+    employee_client = Client()
+    initialize_session(employee_client, "user11@example.com")
+    timesheet = create_timesheet(employee_client, "2026-05-04")
+    employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "4.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    employee_client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+
+    approval_item = ApprovalItem.objects.get(submission_cycle__weekly_timesheet_id=timesheet["id"])
+    pm_client = Client()
+    initialize_session(pm_client, context["project_manager"].email)
+    pm_client.post(
+        f"/api/v1/approvals/{approval_item.id}/approve/",
+        data=json.dumps({"comment_text": "Approved"}),
+        content_type="application/json",
+    )
+
+    locked_edit_response = employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-05",
+                        "project_id": context["project"].id,
+                        "hours": "2.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    employee_reopen_response = employee_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/reopen/",
+        data=json.dumps({"reason_text": "Need to correct coding"}),
+        content_type="application/json",
+    )
+
+    admin_client = Client()
+    initialize_session(admin_client, admin.email)
+    missing_reason_response = admin_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/reopen/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    reopen_response = admin_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/reopen/",
+        data=json.dumps({"reason_text": "Need to correct coding"}),
+        content_type="application/json",
+    )
+
+    assert locked_edit_response.status_code == 400
+    assert locked_edit_response.json()["error"]["code"] == "TIMESHEET_NOT_EDITABLE"
+    assert employee_reopen_response.status_code == 400
+    assert employee_reopen_response.json()["error"]["code"] == "TIMESHEET_REOPEN_NOT_ALLOWED"
+    assert missing_reason_response.status_code == 400
+    assert missing_reason_response.json()["error"]["code"] == "TIMESHEET_REOPEN_REASON_REQUIRED"
+    assert reopen_response.status_code == 200
+    assert reopen_response.json()["timesheet"]["status"] == "CREATED"
+    assert reopen_response.json()["timesheet"]["final_approval_datetime"] is None
+    assert reopen_response.json()["timesheet"]["archive_eligible_date"] is None
+    assert reopen_response.json()["timesheet"]["lines"][0]["approval_state"] is None
+
+    edit_after_reopen_response = employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-05",
+                        "project_id": context["project"].id,
+                        "hours": "2.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert edit_after_reopen_response.status_code == 200
+    assert (
+        ApprovalAction.objects.filter(
+            approval_item=approval_item,
+            action_type__value_code="APPROVE",
+        ).count()
+        == 1
+    )
+    assert (
+        AuditLog.objects.filter(
+            entity_name="weekly_timesheet",
+            action_type__value_code="REOPEN",
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_admin_can_archive_only_eligible_approved_timesheet() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user12@example.com",
+        employee_code="EMP-2012",
+        full_name="User Twelve",
+    )
+    admin = create_ts_admin_for_business_unit(
+        business_unit=context["business_unit"],
+        email="admin12@example.com",
+        employee_code="EMP-ADMIN-12",
+        full_name="Admin Twelve",
+    )
+
+    employee_client = Client()
+    initialize_session(employee_client, "user12@example.com")
+    timesheet = create_timesheet(employee_client, "2026-05-04")
+    employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "4.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    employee_client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    approval_item = ApprovalItem.objects.get(submission_cycle__weekly_timesheet_id=timesheet["id"])
+
+    pm_client = Client()
+    initialize_session(pm_client, context["project_manager"].email)
+    pm_client.post(
+        f"/api/v1/approvals/{approval_item.id}/approve/",
+        data=json.dumps({"comment_text": "Approved"}),
+        content_type="application/json",
+    )
+
+    admin_client = Client()
+    initialize_session(admin_client, admin.email)
+    not_eligible_response = admin_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/archive/",
+        data=json.dumps({"comment_text": "Archive after retention"}),
+        content_type="application/json",
+    )
+
+    timesheet_record = WeeklyTimesheet.objects.get(id=timesheet["id"])
+    timesheet_record.archive_eligible_date = date.today()
+    timesheet_record.updated_by = "system@test.local"
+    timesheet_record.save(update_fields=["archive_eligible_date", "updated_by", "updated_at"])
+
+    archive_response = admin_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/archive/",
+        data=json.dumps({"comment_text": "Archive after retention"}),
+        content_type="application/json",
+    )
+
+    locked_edit_response = employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-05",
+                        "project_id": context["project"].id,
+                        "hours": "2.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert not_eligible_response.status_code == 400
+    assert not_eligible_response.json()["error"]["code"] == "TIMESHEET_NOT_ARCHIVE_ELIGIBLE"
+    assert archive_response.status_code == 200
+    assert archive_response.json()["timesheet"]["status"] == "ARCHIVED"
+    assert archive_response.json()["timesheet"]["archive_eligible_date"] == date.today().isoformat()
+    assert locked_edit_response.status_code == 400
+    assert locked_edit_response.json()["error"]["code"] == "TIMESHEET_NOT_EDITABLE"
+    assert (
+        AuditLog.objects.filter(
+            entity_name="weekly_timesheet",
+            action_type__value_code="ARCHIVE",
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_admin_can_restore_archived_timesheet() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user13@example.com",
+        employee_code="EMP-2013",
+        full_name="User Thirteen",
+    )
+    admin = create_ts_admin_for_business_unit(
+        business_unit=context["business_unit"],
+        email="admin13@example.com",
+        employee_code="EMP-ADMIN-13",
+        full_name="Admin Thirteen",
+    )
+
+    employee_client = Client()
+    initialize_session(employee_client, "user13@example.com")
+    timesheet = create_timesheet(employee_client, "2026-05-04")
+    employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "4.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    employee_client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+    approval_item = ApprovalItem.objects.get(submission_cycle__weekly_timesheet_id=timesheet["id"])
+
+    pm_client = Client()
+    initialize_session(pm_client, context["project_manager"].email)
+    pm_client.post(
+        f"/api/v1/approvals/{approval_item.id}/approve/",
+        data=json.dumps({"comment_text": "Approved"}),
+        content_type="application/json",
+    )
+
+    timesheet_record = WeeklyTimesheet.objects.get(id=timesheet["id"])
+    timesheet_record.archive_eligible_date = date.today()
+    timesheet_record.updated_by = "system@test.local"
+    timesheet_record.save(update_fields=["archive_eligible_date", "updated_by", "updated_at"])
+
+    admin_client = Client()
+    initialize_session(admin_client, admin.email)
+    archive_response = admin_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/archive/",
+        data=json.dumps({"comment_text": "Archive after retention"}),
+        content_type="application/json",
+    )
+    employee_restore_response = employee_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/restore/",
+        data=json.dumps({"comment_text": "Bring back online"}),
+        content_type="application/json",
+    )
+    restore_response = admin_client.post(
+        f"/api/v1/admin/timesheets/{timesheet['id']}/restore/",
+        data=json.dumps({"comment_text": "Bring back online"}),
+        content_type="application/json",
+    )
+
+    assert archive_response.status_code == 200
+    assert employee_restore_response.status_code == 400
+    assert employee_restore_response.json()["error"]["code"] == "TIMESHEET_RESTORE_NOT_ALLOWED"
+    assert restore_response.status_code == 200
+    assert restore_response.json()["timesheet"]["status"] == "APPROVED"
+    assert restore_response.json()["timesheet"]["final_approval_datetime"] is not None
+    assert restore_response.json()["timesheet"]["archive_eligible_date"] == date.today().isoformat()
+    assert restore_response.json()["timesheet"]["lines"][0]["approval_state"] == "APPROVED"
+    assert (
+        AuditLog.objects.filter(
+            entity_name="weekly_timesheet",
+            action_type__value_code="RESTORE",
         ).count()
         == 1
     )

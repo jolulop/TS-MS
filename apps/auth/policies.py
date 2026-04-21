@@ -62,6 +62,27 @@ class AuthorizationPolicyService:
         )
 
     @staticmethod
+    def can_reopen_timesheet(current_user: CurrentUser, timesheet) -> bool:
+        return current_user.is_ts_admin and (
+            timesheet.business_unit_id in current_user.scoped_business_unit_ids
+            and timesheet.status.value_code == "APPROVED"
+        )
+
+    @staticmethod
+    def can_archive_timesheet(current_user: CurrentUser, timesheet) -> bool:
+        return current_user.is_ts_admin and (
+            timesheet.business_unit_id in current_user.scoped_business_unit_ids
+            and timesheet.status.value_code == "APPROVED"
+        )
+
+    @staticmethod
+    def can_restore_timesheet(current_user: CurrentUser, timesheet) -> bool:
+        return current_user.is_ts_admin and (
+            timesheet.business_unit_id in current_user.scoped_business_unit_ids
+            and timesheet.status.value_code == "ARCHIVED"
+        )
+
+    @staticmethod
     def can_view_approval_item(current_user: CurrentUser, approval_item) -> bool:
         return current_user.has_role("PROJECT_MANAGER") and (
             approval_item.approver_employee_id == current_user.employee_id
