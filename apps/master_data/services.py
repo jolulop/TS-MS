@@ -290,6 +290,28 @@ def _serialize_general_charge_code(general_charge_code: GeneralChargeCodeRecord)
 
 class EmployeeManagementService:
     @staticmethod
+    def list_employees(current_user: CurrentUser) -> list[dict]:
+        _ensure_ts_admin(current_user)
+        employees = (
+            Employee.objects.select_related("primary_business_unit", "status")
+            .prefetch_related(
+                "business_unit_assignments__business_unit",
+                "business_unit_assignments__status__domain",
+                "role_assignments__role",
+                "role_assignments__status__domain",
+            )
+            .filter(primary_business_unit_id__in=current_user.scoped_business_unit_ids)
+            .order_by("employee_code")
+        )
+        return [_serialize_employee(employee) for employee in employees]
+
+    @staticmethod
+    def get_employee(current_user: CurrentUser, employee_id: int) -> dict:
+        _ensure_ts_admin(current_user)
+        employee = _get_scoped_employee_for_management(current_user, employee_id)
+        return _serialize_employee(employee)
+
+    @staticmethod
     @transaction.atomic
     def create_employee(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)

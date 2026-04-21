@@ -1,0 +1,54 @@
+<div class="form-grid two-column">
+  {% for field in fields %}
+    <div class="field{% if field.kind == 'checkbox' %} full-width{% endif %}">
+      {% if field.kind == "checkbox" %}
+        <label>{{ field.label }}</label>
+        <label class="checkbox-row" for="{{ field.name }}">
+          <input
+            id="{{ field.name }}"
+            name="{{ field.name }}"
+            type="checkbox"
+            {% if field.checked %}checked{% endif %}>
+          <span>{{ field.label }}</span>
+        </label>
+      {% else %}
+        <label for="{{ field.name }}">{{ field.label }}</label>
+        {% if field.kind == "textarea" %}
+          <textarea
+            id="{{ field.name }}"
+            name="{{ field.name }}"
+            {% if field.required %}required{% endif %}>{{ field.value }}</textarea>
+        {% elif field.kind == "select" %}
+          <select
+            id="{{ field.name }}"
+            name="{{ field.name }}"
+            {% if field.required %}required{% endif %}>
+            {% for option in field.options %}
+              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        {% elif field.kind == "multiselect" %}
+          <select
+            id="{{ field.name }}"
+            name="{{ field.name }}"
+            multiple
+            {% if field.required %}required{% endif %}>
+            {% for option in field.options %}
+              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        {% else %}
+          <input
+            id="{{ field.name }}"
+            name="{{ field.name }}"
+            type="{{ field.kind }}"
+            value="{{ field.value }}"
+            {% if field.required %}required{% endif %}>
+        {% endif %}
+      {% endif %}
+      {% if field.help_text %}
+        <p class="helper-text">{{ field.help_text }}</p>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>

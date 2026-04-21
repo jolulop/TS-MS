@@ -15,6 +15,10 @@
   - status: completed
   - focus: weekly timesheet engine, line validation, day limits, lifecycle, approvals, and admin state transitions
   - progress: milestones 1-7 completed
+- `2026-04-22`: `docs/plans/2026-04-22-phase-5-ui-shell-and-navigation.md`
+  - status: in progress
+  - focus: app shell, access entry, dashboard, profile/session context, and role-aware top-level navigation
+  - progress: milestones 1-2 completed; milestone 3 next
 
 ## Purpose
 

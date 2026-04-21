@@ -3,101 +3,563 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}TS Management System{% endblock %}</title>
+    <title>{% block title %}TS Management{% endblock %}</title>
     <style>
       :root {
         color-scheme: light;
-        --bg: #f6f3ea;
-        --panel: #fffaf0;
+        --bg: #f2efe8;
+        --paper: #fcfaf5;
         --ink: #18212b;
-        --muted: #566273;
-        --line: #d9ceb3;
-        --accent: #095256;
-        --accent-soft: #d9efe7;
+        --muted: #5f6b78;
+        --line: #d8cfbf;
+        --accent: #0d5b63;
+        --accent-strong: #08353b;
+        --accent-soft: #d6ece7;
+        --sand: #efe4cd;
+        --warning: #8a4b16;
+        --danger: #882d2d;
+        --shadow: 0 24px 60px rgba(24, 33, 43, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
       }
 
       body {
         margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--ink);
         background:
-          radial-gradient(circle at top right, rgba(9, 82, 86, 0.08), transparent 24rem),
-          linear-gradient(180deg, #fbf8f1 0%, var(--bg) 100%);
+          radial-gradient(circle at top left, rgba(13, 91, 99, 0.16), transparent 24rem),
+          radial-gradient(circle at bottom right, rgba(239, 228, 205, 0.9), transparent 30rem),
+          linear-gradient(180deg, #f8f4ec 0%, var(--bg) 100%);
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .layout {
+        min-height: 100vh;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid rgba(216, 207, 191, 0.9);
+        background: rgba(252, 250, 245, 0.88);
+        backdrop-filter: blur(12px);
+      }
+
+      .brand {
+        display: grid;
+        gap: 0.2rem;
+      }
+
+      .brand-kicker {
+        margin: 0;
+        font-size: 0.78rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      .brand-title {
+        margin: 0;
+        font-size: 1.15rem;
+        font-weight: 700;
+      }
+
+      .brand-subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .topbar-meta {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+
+      .topbar-user {
+        display: grid;
+        gap: 0.15rem;
+        text-align: right;
+      }
+
+      .topbar-user strong {
+        font-size: 0.96rem;
+      }
+
+      .topbar-user span {
+        color: var(--muted);
+        font-size: 0.84rem;
+      }
+
+      .logout-form {
+        margin: 0;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.5rem;
+        padding: 0.65rem 1rem;
+        border: 1px solid var(--accent-strong);
+        background: var(--accent);
+        color: white;
+        text-decoration: none;
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .button.secondary {
+        background: transparent;
+        color: var(--accent-strong);
+      }
+
+      .button.ghost {
+        border-color: var(--line);
+        background: white;
         color: var(--ink);
       }
 
       .shell {
-        max-width: 72rem;
+        display: grid;
+        gap: 1.25rem;
+        max-width: 96rem;
         margin: 0 auto;
-        padding: 2rem 1.25rem 3rem;
+        padding: 1.25rem;
       }
 
-      .masthead {
-        padding: 1.5rem;
+      @media (min-width: 980px) {
+        .shell {
+          grid-template-columns: 17rem minmax(0, 1fr);
+          align-items: start;
+        }
+      }
+
+      .sidebar,
+      .content-card,
+      .auth-card {
         border: 1px solid var(--line);
-        background: var(--panel);
-        box-shadow: 0 1rem 3rem rgba(24, 33, 43, 0.06);
+        background: rgba(252, 250, 245, 0.94);
+        box-shadow: var(--shadow);
       }
 
-      .eyebrow {
-        margin: 0 0 0.75rem;
+      .sidebar {
+        padding: 1rem;
+      }
+
+      .sidebar h2 {
+        margin: 0 0 0.9rem;
+        font-size: 0.86rem;
         text-transform: uppercase;
-        letter-spacing: 0.12em;
+        letter-spacing: 0.14em;
+        color: var(--muted);
+      }
+
+      .nav-group + .nav-group {
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+      }
+
+      .nav-group-title {
+        margin: 0 0 0.6rem;
         font-size: 0.8rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
         color: var(--accent);
       }
 
-      h1 {
-        margin: 0;
-        font-size: clamp(2rem, 4vw, 3.25rem);
+      .nav-list {
+        display: grid;
+        gap: 0.45rem;
       }
 
-      .lede {
-        max-width: 44rem;
+      .nav-item {
+        display: grid;
+        gap: 0.16rem;
+        padding: 0.75rem 0.8rem;
+        text-decoration: none;
+        border: 1px solid transparent;
+        background: rgba(239, 228, 205, 0.32);
+      }
+
+      .nav-item.active {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+
+      .nav-item strong {
+        font-size: 0.95rem;
+      }
+
+      .nav-item span {
+        font-size: 0.82rem;
         color: var(--muted);
-        line-height: 1.6;
       }
 
-      .grid {
+      .content-card {
+        padding: 1.4rem;
+      }
+
+      .content-stack {
+        display: grid;
+        gap: 1.2rem;
+      }
+
+      .page-header {
+        display: grid;
+        gap: 0.55rem;
+        margin-bottom: 1.4rem;
+      }
+
+      .eyebrow {
+        margin: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        font-size: 0.78rem;
+        color: var(--accent);
+      }
+
+      .page-header h1 {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+        font-size: clamp(2rem, 4vw, 3.15rem);
+        line-height: 1.05;
+      }
+
+      .page-header p {
+        margin: 0;
+        max-width: 52rem;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .hero-grid,
+      .card-grid,
+      .meta-grid,
+      .split-grid,
+      .form-grid {
         display: grid;
         gap: 1rem;
-        margin-top: 1.5rem;
       }
 
-      @media (min-width: 900px) {
-        .grid {
+      @media (min-width: 760px) {
+        .hero-grid,
+        .card-grid,
+        .split-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .meta-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .form-grid.two-column {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
 
-      .card {
-        padding: 1.25rem;
+      .tile,
+      .info-panel,
+      .surface-card {
+        padding: 1rem;
         border: 1px solid var(--line);
-        background: rgba(255, 250, 240, 0.84);
+        background: white;
       }
 
-      .card h2 {
-        margin-top: 0;
+      .tile-value {
+        display: block;
+        margin-top: 0.2rem;
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--accent-strong);
       }
 
-      .card p {
+      .tile p,
+      .info-panel p,
+      .surface-card p {
+        margin: 0.5rem 0 0;
         color: var(--muted);
         line-height: 1.6;
       }
 
-      .pill {
-        display: inline-block;
-        margin-top: 0.5rem;
-        padding: 0.35rem 0.65rem;
+      .surface-card h2,
+      .surface-card h3 {
+        margin: 0;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.28rem 0.6rem;
         border-radius: 999px;
         background: var(--accent-soft);
-        color: var(--accent);
-        font-size: 0.9rem;
+        color: var(--accent-strong);
+        font-size: 0.82rem;
+        font-weight: 600;
+      }
+
+      .meta-row {
+        padding: 0.9rem 1rem;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.9);
+      }
+
+      .meta-row dt {
+        margin: 0 0 0.35rem;
+        font-size: 0.78rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .meta-row dd {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .subnav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        margin-bottom: 1rem;
+      }
+
+      .subnav a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2.25rem;
+        padding: 0.5rem 0.85rem;
+        border: 1px solid var(--line);
+        background: white;
+        text-decoration: none;
+      }
+
+      .subnav a.active {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .data-table th,
+      .data-table td {
+        padding: 0.8rem 0.7rem;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .data-table th {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .data-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .data-table a {
+        color: var(--accent-strong);
+        text-decoration: none;
+      }
+
+      .empty-state {
+        padding: 1rem;
+        border: 1px dashed var(--line);
+        color: var(--muted);
+        background: rgba(239, 228, 205, 0.2);
+      }
+
+      .section-header {
+        display: grid;
+        gap: 0.35rem;
+        margin-bottom: 1rem;
+      }
+
+      .section-header p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .form-stack {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .auth-shell {
+        display: grid;
+        place-items: center;
+        min-height: calc(100vh - 5rem);
+        padding: 1.5rem;
+      }
+
+      .auth-card {
+        width: min(100%, 42rem);
+        padding: 1.5rem;
+      }
+
+      .auth-form {
+        display: grid;
+        gap: 1rem;
+        margin-top: 1.4rem;
+      }
+
+      .field {
+        display: grid;
+        gap: 0.45rem;
+      }
+
+      .field.full-width {
+        grid-column: 1 / -1;
+      }
+
+      .field label {
+        font-weight: 600;
+      }
+
+      .field input {
+        min-height: 2.75rem;
+        padding: 0.75rem 0.85rem;
+        border: 1px solid var(--line);
+        font: inherit;
+        background: white;
+      }
+
+      .field textarea,
+      .field select {
+        min-height: 2.75rem;
+        padding: 0.75rem 0.85rem;
+        border: 1px solid var(--line);
+        font: inherit;
+        background: white;
+      }
+
+      .field textarea {
+        min-height: 7.5rem;
+        resize: vertical;
+      }
+
+      .field select[multiple] {
+        min-height: 8.5rem;
+      }
+
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        min-height: 2.75rem;
+        padding: 0.75rem 0.85rem;
+        border: 1px solid var(--line);
+        background: white;
+      }
+
+      .checkbox-row input {
+        width: 1rem;
+        height: 1rem;
+      }
+
+      .helper-text {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.84rem;
+      }
+
+      .detail-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .banner {
+        padding: 0.9rem 1rem;
+        border: 1px solid;
+      }
+
+      .banner.error {
+        border-color: rgba(136, 45, 45, 0.35);
+        background: rgba(136, 45, 45, 0.08);
+        color: var(--danger);
+      }
+
+      .banner.warning {
+        border-color: rgba(138, 75, 22, 0.35);
+        background: rgba(138, 75, 22, 0.08);
+        color: var(--warning);
       }
     </style>
   </head>
   <body>
-    <main class="shell">
-      {% block content %}{% endblock %}
-    </main>
+    <div class="layout">
+      {% if current_user %}
+        <header class="topbar">
+          <div class="brand">
+            <p class="brand-kicker">Timesheet Management</p>
+            <p class="brand-title">TS Management System</p>
+            <p class="brand-subtitle">Internal roles and scope drive every screen in this shell.</p>
+          </div>
+          <div class="topbar-meta">
+            <div class="topbar-user">
+              <strong>{{ current_user.full_name }}</strong>
+              <span>{{ current_user.email }}</span>
+              <span>{{ role_summary }} · {{ current_user.primary_business_unit_code }}</span>
+            </div>
+            <form class="logout-form" method="post" action="/logout/">
+              {% csrf_token %}
+              <button class="button secondary" type="submit">Sign Out</button>
+            </form>
+          </div>
+        </header>
+        <main class="shell">
+          <aside class="sidebar">
+            {% for group in navigation_groups %}
+              <section class="nav-group">
+                <h2 class="nav-group-title">{{ group.label }}</h2>
+                <div class="nav-list">
+                  {% for item in group.items %}
+                    <a class="nav-item{% if item.active %} active{% endif %}" href="{{ item.href }}">
+                      <strong>{{ item.label }}</strong>
+                      <span>{{ item.summary }}</span>
+                    </a>
+                  {% endfor %}
+                </div>
+              </section>
+            {% endfor %}
+          </aside>
+          <section class="content-card">
+      {% else %}
+        <main class="auth-shell">
+          <section class="auth-card">
+      {% endif %}
+            {% block content %}{% endblock %}
+          </section>
+        </main>
+    </div>
   </body>
 </html>

@@ -16,4 +16,4 @@ def test_home_page_renders() -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert b"Timesheet Management System" in response.content
+    assert b"Access Entry" in response.content

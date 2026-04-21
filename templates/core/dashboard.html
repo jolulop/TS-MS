@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard | TS Management{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <p class="eyebrow">{{ page_eyebrow }}</p>
+    <h1>{{ page_title }}</h1>
+    <p>{{ page_intro }}</p>
+  </div>
+
+  <div class="hero-grid">
+    {% for card in summary_cards %}
+      <article class="tile">
+        <span class="chip">{{ card.title }}</span>
+        <span class="tile-value">{{ card.value }}</span>
+        <p>{{ card.summary }}</p>
+      </article>
+    {% endfor %}
+  </div>
+
+  <div class="card-grid" style="margin-top: 1rem;">
+    <article class="info-panel">
+      <span class="chip">Session Summary</span>
+      <p>Your current session covers {{ business_unit_summary }} and loads the following roles: {{ role_summary }}.</p>
+    </article>
+    <article class="info-panel">
+      <span class="chip">Quick Actions</span>
+      <p>
+        {% for item in quick_actions %}
+          <a href="{{ item.href }}">{{ item.label }}</a>{% if not forloop.last %} · {% endif %}
+        {% endfor %}
+      </p>
+    </article>
+  </div>
+{% endblock %}

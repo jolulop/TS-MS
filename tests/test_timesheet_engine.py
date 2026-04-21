@@ -1400,9 +1400,7 @@ def test_period_cutoff_blocks_edit_and_submit_until_admin_override() -> None:
 
 
 @pytest.mark.django_db
-def test_self_approval_is_blocked_on_submit_and_required_general_code_approval_is_not_supported() -> (
-    None
-):
+def test_submit_blocks_self_approval_and_general_code_required_approval() -> None:
     seed_reference_data()
     business_unit = create_business_unit(bu_code="BU-SELF", name="Self Approval BU")
     create_business_unit_configuration(business_unit=business_unit, approval_mode_code="PROJECT")

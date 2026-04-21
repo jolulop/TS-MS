@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Access Entry | TS Management{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <p class="eyebrow">SCR-001</p>
+    <h1>Access Entry</h1>
+    <p>
+      Local development uses a controlled access-entry form in place of the external email validation handoff.
+      Enter a validated employee email to initialize the internal TS session and load roles and scope.
+    </p>
+  </div>
+
+  {% if entry_error %}
+    <div class="banner error">{{ entry_error }}</div>
+  {% endif %}
+
+  <form class="auth-form" method="post" action="/">
+    {% csrf_token %}
+    <div class="field">
+      <label for="validated_email">Validated Email</label>
+      <input
+        id="validated_email"
+        name="validated_email"
+        type="email"
+        placeholder="employee@example.com"
+        value="{{ validated_email|default:'' }}"
+        autocomplete="email">
+    </div>
+    <button class="button" type="submit">Initialize Session</button>
+  </form>
+
+  <div class="card-grid" style="margin-top: 1.4rem;">
+    <article class="info-panel">
+      <span class="chip">Internal roles only</span>
+      <p>The shell and all later screens derive visibility from employee roles and TS scope, not from an external identity system.</p>
+    </article>
+    <article class="info-panel">
+      <span class="chip">Local-first flow</span>
+      <p>This entry screen is intentionally small and practical so local development can move without waiting on the external access validator.</p>
+    </article>
+  </div>
+{% endblock %}

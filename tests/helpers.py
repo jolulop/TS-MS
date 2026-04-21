@@ -1,6 +1,7 @@
 from datetime import date
 
 from django.core.management import call_command
+from django.test import Client
 
 from apps.master_data.models import (
     BusinessUnit,
@@ -32,6 +33,11 @@ SYSTEM_ACTOR = "system@test.local"
 
 def seed_reference_data() -> None:
     call_command("seed_reference_data")
+
+
+def initialize_ui_session(client: Client, validated_email: str) -> None:
+    response = client.post("/", data={"validated_email": validated_email}, follow=False)
+    assert response.status_code == 302
 
 
 def ref_value(domain_code: str, value_code: str) -> RefValue:

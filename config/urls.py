@@ -9,5 +9,5 @@ urlpatterns = [
     path("api/v1/", include("apps.auth.urls")),
     path("api/v1/", include("apps.master_data.urls")),
     path("api/v1/", include("apps.timesheets.urls")),
-    path("", views.home, name="home"),
+    path("", include("apps.core.urls")),
 ]

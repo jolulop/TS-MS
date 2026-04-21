@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | TS Management{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <p class="eyebrow">{{ page_eyebrow }}</p>
+    <h1>{{ page_title }}</h1>
+    <p>{{ page_intro }}</p>
+  </div>
+
+  <div class="card-grid">
+    {% for card in section_cards %}
+      <article class="info-panel">
+        <span class="chip">{{ card.status }}</span>
+        <h2 style="margin: 0.85rem 0 0;">{{ card.title }}</h2>
+        <p>{{ card.summary }}</p>
+        {% if card.href %}
+          <p><a href="{{ card.href }}">Open Screen</a></p>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </div>
+{% endblock %}
