@@ -1,5 +1,14 @@
 # PLANS.md
 
+## Active Plans
+
+- `2026-04-21`: `docs/plans/2026-04-21-phase-2-employee-auth-foundation.md`
+  - status: completed
+  - focus: internal session initialization, employee/BU scope loading, and backend authorization foundation
+- `2026-04-21`: `docs/plans/2026-04-21-phase-2-employee-admin-scope.md`
+  - status: completed
+  - focus: scoped TS Admin management for employees, roles, and BU assignments
+
 ## Purpose
 
 Use this file as the standard planning guide and template for non-trivial work in the **Timesheet (TS) Management System** repository.

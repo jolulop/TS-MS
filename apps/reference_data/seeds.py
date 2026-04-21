@@ -233,6 +233,11 @@ REFERENCE_DATA = {
             {"code": "IMPORT", "label": "Import", "sort_order": 110},
             {"code": "EXPORT", "label": "Export", "sort_order": 120},
             {"code": "DENY", "label": "Deny", "sort_order": 130},
+            {
+                "code": "LOGIN_IDENTIFICATION",
+                "label": "Login Identification",
+                "sort_order": 140,
+            },
         ],
     },
 }

@@ -120,8 +120,8 @@ class EmployeeBusinessUnit(AuditFieldsModel):
             ),
             models.UniqueConstraint(
                 fields=["employee"],
-                condition=Q(is_primary_flag=True),
-                name="employee_business_unit_single_primary_uniq",
+                condition=Q(is_primary_flag=True, valid_to__isnull=True),
+                name="employee_business_unit_active_primary_uniq",
             ),
         ]
 
