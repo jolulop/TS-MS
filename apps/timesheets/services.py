@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.audit.services import write_audit_event
@@ -128,6 +129,25 @@ def _serialize_timesheet(timesheet: WeeklyTimesheet) -> dict:
         "lines": [
             _serialize_line(line) for line in timesheet.lines.all().order_by("work_date", "id")
         ],
+    }
+
+
+def _serialize_timesheet_summary(timesheet: WeeklyTimesheet) -> dict:
+    return {
+        "id": timesheet.id,
+        "week_start_date": timesheet.week_start_date.isoformat(),
+        "week_end_date": timesheet.week_end_date.isoformat(),
+        "status": timesheet.status.value_code,
+        "current_submission_no": timesheet.current_submission_no,
+        "submission_datetime": (
+            timesheet.submission_datetime.isoformat() if timesheet.submission_datetime else None
+        ),
+        "final_approval_datetime": (
+            timesheet.final_approval_datetime.isoformat()
+            if timesheet.final_approval_datetime
+            else None
+        ),
+        "line_count": timesheet.lines.count(),
     }
 
 
@@ -465,24 +485,107 @@ def _get_approval_item_for_view(current_user: CurrentUser, approval_item_id: int
     return approval_item
 
 
+def _available_projects_for_week(timesheet: WeeklyTimesheet) -> list[dict]:
+    projects = (
+        Project.objects.filter(
+            business_unit_id=timesheet.business_unit_id,
+            status__domain__domain_code="PROJECT_STATUS",
+            status__value_code="ACTIVE",
+            start_date__lte=timesheet.week_end_date,
+        )
+        .filter(
+            Q(end_date__isnull=True) | Q(end_date__gte=timesheet.week_start_date),
+            Q(close_date__isnull=True) | Q(close_date__gte=timesheet.week_start_date),
+            assignments__employee_id=timesheet.employee_id,
+            assignments__status__domain__domain_code="PROJECT_ASSIGNMENT_STATUS",
+            assignments__status__value_code="ACTIVE",
+            assignments__assignment_start_date__lte=timesheet.week_end_date,
+        )
+        .filter(
+            Q(assignments__assignment_end_date__isnull=True)
+            | Q(assignments__assignment_end_date__gte=timesheet.week_start_date)
+        )
+        .distinct()
+        .order_by("project_code")
+    )
+    return [
+        {
+            "id": project.id,
+            "project_code": project.project_code,
+            "name": project.name,
+        }
+        for project in projects
+    ]
+
+
+def _available_general_charge_codes_for_week(timesheet: WeeklyTimesheet) -> list[dict]:
+    open_codes = (
+        GeneralChargeCode.objects.select_related("charge_type")
+        .filter(
+            business_unit_id=timesheet.business_unit_id,
+            status__domain__domain_code="GENERAL_CHARGE_CODE_STATUS",
+            status__value_code="ACTIVE",
+            valid_from__lte=timesheet.week_end_date,
+            valid_to__isnull=True,
+        )
+        .order_by("code")
+    )
+    bounded_codes = (
+        GeneralChargeCode.objects.select_related("charge_type")
+        .filter(
+            business_unit_id=timesheet.business_unit_id,
+            status__domain__domain_code="GENERAL_CHARGE_CODE_STATUS",
+            status__value_code="ACTIVE",
+            valid_from__lte=timesheet.week_end_date,
+            valid_to__gte=timesheet.week_start_date,
+        )
+        .exclude(id__in=open_codes.values_list("id", flat=True))
+        .order_by("code")
+    )
+    return [
+        {
+            "id": general_charge_code.id,
+            "code": general_charge_code.code,
+            "name": general_charge_code.name,
+            "charge_type": general_charge_code.charge_type.value_code,
+        }
+        for general_charge_code in list(open_codes) + list(bounded_codes)
+    ]
+
+
 class TimesheetService:
     @staticmethod
     def list_timesheets(current_user: CurrentUser) -> list[dict]:
         timesheets = (
             WeeklyTimesheet.objects.select_related("status")
+            .prefetch_related("lines")
             .filter(employee_id=current_user.employee_id)
             .order_by("-week_start_date", "id")
         )
-        return [
-            {
-                "id": timesheet.id,
-                "week_start_date": timesheet.week_start_date.isoformat(),
-                "week_end_date": timesheet.week_end_date.isoformat(),
-                "status": timesheet.status.value_code,
-                "current_submission_no": timesheet.current_submission_no,
-            }
-            for timesheet in timesheets
-        ]
+        return [_serialize_timesheet_summary(timesheet) for timesheet in timesheets]
+
+    @staticmethod
+    def get_timesheet_editor_context(current_user: CurrentUser, timesheet_id: int) -> dict:
+        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        employee = _employee_for_current_user(current_user)
+        return {
+            "timesheet": _serialize_timesheet(timesheet),
+            "employee": {
+                "id": employee.id,
+                "employee_code": employee.employee_code,
+                "full_name": employee.full_name,
+                "assigned_calendar": (
+                    employee.assigned_calendar.calendar_name if employee.assigned_calendar else ""
+                ),
+            },
+            "available_projects": _available_projects_for_week(timesheet),
+            "available_general_charge_codes": _available_general_charge_codes_for_week(timesheet),
+            "can_edit": AuthorizationPolicyService.can_edit_timesheet(current_user, timesheet),
+            "can_submit": AuthorizationPolicyService.can_submit_timesheet(current_user, timesheet),
+            "can_withdraw": AuthorizationPolicyService.can_withdraw_timesheet(
+                current_user, timesheet
+            ),
+        }
 
     @staticmethod
     @transaction.atomic

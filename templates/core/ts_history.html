@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | TS Management{% endblock %}
+
+{% block content %}
+  <div class="content-stack">
+    {% if ts_section_links %}
+      <nav class="subnav" aria-label="TS Management Sections">
+        {% for link in ts_section_links %}
+          <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+
+    <div class="page-header">
+      <p class="eyebrow">{{ page_eyebrow }}</p>
+      <h1>{{ page_title }}</h1>
+      <p>{{ page_intro }}</p>
+    </div>
+
+    <section class="surface-card">
+      {% if table_rows %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                {% for header in table_headers %}
+                  <th>{{ header }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in table_rows %}
+                <tr>
+                  {% for cell in row.cells %}
+                    <td>
+                      {% if forloop.first %}
+                        <a href="{{ row.href }}">{{ cell }}</a>
+                      {% else %}
+                        {{ cell }}
+                      {% endif %}
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">{{ empty_message }}</div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

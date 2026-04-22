@@ -40,17 +40,26 @@ Planned stack:
    `python manage.py migrate`
 7. Seed the mandatory reference data:
    `python manage.py seed_reference_data`
+8. Optional: load local sample data for browsing the UI:
+   `python manage.py seed_dev_data`
 
 ## Daily commands
 
 - Start the app: `make run`
 - Run migrations: `make migrate`
 - Seed reference data: `make seed`
+- Seed local dev sample data: `make seed-dev`
 - Lint the repo: `make lint`
 - Check formatting: `make format-check`
 - Format files: `make format`
 - Run tests: `make test`
 - Run Django checks: `make check`
+
+## Local UI sample login
+
+After running `make seed-dev`, you can initialize a TS Admin session in the access-entry screen with:
+
+- `jose.luis.lopez@timia.ai`
 
 ## Repository guidance
 

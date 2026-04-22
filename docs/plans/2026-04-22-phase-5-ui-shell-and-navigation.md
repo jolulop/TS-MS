@@ -159,6 +159,12 @@ Shared shell work:
 
 ### Milestone 3
 - TS Management screens
+  - My Timesheets list and create flow
+  - Weekly timesheet editor
+  - Timesheet read-only detail
+  - My History list
+  - submit and withdraw actions
+  - project-time inquiry remains deferred
 
 ### Milestone 4
 - approval worklist UI
@@ -194,6 +200,7 @@ Integration tests:
 - Assumption: `PROJECT_OWNER` gets visibility of the System Management block in Milestone 1 because the authorization matrix gives limited system/project-management access there.
 - Assumption: `PROJECT_MANAGER` gets Approval Worklist visibility, while TS Admin approval oversight remains deferred.
 - Assumption: Milestone 2 covers the TS Admin-managed screens already backed by services in the repo today: employees and the classification masters. Calendar and project-management screens stay out of this milestone to keep the rollout small and consistent with existing backend coverage.
+- Assumption: Milestone 3 covers the employee-owned TS Management flow already backed by the Phase IV timesheet engine: list/create, edit, read-only detail/history, and submit/withdraw. Project-time inquiry remains out of scope for this milestone because it needs additional scoped inquiry UI beyond the current self-service backend.
 
 ## 18. Definition of done
 
@@ -211,9 +218,9 @@ Status:
 Completed milestone:
 - Milestone 1: shell and role-aware navigation
 - Milestone 2: System Management screens for employees and classification masters
+- Milestone 3: self-service TS Management screens
 
 Still pending:
-- Milestone 3: TS Management screens
 - Milestone 4: approval worklist UI
 - Milestone 5: reports UI
 
@@ -227,6 +234,15 @@ Validation completed for Milestone 1:
 - `make format-check`
 
 Validation completed for Milestone 2:
+- `make format`
+- `make lint`
+- `.venv/bin/python manage.py check`
+- `.venv/bin/python manage.py makemigrations --check`
+- `.venv/bin/python manage.py migrate`
+- `make test`
+- `make format-check`
+
+Validation completed for Milestone 3:
 - `make format`
 - `make lint`
 - `.venv/bin/python manage.py check`

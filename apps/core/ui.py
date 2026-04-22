@@ -29,15 +29,21 @@ def _nav_item(*, label: str, href: str, summary: str, current_path: str) -> NavI
 def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[NavGroup, ...]:
     work_items = [
         _nav_item(
-            label="Home",
+            label="Dashboard",
             href="/",
             summary="Role-aware dashboard and quick actions.",
             current_path=current_path,
         ),
         _nav_item(
-            label="TS Management",
+            label="My Timesheets",
             href="/ts/",
-            summary="Timesheets, history, and inquiry placeholders.",
+            summary="Create, edit, submit, and review your weekly timesheets.",
+            current_path=current_path,
+        ),
+        _nav_item(
+            label="My History",
+            href="/ts/history/",
+            summary="Read-only history of your submitted and completed weeks.",
             current_path=current_path,
         ),
         _nav_item(
@@ -53,6 +59,15 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                 label="Approval Worklist",
                 href="/approvals/",
                 summary="Pending approvals and approval actions.",
+                current_path=current_path,
+            )
+        )
+    if current_user.has_role("PROJECT_OWNER") or current_user.has_role("PROJECT_MANAGER"):
+        work_items.append(
+            _nav_item(
+                label="Project Time Inquiry",
+                href="/ts/inquiry/",
+                summary="Project-scoped inquiry placeholder for later work.",
                 current_path=current_path,
             )
         )

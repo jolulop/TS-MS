@@ -1,6 +1,6 @@
 from django.urls import path
 
-from apps.core import system_views, views
+from apps.core import system_views, ts_views, views
 
 urlpatterns = [
     path("", views.home, name="home"),
@@ -49,7 +49,14 @@ urlpatterns = [
         system_views.general_charge_code_detail,
         name="system-general-charge-code-detail",
     ),
-    path("ts/", views.ts_management, name="ts-management"),
+    path("ts/", ts_views.my_timesheets, name="ts-management"),
+    path("ts/history/", ts_views.my_history, name="ts-history"),
+    path("ts/inquiry/", ts_views.project_time_inquiry_placeholder, name="ts-project-inquiry"),
+    path(
+        "ts/timesheets/<int:timesheet_id>/",
+        ts_views.timesheet_detail,
+        name="ts-timesheet-detail",
+    ),
     path("approvals/", views.approval_worklist, name="approval-worklist"),
     path("reports/", views.reports, name="reports"),
 ]

@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | TS Management{% endblock %}
+
+{% block content %}
+  <div class="content-stack">
+    {% if ts_section_links %}
+      <nav class="subnav" aria-label="TS Management Sections">
+        {% for link in ts_section_links %}
+          <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+
+    <div class="page-header">
+      <p class="eyebrow">{{ page_eyebrow }}</p>
+      <div class="detail-header">
+        <div>
+          <h1>{{ page_title }}</h1>
+          <p>{{ page_intro }}</p>
+        </div>
+        <span class="chip">{{ timesheet.status }}</span>
+      </div>
+    </div>
+
+    <div class="split-grid">
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>Timesheet Context</h2>
+          <p><a href="/ts/">Back to My Timesheets</a></p>
+        </div>
+        <dl class="meta-grid">
+          <div class="meta-row">
+            <dt>Employee</dt>
+            <dd>{{ employee.full_name }} ({{ employee.employee_code }})</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Week Start</dt>
+            <dd>{{ timesheet.week_start_date }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Week End</dt>
+            <dd>{{ timesheet.week_end_date }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Assigned Calendar</dt>
+            <dd>{{ employee.assigned_calendar|default:"Not assigned" }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Submission No</dt>
+            <dd>{{ timesheet.current_submission_no }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Submitted At</dt>
+            <dd>{{ timesheet.submission_datetime|default:"Not submitted" }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Approved At</dt>
+            <dd>{{ timesheet.final_approval_datetime|default:"Not approved" }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Period Override</dt>
+            <dd>{% if timesheet.period_lock_override_flag %}Enabled{% else %}Not enabled{% endif %}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <div class="content-stack">
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>{% if can_edit %}Weekly Timesheet Editor{% else %}Timesheet Lines{% endif %}</h2>
+            <p>
+              {% if can_edit %}
+                Enter one charge target per row: either a project or a general charge code.
+              {% else %}
+                This timesheet is read-only in its current state.
+              {% endif %}
+            </p>
+          </div>
+          {% if form_error and active_form == "lines" %}
+            <div class="banner error">{{ form_error }}</div>
+          {% endif %}
+          {% if can_edit %}
+            <form class="form-stack" method="post" action="">
+              {% csrf_token %}
+              <input type="hidden" name="form_name" value="lines">
+              <input type="hidden" name="row_count" value="{{ row_count }}">
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Work Date</th>
+                      <th>Hours</th>
+                      <th>Project</th>
+                      <th>General Charge Code</th>
+                      <th>Comment</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in line_rows %}
+                      <tr>
+                        <td>
+                          <select name="line_{{ row.index }}_work_date">
+                            <option value="">Select a day</option>
+                            {% for option in row.date_options %}
+                              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                          </select>
+                        </td>
+                        <td><input name="line_{{ row.index }}_hours" type="text" value="{{ row.hours }}"></td>
+                        <td>
+                          <select name="line_{{ row.index }}_project_id">
+                            {% for option in row.project_options %}
+                              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                          </select>
+                        </td>
+                        <td>
+                          <select name="line_{{ row.index }}_general_charge_code_id">
+                            {% for option in row.general_charge_code_options %}
+                              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                          </select>
+                        </td>
+                        <td><input name="line_{{ row.index }}_comment_text" type="text" value="{{ row.comment_text }}"></td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <button class="button" type="submit">Save Lines</button>
+              </div>
+            </form>
+          {% else %}
+            {% if timesheet.lines %}
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Work Date</th>
+                      <th>Hours</th>
+                      <th>Project</th>
+                      <th>General Charge Code</th>
+                      <th>Approval State</th>
+                      <th>Comment</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for line in timesheet.lines %}
+                      <tr>
+                        <td>{{ line.work_date }}</td>
+                        <td>{{ line.hours }}</td>
+                        <td>{% if line.project %}{{ line.project.project_code }} - {{ line.project.name }}{% else %}None{% endif %}</td>
+                        <td>{% if line.general_charge_code %}{{ line.general_charge_code.code }} - {{ line.general_charge_code.name }}{% else %}None{% endif %}</td>
+                        <td>{{ line.approval_state|default:"Not routed" }}</td>
+                        <td>{{ line.comment_text|default:"" }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              <div class="empty-state">This timesheet does not contain any lines.</div>
+            {% endif %}
+          {% endif %}
+        </section>
+
+        {% if can_submit %}
+          <section class="surface-card">
+            <div class="section-header">
+              <h2>Submit Timesheet</h2>
+              <p>Submission will route approvals using the current backend lifecycle rules.</p>
+            </div>
+            {% if form_error and active_form == "submit" %}
+              <div class="banner error">{{ form_error }}</div>
+            {% endif %}
+            <form class="form-stack" method="post" action="">
+              {% csrf_token %}
+              <input type="hidden" name="form_name" value="submit">
+              <div class="field">
+                <label for="submit_comment_text">Comment</label>
+                <textarea id="submit_comment_text" name="comment_text">{{ submit_comment }}</textarea>
+              </div>
+              <div>
+                <button class="button" type="submit">Submit Timesheet</button>
+              </div>
+            </form>
+          </section>
+        {% endif %}
+
+        {% if can_withdraw %}
+          <section class="surface-card">
+            <div class="section-header">
+              <h2>Withdraw Timesheet</h2>
+              <p>Withdraw returns the weekly record to an editable state when lifecycle rules allow it.</p>
+            </div>
+            {% if form_error and active_form == "withdraw" %}
+              <div class="banner error">{{ form_error }}</div>
+            {% endif %}
+            <form class="form-stack" method="post" action="">
+              {% csrf_token %}
+              <input type="hidden" name="form_name" value="withdraw">
+              <div class="field">
+                <label for="withdraw_comment_text">Comment</label>
+                <textarea id="withdraw_comment_text" name="comment_text">{{ withdraw_comment }}</textarea>
+              </div>
+              <div>
+                <button class="button secondary" type="submit">Withdraw Timesheet</button>
+              </div>
+            </form>
+          </section>
+        {% endif %}
+
+        {% if available_projects or available_general_charge_codes %}
+          <section class="surface-card">
+            <div class="section-header">
+              <h2>Available Charge Targets</h2>
+              <p>The server remains authoritative for valid charge targets on each work date.</p>
+            </div>
+            <div class="split-grid">
+              <div>
+                <h3>Projects</h3>
+                {% if available_projects %}
+                  <ul>
+                    {% for project in available_projects %}
+                      <li>{{ project.project_code }} - {{ project.name }}</li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <p>No projects are currently available for this week.</p>
+                {% endif %}
+              </div>
+              <div>
+                <h3>General Charge Codes</h3>
+                {% if available_general_charge_codes %}
+                  <ul>
+                    {% for code in available_general_charge_codes %}
+                      <li>{{ code.code }} - {{ code.name }}</li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <p>No general charge codes are currently available for this week.</p>
+                {% endif %}
+              </div>
+            </div>
+          </section>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endblock %}

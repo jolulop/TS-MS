@@ -46,7 +46,8 @@ def test_user_dashboard_hides_system_and_approval_navigation() -> None:
     assert response.status_code == 200
     content = response.content.decode()
     assert "Dashboard" in content
-    assert "TS Management" in content
+    assert "My Timesheets" in content
+    assert "My History" in content
     assert "Reports" in content
     assert "System Management" not in content
     assert "Approval Worklist" not in content
@@ -116,6 +117,7 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
 
     assert dashboard_response.status_code == 200
     assert "Approval Worklist" in dashboard_content
+    assert "Project Time Inquiry" in dashboard_content
     assert "System Management" not in dashboard_content
     assert profile_response.status_code == 200
     assert "Session Context" in profile_content

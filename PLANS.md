@@ -18,7 +18,7 @@
 - `2026-04-22`: `docs/plans/2026-04-22-phase-5-ui-shell-and-navigation.md`
   - status: in progress
   - focus: app shell, access entry, dashboard, profile/session context, and role-aware top-level navigation
-  - progress: milestones 1-2 completed; milestone 3 next
+  - progress: milestones 1-3 completed; milestone 4 next
 
 ## Purpose
 

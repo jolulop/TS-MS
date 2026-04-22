@@ -1,4 +1,4 @@
-.PHONY: install run migrate seed lint format format-check test check
+.PHONY: install run migrate seed seed-dev lint format format-check test check
 
 PYTHON ?= .venv/bin/python
 PYTEST ?= .venv/bin/pytest
@@ -15,6 +15,9 @@ migrate:
 
 seed:
 	$(PYTHON) manage.py seed_reference_data
+
+seed-dev:
+	$(PYTHON) manage.py seed_dev_data
 
 lint:
 	$(RUFF) check .
