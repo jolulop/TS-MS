@@ -1,6 +1,8 @@
 from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 
 from apps.audit.services import write_audit_event
 from apps.auth.context import CurrentUser
@@ -9,9 +11,13 @@ from apps.auth.policies import AuthorizationPolicyService
 from apps.auth.services import canonicalize_email
 from apps.master_data.models import (
     BusinessUnit,
+    CalendarPeriodRule,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
+    Project,
+    ProjectAssignment,
+    YearlyCalendar,
 )
 from apps.master_data.models import (
     Client as ClientRecord,
@@ -74,6 +80,36 @@ def _parse_optional_iso_date(value: object, *, code: str, message: str) -> date 
         return date.fromisoformat(str(value))
     except ValueError as exc:
         raise AuthError(code, message, 400) from exc
+
+
+def _parse_decimal(value: object, *, code: str, message: str) -> Decimal:
+    if value in (None, ""):
+        raise AuthError(code, message, 400)
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise AuthError(code, message, 400) from exc
+
+
+def _parse_status_filter(value: object, *, domain_code: str) -> str | None:
+    if value in (None, "", "ALL"):
+        return None
+    status_code = str(value).strip().upper()
+    try:
+        _ref_value(domain_code, status_code)
+    except AuthError as exc:
+        raise AuthError(
+            "STATUS_FILTER_INVALID",
+            f"Unknown status filter for {domain_code}: {status_code}.",
+            400,
+        ) from exc
+    return status_code
+
+
+def _apply_status_filter(queryset, status_code: str | None):
+    if status_code is None:
+        return queryset
+    return queryset.filter(status__value_code=status_code)
 
 
 def _parse_business_unit_scope(
@@ -170,6 +206,37 @@ def _refresh_employee(employee_id: int) -> Employee:
 
 def _actor_employee(current_user: CurrentUser) -> Employee | None:
     return Employee.objects.filter(id=current_user.employee_id).first()
+
+
+def _employee_has_active_role(
+    employee_id: int,
+    *,
+    role_code: str,
+    business_unit_id: int | None = None,
+) -> bool:
+    assignments = EmployeeRole.objects.filter(
+        employee_id=employee_id,
+        role__domain__domain_code="ROLE_CODE",
+        role__value_code=role_code,
+        status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
+        status__value_code="ACTIVE",
+        valid_to__isnull=True,
+    )
+    if business_unit_id is not None:
+        assignments = assignments.filter(
+            Q(business_unit_id=business_unit_id) | Q(business_unit__isnull=True)
+        )
+    return assignments.exists()
+
+
+def _employee_has_active_business_unit_scope(employee_id: int, business_unit_id: int) -> bool:
+    return EmployeeBusinessUnit.objects.filter(
+        employee_id=employee_id,
+        business_unit_id=business_unit_id,
+        status__domain__domain_code="EMPLOYEE_BU_STATUS",
+        status__value_code="ACTIVE",
+        valid_to__isnull=True,
+    ).exists()
 
 
 def _serialize_employee(employee: Employee) -> dict:
@@ -288,11 +355,128 @@ def _serialize_general_charge_code(general_charge_code: GeneralChargeCodeRecord)
     }
 
 
+def _serialize_yearly_calendar(yearly_calendar: YearlyCalendar) -> dict:
+    return {
+        "id": yearly_calendar.id,
+        "calendar_year": yearly_calendar.calendar_year,
+        "calendar_name": yearly_calendar.calendar_name,
+        "status": yearly_calendar.status.value_code,
+        "name": f"{yearly_calendar.calendar_year} - {yearly_calendar.calendar_name}",
+        "business_unit": {
+            "id": yearly_calendar.business_unit_id,
+            "bu_code": yearly_calendar.business_unit.bu_code,
+            "name": yearly_calendar.business_unit.name,
+        },
+    }
+
+
+def _serialize_calendar_period_rule(rule: CalendarPeriodRule) -> dict:
+    return {
+        "id": rule.id,
+        "name": (
+            f"{rule.yearly_calendar.calendar_name} "
+            f"({rule.effective_from.isoformat()} - {rule.effective_to.isoformat()})"
+        ),
+        "effective_from": rule.effective_from.isoformat(),
+        "effective_to": rule.effective_to.isoformat(),
+        "monday_max_hours": str(rule.monday_max_hours),
+        "tuesday_max_hours": str(rule.tuesday_max_hours),
+        "wednesday_max_hours": str(rule.wednesday_max_hours),
+        "thursday_max_hours": str(rule.thursday_max_hours),
+        "friday_max_hours": str(rule.friday_max_hours),
+        "status": rule.status.value_code,
+        "yearly_calendar": _serialize_yearly_calendar(rule.yearly_calendar),
+    }
+
+
+def _serialize_project(project: Project) -> dict:
+    return {
+        "id": project.id,
+        "project_code": project.project_code,
+        "name": project.name,
+        "description": project.description,
+        "start_date": project.start_date.isoformat(),
+        "end_date": project.end_date.isoformat() if project.end_date else None,
+        "close_date": project.close_date.isoformat() if project.close_date else None,
+        "billable_flag": project.billable_flag,
+        "status": project.status.value_code,
+        "business_unit": {
+            "id": project.business_unit_id,
+            "bu_code": project.business_unit.bu_code,
+            "name": project.business_unit.name,
+        },
+        "project_owner_employee": {
+            "id": project.project_owner_employee_id,
+            "employee_code": project.project_owner_employee.employee_code,
+            "full_name": project.project_owner_employee.full_name,
+        },
+        "project_manager_employee": {
+            "id": project.project_manager_employee_id,
+            "employee_code": project.project_manager_employee.employee_code,
+            "full_name": project.project_manager_employee.full_name,
+        },
+        "client": {
+            "id": project.client_id,
+            "client_code": project.client.client_code,
+            "name": project.client.name,
+        },
+        "internal_category": {
+            "id": project.internal_category_id,
+            "category_code": project.internal_category.category_code,
+            "name": project.internal_category.name,
+        },
+        "cost_center": {
+            "id": project.cost_center_id,
+            "cost_center_code": project.cost_center.cost_center_code,
+            "name": project.cost_center.name,
+        },
+    }
+
+
+def _serialize_project_assignment(assignment: ProjectAssignment) -> dict:
+    return {
+        "id": assignment.id,
+        "name": (
+            f"{assignment.project.project_code} -> "
+            f"{assignment.employee.employee_code} ({assignment.assignment_start_date.isoformat()})"
+        ),
+        "assignment_start_date": assignment.assignment_start_date.isoformat(),
+        "assignment_end_date": assignment.assignment_end_date.isoformat()
+        if assignment.assignment_end_date
+        else None,
+        "status": assignment.status.value_code,
+        "project": {
+            "id": assignment.project_id,
+            "project_code": assignment.project.project_code,
+            "name": assignment.project.name,
+            "business_unit": {
+                "id": assignment.project.business_unit_id,
+                "bu_code": assignment.project.business_unit.bu_code,
+                "name": assignment.project.business_unit.name,
+            },
+        },
+        "employee": {
+            "id": assignment.employee_id,
+            "employee_code": assignment.employee.employee_code,
+            "full_name": assignment.employee.full_name,
+            "primary_business_unit": {
+                "id": assignment.employee.primary_business_unit_id,
+                "bu_code": assignment.employee.primary_business_unit.bu_code,
+                "name": assignment.employee.primary_business_unit.name,
+            },
+        },
+    }
+
+
 class EmployeeManagementService:
     @staticmethod
-    def list_employees(current_user: CurrentUser) -> list[dict]:
+    def list_employees(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+    ) -> list[dict]:
         _ensure_ts_admin(current_user)
-        employees = (
+        employees = _apply_status_filter(
             Employee.objects.select_related("primary_business_unit", "status")
             .prefetch_related(
                 "business_unit_assignments__business_unit",
@@ -301,7 +485,8 @@ class EmployeeManagementService:
                 "role_assignments__status__domain",
             )
             .filter(primary_business_unit_id__in=current_user.scoped_business_unit_ids)
-            .order_by("employee_code")
+            .order_by("employee_code"),
+            _parse_status_filter(status_code, domain_code="EMPLOYEE_STATUS"),
         )
         return [_serialize_employee(employee) for employee in employees]
 
@@ -675,12 +860,17 @@ class EmployeeManagementService:
 
 class ClientManagementService:
     @staticmethod
-    def list_clients(current_user: CurrentUser) -> list[dict]:
+    def list_clients(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+    ) -> list[dict]:
         _ensure_ts_admin(current_user)
-        clients = (
+        clients = _apply_status_filter(
             ClientRecord.objects.select_related("business_unit", "parent_client", "status")
             .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
-            .order_by("business_unit__bu_code", "client_code")
+            .order_by("business_unit__bu_code", "client_code"),
+            _parse_status_filter(status_code, domain_code="CLIENT_STATUS"),
         )
         return [_serialize_client(client) for client in clients]
 
@@ -882,12 +1072,17 @@ class ClientManagementService:
 
 class InternalCategoryManagementService:
     @staticmethod
-    def list_categories(current_user: CurrentUser) -> list[dict]:
+    def list_categories(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+    ) -> list[dict]:
         _ensure_ts_admin(current_user)
-        categories = (
+        categories = _apply_status_filter(
             InternalCategoryRecord.objects.select_related("business_unit", "status")
             .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
-            .order_by("business_unit__bu_code", "category_code")
+            .order_by("business_unit__bu_code", "category_code"),
+            _parse_status_filter(status_code, domain_code="INTERNAL_CATEGORY_STATUS"),
         )
         return [_serialize_internal_category(category) for category in categories]
 
@@ -1064,12 +1259,17 @@ class InternalCategoryManagementService:
 
 class CostCenterManagementService:
     @staticmethod
-    def list_cost_centers(current_user: CurrentUser) -> list[dict]:
+    def list_cost_centers(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+    ) -> list[dict]:
         _ensure_ts_admin(current_user)
-        cost_centers = (
+        cost_centers = _apply_status_filter(
             CostCenterRecord.objects.select_related("business_unit", "status")
             .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
-            .order_by("business_unit__bu_code", "cost_center_code")
+            .order_by("business_unit__bu_code", "cost_center_code"),
+            _parse_status_filter(status_code, domain_code="COST_CENTER_STATUS"),
         )
         return [_serialize_cost_center(cost_center) for cost_center in cost_centers]
 
@@ -1248,12 +1448,17 @@ class CostCenterManagementService:
 
 class GeneralChargeCodeManagementService:
     @staticmethod
-    def list_general_charge_codes(current_user: CurrentUser) -> list[dict]:
+    def list_general_charge_codes(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+    ) -> list[dict]:
         _ensure_ts_admin(current_user)
-        general_charge_codes = (
+        general_charge_codes = _apply_status_filter(
             GeneralChargeCodeRecord.objects.select_related("business_unit", "charge_type", "status")
             .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
-            .order_by("business_unit__bu_code", "code")
+            .order_by("business_unit__bu_code", "code"),
+            _parse_status_filter(status_code, domain_code="GENERAL_CHARGE_CODE_STATUS"),
         )
         return [
             _serialize_general_charge_code(general_charge_code)
@@ -1538,3 +1743,1133 @@ class GeneralChargeCodeManagementService:
         return GeneralChargeCodeRecord.objects.select_related(
             "business_unit", "charge_type", "status"
         ).get(id=general_charge_code_id)
+
+
+class CalendarPeriodRuleManagementService:
+    @staticmethod
+    def list_period_rules(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+    ) -> list[dict]:
+        _ensure_ts_admin(current_user)
+        period_rules = _apply_status_filter(
+            CalendarPeriodRule.objects.select_related(
+                "yearly_calendar",
+                "yearly_calendar__business_unit",
+                "yearly_calendar__status",
+                "status",
+            )
+            .filter(yearly_calendar__business_unit_id__in=current_user.scoped_business_unit_ids)
+            .order_by(
+                "yearly_calendar__business_unit__bu_code",
+                "yearly_calendar__calendar_year",
+                "yearly_calendar__calendar_name",
+                "effective_from",
+            ),
+            _parse_status_filter(status_code, domain_code="CALENDAR_PERIOD_STATUS"),
+        )
+        return [_serialize_calendar_period_rule(period_rule) for period_rule in period_rules]
+
+    @staticmethod
+    def list_yearly_calendars(current_user: CurrentUser) -> list[dict]:
+        _ensure_ts_admin(current_user)
+        calendars = (
+            YearlyCalendar.objects.select_related("business_unit", "status")
+            .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+            .order_by("business_unit__bu_code", "calendar_year", "calendar_name")
+        )
+        return [_serialize_yearly_calendar(calendar) for calendar in calendars]
+
+    @staticmethod
+    def get_period_rule(current_user: CurrentUser, period_rule_id: int) -> dict:
+        _ensure_ts_admin(current_user)
+        period_rule = CalendarPeriodRuleManagementService._get_scoped_period_rule(
+            current_user,
+            period_rule_id,
+        )
+        return _serialize_calendar_period_rule(period_rule)
+
+    @staticmethod
+    @transaction.atomic
+    def create_period_rule(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        actor_employee = _actor_employee(current_user)
+        yearly_calendar = CalendarPeriodRuleManagementService._get_scoped_yearly_calendar(
+            current_user,
+            _parse_required_int(
+                payload.get("yearly_calendar_id"),
+                code="CALENDAR_PERIOD_RULE_CALENDAR_REQUIRED",
+                message="yearly_calendar_id is required.",
+            ),
+        )
+        effective_from = _parse_iso_date(
+            payload.get("effective_from"),
+            code="CALENDAR_PERIOD_RULE_EFFECTIVE_FROM_REQUIRED",
+            message="effective_from must be a valid ISO date.",
+        )
+        effective_to = _parse_iso_date(
+            payload.get("effective_to"),
+            code="CALENDAR_PERIOD_RULE_EFFECTIVE_TO_REQUIRED",
+            message="effective_to must be a valid ISO date.",
+        )
+        CalendarPeriodRuleManagementService._validate_date_range(effective_from, effective_to)
+        CalendarPeriodRuleManagementService._ensure_no_overlap(
+            yearly_calendar.id,
+            effective_from=effective_from,
+            effective_to=effective_to,
+        )
+        period_rule = CalendarPeriodRule.objects.create(
+            yearly_calendar=yearly_calendar,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            monday_max_hours=_parse_decimal(
+                payload.get("monday_max_hours"),
+                code="CALENDAR_PERIOD_RULE_MONDAY_REQUIRED",
+                message="monday_max_hours is required.",
+            ),
+            tuesday_max_hours=_parse_decimal(
+                payload.get("tuesday_max_hours"),
+                code="CALENDAR_PERIOD_RULE_TUESDAY_REQUIRED",
+                message="tuesday_max_hours is required.",
+            ),
+            wednesday_max_hours=_parse_decimal(
+                payload.get("wednesday_max_hours"),
+                code="CALENDAR_PERIOD_RULE_WEDNESDAY_REQUIRED",
+                message="wednesday_max_hours is required.",
+            ),
+            thursday_max_hours=_parse_decimal(
+                payload.get("thursday_max_hours"),
+                code="CALENDAR_PERIOD_RULE_THURSDAY_REQUIRED",
+                message="thursday_max_hours is required.",
+            ),
+            friday_max_hours=_parse_decimal(
+                payload.get("friday_max_hours"),
+                code="CALENDAR_PERIOD_RULE_FRIDAY_REQUIRED",
+                message="friday_max_hours is required.",
+            ),
+            status=_ref_value(
+                "CALENDAR_PERIOD_STATUS",
+                str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE",
+            ),
+            created_by=current_user.email,
+            updated_by=current_user.email,
+        )
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="calendar_period_rule",
+            entity_id=period_rule.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=yearly_calendar.business_unit,
+            reason_text="Calendar period rule created by Timesheet Administrator.",
+        )
+        return _serialize_calendar_period_rule(
+            CalendarPeriodRuleManagementService._refresh_period_rule(period_rule.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def update_period_rule(current_user: CurrentUser, period_rule_id: int, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        actor_employee = _actor_employee(current_user)
+        period_rule = CalendarPeriodRuleManagementService._get_scoped_period_rule(
+            current_user,
+            period_rule_id,
+        )
+        if (
+            "yearly_calendar_id" in payload
+            and _parse_required_int(
+                payload.get("yearly_calendar_id"),
+                code="CALENDAR_PERIOD_RULE_CALENDAR_REQUIRED",
+                message="yearly_calendar_id must be a valid calendar identifier.",
+            )
+            != period_rule.yearly_calendar_id
+        ):
+            raise AuthError(
+                "CALENDAR_PERIOD_RULE_CALENDAR_IMMUTABLE",
+                "Calendar Period Rule calendar cannot be changed.",
+                400,
+            )
+        proposed_effective_from = period_rule.effective_from
+        proposed_effective_to = period_rule.effective_to
+        if "effective_from" in payload:
+            proposed_effective_from = _parse_iso_date(
+                payload.get("effective_from"),
+                code="CALENDAR_PERIOD_RULE_EFFECTIVE_FROM_REQUIRED",
+                message="effective_from must be a valid ISO date.",
+            )
+        if "effective_to" in payload:
+            proposed_effective_to = _parse_iso_date(
+                payload.get("effective_to"),
+                code="CALENDAR_PERIOD_RULE_EFFECTIVE_TO_REQUIRED",
+                message="effective_to must be a valid ISO date.",
+            )
+        CalendarPeriodRuleManagementService._validate_date_range(
+            proposed_effective_from,
+            proposed_effective_to,
+        )
+        CalendarPeriodRuleManagementService._ensure_no_overlap(
+            period_rule.yearly_calendar_id,
+            effective_from=proposed_effective_from,
+            effective_to=proposed_effective_to,
+            exclude_rule_id=period_rule.id,
+        )
+        changed_fields: list[tuple[str, str, str]] = []
+        for field_name, code, message in (
+            (
+                "monday_max_hours",
+                "CALENDAR_PERIOD_RULE_MONDAY_REQUIRED",
+                "monday_max_hours is required.",
+            ),
+            (
+                "tuesday_max_hours",
+                "CALENDAR_PERIOD_RULE_TUESDAY_REQUIRED",
+                "tuesday_max_hours is required.",
+            ),
+            (
+                "wednesday_max_hours",
+                "CALENDAR_PERIOD_RULE_WEDNESDAY_REQUIRED",
+                "wednesday_max_hours is required.",
+            ),
+            (
+                "thursday_max_hours",
+                "CALENDAR_PERIOD_RULE_THURSDAY_REQUIRED",
+                "thursday_max_hours is required.",
+            ),
+            (
+                "friday_max_hours",
+                "CALENDAR_PERIOD_RULE_FRIDAY_REQUIRED",
+                "friday_max_hours is required.",
+            ),
+        ):
+            if field_name in payload:
+                new_value = _parse_decimal(payload.get(field_name), code=code, message=message)
+                if getattr(period_rule, field_name) != new_value:
+                    changed_fields.append(
+                        (field_name, str(getattr(period_rule, field_name)), str(new_value))
+                    )
+                    setattr(period_rule, field_name, new_value)
+        if proposed_effective_from != period_rule.effective_from:
+            changed_fields.append(
+                (
+                    "effective_from",
+                    period_rule.effective_from.isoformat(),
+                    proposed_effective_from.isoformat(),
+                )
+            )
+            period_rule.effective_from = proposed_effective_from
+        if proposed_effective_to != period_rule.effective_to:
+            changed_fields.append(
+                (
+                    "effective_to",
+                    period_rule.effective_to.isoformat(),
+                    proposed_effective_to.isoformat(),
+                )
+            )
+            period_rule.effective_to = proposed_effective_to
+        if "status_code" in payload:
+            new_status = _ref_value(
+                "CALENDAR_PERIOD_STATUS",
+                str(payload.get("status_code", "")).strip(),
+            )
+            if new_status.id != period_rule.status_id:
+                changed_fields.append(
+                    ("status", period_rule.status.value_code, new_status.value_code)
+                )
+                period_rule.status = new_status
+        if changed_fields:
+            period_rule.updated_by = current_user.email
+            period_rule.save()
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="calendar_period_rule",
+                entity_id=period_rule.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=period_rule.yearly_calendar.business_unit,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="Calendar period rule updated by Timesheet Administrator.",
+            )
+        return _serialize_calendar_period_rule(
+            CalendarPeriodRuleManagementService._refresh_period_rule(period_rule.id)
+        )
+
+    @staticmethod
+    def _validate_date_range(effective_from: date, effective_to: date) -> None:
+        if effective_to < effective_from:
+            raise AuthError(
+                "CALENDAR_PERIOD_RULE_DATE_RANGE_INVALID",
+                "effective_to must be on or after effective_from.",
+                400,
+            )
+
+    @staticmethod
+    def _ensure_no_overlap(
+        yearly_calendar_id: int,
+        *,
+        effective_from: date,
+        effective_to: date,
+        exclude_rule_id: int | None = None,
+    ) -> None:
+        overlaps = CalendarPeriodRule.objects.filter(
+            yearly_calendar_id=yearly_calendar_id,
+            effective_from__lte=effective_to,
+            effective_to__gte=effective_from,
+        )
+        if exclude_rule_id is not None:
+            overlaps = overlaps.exclude(id=exclude_rule_id)
+        if overlaps.exists():
+            raise AuthError(
+                "CALENDAR_PERIOD_RULE_OVERLAP",
+                "Calendar Period Rules cannot overlap within the same yearly calendar.",
+                400,
+            )
+
+    @staticmethod
+    def _get_scoped_yearly_calendar(
+        current_user: CurrentUser, yearly_calendar_id: int
+    ) -> YearlyCalendar:
+        try:
+            yearly_calendar = YearlyCalendar.objects.select_related("business_unit", "status").get(
+                id=yearly_calendar_id
+            )
+        except YearlyCalendar.DoesNotExist as exc:
+            raise AuthError("YEARLY_CALENDAR_NOT_FOUND", "Yearly calendar not found.", 404) from exc
+        _ensure_business_units_in_scope(current_user, {yearly_calendar.business_unit_id})
+        return yearly_calendar
+
+    @staticmethod
+    def _get_scoped_period_rule(
+        current_user: CurrentUser, period_rule_id: int
+    ) -> CalendarPeriodRule:
+        try:
+            period_rule = CalendarPeriodRule.objects.select_related(
+                "yearly_calendar",
+                "yearly_calendar__business_unit",
+                "yearly_calendar__status",
+                "status",
+            ).get(id=period_rule_id)
+        except CalendarPeriodRule.DoesNotExist as exc:
+            raise AuthError(
+                "CALENDAR_PERIOD_RULE_NOT_FOUND", "Calendar Period Rule not found.", 404
+            ) from exc
+        _ensure_business_units_in_scope(
+            current_user, {period_rule.yearly_calendar.business_unit_id}
+        )
+        return period_rule
+
+    @staticmethod
+    def _refresh_period_rule(period_rule_id: int) -> CalendarPeriodRule:
+        return CalendarPeriodRule.objects.select_related(
+            "yearly_calendar",
+            "yearly_calendar__business_unit",
+            "yearly_calendar__status",
+            "status",
+        ).get(id=period_rule_id)
+
+
+class ProjectManagementService:
+    @staticmethod
+    def list_projects(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+    ) -> list[dict]:
+        _ensure_ts_admin(current_user)
+        projects = _apply_status_filter(
+            Project.objects.select_related(
+                "business_unit",
+                "project_owner_employee",
+                "project_manager_employee",
+                "client",
+                "internal_category",
+                "cost_center",
+                "status",
+            )
+            .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+            .order_by("business_unit__bu_code", "project_code"),
+            _parse_status_filter(status_code, domain_code="PROJECT_STATUS"),
+        )
+        return [_serialize_project(project) for project in projects]
+
+    @staticmethod
+    def get_project(current_user: CurrentUser, project_id: int) -> dict:
+        _ensure_ts_admin(current_user)
+        project = ProjectManagementService._get_scoped_project(current_user, project_id)
+        return _serialize_project(project)
+
+    @staticmethod
+    @transaction.atomic
+    def create_project(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        actor_employee = _actor_employee(current_user)
+        business_unit = _get_scoped_business_unit(
+            current_user,
+            _parse_required_int(
+                payload.get("business_unit_id"),
+                code="PROJECT_BUSINESS_UNIT_REQUIRED",
+                message="business_unit_id is required.",
+            ),
+        )
+        project_code = str(payload.get("project_code", "")).strip()
+        name = str(payload.get("name", "")).strip()
+        description = str(payload.get("description", "")).strip()
+        if not project_code:
+            raise AuthError("PROJECT_CODE_REQUIRED", "Project code is required.", 400)
+        if not name:
+            raise AuthError("PROJECT_NAME_REQUIRED", "Project name is required.", 400)
+        project_owner = ProjectManagementService._resolve_project_employee(
+            current_user,
+            employee_id=payload.get("project_owner_employee_id"),
+            business_unit_id=business_unit.id,
+            required_role_code="PROJECT_OWNER",
+            code_prefix="PROJECT_OWNER",
+        )
+        project_manager = ProjectManagementService._resolve_project_employee(
+            current_user,
+            employee_id=payload.get("project_manager_employee_id"),
+            business_unit_id=business_unit.id,
+            required_role_code="PROJECT_MANAGER",
+            code_prefix="PROJECT_MANAGER",
+        )
+        client = ProjectManagementService._resolve_project_client(
+            current_user,
+            business_unit_id=business_unit.id,
+            client_id=payload.get("client_id"),
+        )
+        internal_category = ProjectManagementService._resolve_project_internal_category(
+            current_user,
+            business_unit_id=business_unit.id,
+            category_id=payload.get("internal_category_id"),
+        )
+        cost_center = ProjectManagementService._resolve_project_cost_center(
+            current_user,
+            business_unit_id=business_unit.id,
+            cost_center_id=payload.get("cost_center_id"),
+        )
+        start_date = _parse_iso_date(
+            payload.get("start_date"),
+            code="PROJECT_START_DATE_REQUIRED",
+            message="start_date must be a valid ISO date.",
+        )
+        end_date = _parse_optional_iso_date(
+            payload.get("end_date"),
+            code="PROJECT_END_DATE_INVALID",
+            message="end_date must be a valid ISO date.",
+        )
+        close_date = _parse_optional_iso_date(
+            payload.get("close_date"),
+            code="PROJECT_CLOSE_DATE_INVALID",
+            message="close_date must be a valid ISO date.",
+        )
+        ProjectManagementService._validate_project_dates(
+            start_date=start_date,
+            end_date=end_date,
+            close_date=close_date,
+        )
+        try:
+            project = Project.objects.create(
+                business_unit=business_unit,
+                project_code=project_code,
+                name=name,
+                description=description,
+                project_owner_employee=project_owner,
+                project_manager_employee=project_manager,
+                client=client,
+                internal_category=internal_category,
+                cost_center=cost_center,
+                start_date=start_date,
+                end_date=end_date,
+                close_date=close_date,
+                billable_flag=bool(payload.get("billable_flag", False)),
+                status=_ref_value(
+                    "PROJECT_STATUS",
+                    str(payload.get("status_code", "DRAFT")).strip() or "DRAFT",
+                ),
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+        except IntegrityError as exc:
+            raise AuthError(
+                "PROJECT_CODE_NOT_UNIQUE",
+                "Project code must be unique within the Business Unit.",
+                400,
+            ) from exc
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="project",
+            entity_id=project.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=project.business_unit,
+            reason_text="Project created by Timesheet Administrator.",
+        )
+        return _serialize_project(ProjectManagementService._refresh_project(project.id))
+
+    @staticmethod
+    @transaction.atomic
+    def update_project(current_user: CurrentUser, project_id: int, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        actor_employee = _actor_employee(current_user)
+        project = ProjectManagementService._get_scoped_project(current_user, project_id)
+        if (
+            "business_unit_id" in payload
+            and _parse_required_int(
+                payload.get("business_unit_id"),
+                code="PROJECT_BUSINESS_UNIT_REQUIRED",
+                message="business_unit_id must be a valid Business Unit identifier.",
+            )
+            != project.business_unit_id
+        ):
+            raise AuthError(
+                "PROJECT_BUSINESS_UNIT_IMMUTABLE",
+                "Project Business Unit cannot be changed.",
+                400,
+            )
+        changed_fields: list[tuple[str, str, str]] = []
+        if "project_code" in payload:
+            new_project_code = str(payload.get("project_code", "")).strip()
+            if not new_project_code:
+                raise AuthError("PROJECT_CODE_REQUIRED", "Project code is required.", 400)
+            if new_project_code != project.project_code:
+                changed_fields.append(("project_code", project.project_code, new_project_code))
+                project.project_code = new_project_code
+        if "name" in payload:
+            new_name = str(payload.get("name", "")).strip()
+            if not new_name:
+                raise AuthError("PROJECT_NAME_REQUIRED", "Project name is required.", 400)
+            if new_name != project.name:
+                changed_fields.append(("name", project.name, new_name))
+                project.name = new_name
+        if "description" in payload:
+            new_description = str(payload.get("description", "")).strip()
+            if new_description != project.description:
+                changed_fields.append(("description", project.description, new_description))
+                project.description = new_description
+        if "project_owner_employee_id" in payload:
+            new_project_owner = ProjectManagementService._resolve_project_employee(
+                current_user,
+                employee_id=payload.get("project_owner_employee_id"),
+                business_unit_id=project.business_unit_id,
+                required_role_code="PROJECT_OWNER",
+                code_prefix="PROJECT_OWNER",
+            )
+            if new_project_owner.id != project.project_owner_employee_id:
+                changed_fields.append(
+                    (
+                        "project_owner_employee",
+                        project.project_owner_employee.employee_code,
+                        new_project_owner.employee_code,
+                    )
+                )
+                project.project_owner_employee = new_project_owner
+        if "project_manager_employee_id" in payload:
+            new_project_manager = ProjectManagementService._resolve_project_employee(
+                current_user,
+                employee_id=payload.get("project_manager_employee_id"),
+                business_unit_id=project.business_unit_id,
+                required_role_code="PROJECT_MANAGER",
+                code_prefix="PROJECT_MANAGER",
+            )
+            if new_project_manager.id != project.project_manager_employee_id:
+                changed_fields.append(
+                    (
+                        "project_manager_employee",
+                        project.project_manager_employee.employee_code,
+                        new_project_manager.employee_code,
+                    )
+                )
+                project.project_manager_employee = new_project_manager
+        if "client_id" in payload:
+            new_client = ProjectManagementService._resolve_project_client(
+                current_user,
+                business_unit_id=project.business_unit_id,
+                client_id=payload.get("client_id"),
+            )
+            if new_client.id != project.client_id:
+                changed_fields.append(
+                    ("client", project.client.client_code, new_client.client_code)
+                )
+                project.client = new_client
+        if "internal_category_id" in payload:
+            new_category = ProjectManagementService._resolve_project_internal_category(
+                current_user,
+                business_unit_id=project.business_unit_id,
+                category_id=payload.get("internal_category_id"),
+            )
+            if new_category.id != project.internal_category_id:
+                changed_fields.append(
+                    (
+                        "internal_category",
+                        project.internal_category.category_code,
+                        new_category.category_code,
+                    )
+                )
+                project.internal_category = new_category
+        if "cost_center_id" in payload:
+            new_cost_center = ProjectManagementService._resolve_project_cost_center(
+                current_user,
+                business_unit_id=project.business_unit_id,
+                cost_center_id=payload.get("cost_center_id"),
+            )
+            if new_cost_center.id != project.cost_center_id:
+                changed_fields.append(
+                    (
+                        "cost_center",
+                        project.cost_center.cost_center_code,
+                        new_cost_center.cost_center_code,
+                    )
+                )
+                project.cost_center = new_cost_center
+        proposed_start_date = project.start_date
+        proposed_end_date = project.end_date
+        proposed_close_date = project.close_date
+        if "start_date" in payload:
+            proposed_start_date = _parse_iso_date(
+                payload.get("start_date"),
+                code="PROJECT_START_DATE_REQUIRED",
+                message="start_date must be a valid ISO date.",
+            )
+        if "end_date" in payload:
+            proposed_end_date = _parse_optional_iso_date(
+                payload.get("end_date"),
+                code="PROJECT_END_DATE_INVALID",
+                message="end_date must be a valid ISO date.",
+            )
+        if "close_date" in payload:
+            proposed_close_date = _parse_optional_iso_date(
+                payload.get("close_date"),
+                code="PROJECT_CLOSE_DATE_INVALID",
+                message="close_date must be a valid ISO date.",
+            )
+        ProjectManagementService._validate_project_dates(
+            start_date=proposed_start_date,
+            end_date=proposed_end_date,
+            close_date=proposed_close_date,
+        )
+        if proposed_start_date != project.start_date:
+            changed_fields.append(
+                ("start_date", project.start_date.isoformat(), proposed_start_date.isoformat())
+            )
+            project.start_date = proposed_start_date
+        if proposed_end_date != project.end_date:
+            changed_fields.append(
+                (
+                    "end_date",
+                    project.end_date.isoformat() if project.end_date else "",
+                    proposed_end_date.isoformat() if proposed_end_date else "",
+                )
+            )
+            project.end_date = proposed_end_date
+        if proposed_close_date != project.close_date:
+            changed_fields.append(
+                (
+                    "close_date",
+                    project.close_date.isoformat() if project.close_date else "",
+                    proposed_close_date.isoformat() if proposed_close_date else "",
+                )
+            )
+            project.close_date = proposed_close_date
+        if "billable_flag" in payload:
+            new_billable_flag = bool(payload.get("billable_flag"))
+            if new_billable_flag != project.billable_flag:
+                changed_fields.append(
+                    ("billable_flag", str(project.billable_flag), str(new_billable_flag))
+                )
+                project.billable_flag = new_billable_flag
+        if "status_code" in payload:
+            new_status = _ref_value("PROJECT_STATUS", str(payload.get("status_code", "")).strip())
+            if new_status.id != project.status_id:
+                changed_fields.append(("status", project.status.value_code, new_status.value_code))
+                project.status = new_status
+        if changed_fields:
+            try:
+                project.updated_by = current_user.email
+                project.save()
+            except IntegrityError as exc:
+                raise AuthError(
+                    "PROJECT_CODE_NOT_UNIQUE",
+                    "Project code must be unique within the Business Unit.",
+                    400,
+                ) from exc
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="project",
+                entity_id=project.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=project.business_unit,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="Project updated by Timesheet Administrator.",
+            )
+        return _serialize_project(ProjectManagementService._refresh_project(project.id))
+
+    @staticmethod
+    def _validate_project_dates(
+        *,
+        start_date: date,
+        end_date: date | None,
+        close_date: date | None,
+    ) -> None:
+        if end_date is not None and end_date < start_date:
+            raise AuthError(
+                "PROJECT_DATE_RANGE_INVALID",
+                "end_date must be on or after start_date.",
+                400,
+            )
+        if close_date is not None and close_date < start_date:
+            raise AuthError(
+                "PROJECT_CLOSE_DATE_INVALID",
+                "close_date must be on or after start_date.",
+                400,
+            )
+
+    @staticmethod
+    def _resolve_project_employee(
+        current_user: CurrentUser,
+        *,
+        employee_id: object,
+        business_unit_id: int,
+        required_role_code: str,
+        code_prefix: str,
+    ) -> Employee:
+        resolved_employee_id = _parse_required_int(
+            employee_id,
+            code=f"{code_prefix}_REQUIRED",
+            message=f"{code_prefix.lower()}_employee_id is required.",
+        )
+        employee = _get_scoped_employee_for_management(current_user, resolved_employee_id)
+        if employee.status.value_code != "ACTIVE":
+            raise AuthError(
+                f"{code_prefix}_INACTIVE",
+                f"{required_role_code.replace('_', ' ').title()} must be active.",
+                400,
+            )
+        if not _employee_has_active_business_unit_scope(employee.id, business_unit_id):
+            raise AuthError(
+                f"{code_prefix}_BU_SCOPE_INVALID",
+                (
+                    f"{required_role_code.replace('_', ' ').title()} "
+                    "must be assigned to the same Business Unit."
+                ),
+                400,
+            )
+        if not _employee_has_active_role(
+            employee.id,
+            role_code=required_role_code,
+            business_unit_id=business_unit_id,
+        ):
+            raise AuthError(
+                f"{code_prefix}_ROLE_INVALID",
+                f"Selected employee must have the {required_role_code} role.",
+                400,
+            )
+        return employee
+
+    @staticmethod
+    def _resolve_project_client(
+        current_user: CurrentUser,
+        *,
+        business_unit_id: int,
+        client_id: object,
+    ) -> ClientRecord:
+        client = ClientManagementService._get_scoped_client(
+            current_user,
+            _parse_required_int(
+                client_id,
+                code="PROJECT_CLIENT_REQUIRED",
+                message="client_id is required.",
+            ),
+        )
+        if client.business_unit_id != business_unit_id:
+            raise AuthError(
+                "PROJECT_CLIENT_BU_MISMATCH",
+                "Project client must belong to the same Business Unit.",
+                400,
+            )
+        return client
+
+    @staticmethod
+    def _resolve_project_internal_category(
+        current_user: CurrentUser,
+        *,
+        business_unit_id: int,
+        category_id: object,
+    ) -> InternalCategoryRecord:
+        category = InternalCategoryManagementService._get_scoped_category(
+            current_user,
+            _parse_required_int(
+                category_id,
+                code="PROJECT_INTERNAL_CATEGORY_REQUIRED",
+                message="internal_category_id is required.",
+            ),
+        )
+        if category.business_unit_id != business_unit_id:
+            raise AuthError(
+                "PROJECT_INTERNAL_CATEGORY_BU_MISMATCH",
+                "Project internal category must belong to the same Business Unit.",
+                400,
+            )
+        return category
+
+    @staticmethod
+    def _resolve_project_cost_center(
+        current_user: CurrentUser,
+        *,
+        business_unit_id: int,
+        cost_center_id: object,
+    ) -> CostCenterRecord:
+        cost_center = CostCenterManagementService._get_scoped_cost_center(
+            current_user,
+            _parse_required_int(
+                cost_center_id,
+                code="PROJECT_COST_CENTER_REQUIRED",
+                message="cost_center_id is required.",
+            ),
+        )
+        if cost_center.business_unit_id != business_unit_id:
+            raise AuthError(
+                "PROJECT_COST_CENTER_BU_MISMATCH",
+                "Project cost center must belong to the same Business Unit.",
+                400,
+            )
+        return cost_center
+
+    @staticmethod
+    def _get_scoped_project(current_user: CurrentUser, project_id: int) -> Project:
+        try:
+            project = Project.objects.select_related(
+                "business_unit",
+                "project_owner_employee",
+                "project_manager_employee",
+                "client",
+                "internal_category",
+                "cost_center",
+                "status",
+            ).get(id=project_id)
+        except Project.DoesNotExist as exc:
+            raise AuthError("PROJECT_NOT_FOUND", "Project not found.", 404) from exc
+        _ensure_business_units_in_scope(current_user, {project.business_unit_id})
+        return project
+
+    @staticmethod
+    def _refresh_project(project_id: int) -> Project:
+        return Project.objects.select_related(
+            "business_unit",
+            "project_owner_employee",
+            "project_manager_employee",
+            "client",
+            "internal_category",
+            "cost_center",
+            "status",
+        ).get(id=project_id)
+
+
+class ProjectAssignmentManagementService:
+    @staticmethod
+    def list_assignments(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+    ) -> list[dict]:
+        _ensure_ts_admin(current_user)
+        assignments = _apply_status_filter(
+            ProjectAssignment.objects.select_related(
+                "project",
+                "project__business_unit",
+                "employee",
+                "employee__primary_business_unit",
+                "status",
+            )
+            .filter(project__business_unit_id__in=current_user.scoped_business_unit_ids)
+            .order_by(
+                "project__business_unit__bu_code",
+                "project__project_code",
+                "employee__employee_code",
+                "assignment_start_date",
+            ),
+            _parse_status_filter(status_code, domain_code="PROJECT_ASSIGNMENT_STATUS"),
+        )
+        return [_serialize_project_assignment(assignment) for assignment in assignments]
+
+    @staticmethod
+    def get_assignment(current_user: CurrentUser, assignment_id: int) -> dict:
+        _ensure_ts_admin(current_user)
+        assignment = ProjectAssignmentManagementService._get_scoped_assignment(
+            current_user,
+            assignment_id,
+        )
+        return _serialize_project_assignment(assignment)
+
+    @staticmethod
+    @transaction.atomic
+    def create_assignment(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        actor_employee = _actor_employee(current_user)
+        project = ProjectManagementService._get_scoped_project(
+            current_user,
+            _parse_required_int(
+                payload.get("project_id"),
+                code="PROJECT_ASSIGNMENT_PROJECT_REQUIRED",
+                message="project_id is required.",
+            ),
+        )
+        if project.status.value_code == "CLOSED":
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_PROJECT_CLOSED",
+                "Closed projects cannot receive new assignments.",
+                400,
+            )
+        employee = _get_scoped_employee_for_management(
+            current_user,
+            _parse_required_int(
+                payload.get("employee_id"),
+                code="PROJECT_ASSIGNMENT_EMPLOYEE_REQUIRED",
+                message="employee_id is required.",
+            ),
+        )
+        if employee.status.value_code != "ACTIVE":
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_EMPLOYEE_INACTIVE",
+                "Project assignment employee must be active.",
+                400,
+            )
+        if not _employee_has_active_business_unit_scope(employee.id, project.business_unit_id):
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_EMPLOYEE_BU_SCOPE_INVALID",
+                "Assigned employee must belong to the project Business Unit.",
+                400,
+            )
+        assignment_start_date = _parse_iso_date(
+            payload.get("assignment_start_date"),
+            code="PROJECT_ASSIGNMENT_START_REQUIRED",
+            message="assignment_start_date must be a valid ISO date.",
+        )
+        assignment_end_date = _parse_optional_iso_date(
+            payload.get("assignment_end_date"),
+            code="PROJECT_ASSIGNMENT_END_INVALID",
+            message="assignment_end_date must be a valid ISO date.",
+        )
+        ProjectAssignmentManagementService._validate_assignment_dates(
+            project=project,
+            assignment_start_date=assignment_start_date,
+            assignment_end_date=assignment_end_date,
+        )
+        try:
+            assignment = ProjectAssignment.objects.create(
+                project=project,
+                employee=employee,
+                assignment_start_date=assignment_start_date,
+                assignment_end_date=assignment_end_date,
+                status=_ref_value(
+                    "PROJECT_ASSIGNMENT_STATUS",
+                    str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE",
+                ),
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+        except IntegrityError as exc:
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_NOT_UNIQUE",
+                "Project assignment start date must be unique for the employee within the project.",
+                400,
+            ) from exc
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="project_assignment",
+            entity_id=assignment.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=project.business_unit,
+            reason_text="Project assignment created by Timesheet Administrator.",
+        )
+        return _serialize_project_assignment(
+            ProjectAssignmentManagementService._refresh_assignment(assignment.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def update_assignment(current_user: CurrentUser, assignment_id: int, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        actor_employee = _actor_employee(current_user)
+        assignment = ProjectAssignmentManagementService._get_scoped_assignment(
+            current_user,
+            assignment_id,
+        )
+        if (
+            "project_id" in payload
+            and _parse_required_int(
+                payload.get("project_id"),
+                code="PROJECT_ASSIGNMENT_PROJECT_REQUIRED",
+                message="project_id must be a valid project identifier.",
+            )
+            != assignment.project_id
+        ):
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_PROJECT_IMMUTABLE",
+                "Project Assignment project cannot be changed.",
+                400,
+            )
+        if (
+            "employee_id" in payload
+            and _parse_required_int(
+                payload.get("employee_id"),
+                code="PROJECT_ASSIGNMENT_EMPLOYEE_REQUIRED",
+                message="employee_id must be a valid employee identifier.",
+            )
+            != assignment.employee_id
+        ):
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_EMPLOYEE_IMMUTABLE",
+                "Project Assignment employee cannot be changed.",
+                400,
+            )
+        proposed_start_date = assignment.assignment_start_date
+        proposed_end_date = assignment.assignment_end_date
+        if "assignment_start_date" in payload:
+            proposed_start_date = _parse_iso_date(
+                payload.get("assignment_start_date"),
+                code="PROJECT_ASSIGNMENT_START_REQUIRED",
+                message="assignment_start_date must be a valid ISO date.",
+            )
+        if "assignment_end_date" in payload:
+            proposed_end_date = _parse_optional_iso_date(
+                payload.get("assignment_end_date"),
+                code="PROJECT_ASSIGNMENT_END_INVALID",
+                message="assignment_end_date must be a valid ISO date.",
+            )
+        ProjectAssignmentManagementService._validate_assignment_dates(
+            project=assignment.project,
+            assignment_start_date=proposed_start_date,
+            assignment_end_date=proposed_end_date,
+        )
+        changed_fields: list[tuple[str, str, str]] = []
+        if proposed_start_date != assignment.assignment_start_date:
+            changed_fields.append(
+                (
+                    "assignment_start_date",
+                    assignment.assignment_start_date.isoformat(),
+                    proposed_start_date.isoformat(),
+                )
+            )
+            assignment.assignment_start_date = proposed_start_date
+        if proposed_end_date != assignment.assignment_end_date:
+            changed_fields.append(
+                (
+                    "assignment_end_date",
+                    assignment.assignment_end_date.isoformat()
+                    if assignment.assignment_end_date
+                    else "",
+                    proposed_end_date.isoformat() if proposed_end_date else "",
+                )
+            )
+            assignment.assignment_end_date = proposed_end_date
+        if "status_code" in payload:
+            new_status = _ref_value(
+                "PROJECT_ASSIGNMENT_STATUS",
+                str(payload.get("status_code", "")).strip(),
+            )
+            if new_status.id != assignment.status_id:
+                changed_fields.append(
+                    ("status", assignment.status.value_code, new_status.value_code)
+                )
+                assignment.status = new_status
+        if changed_fields:
+            try:
+                assignment.updated_by = current_user.email
+                assignment.save()
+            except IntegrityError as exc:
+                raise AuthError(
+                    "PROJECT_ASSIGNMENT_NOT_UNIQUE",
+                    (
+                        "Project assignment start date must be unique for the "
+                        "employee within the project."
+                    ),
+                    400,
+                ) from exc
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="project_assignment",
+                entity_id=assignment.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=assignment.project.business_unit,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="Project assignment updated by Timesheet Administrator.",
+            )
+        return _serialize_project_assignment(
+            ProjectAssignmentManagementService._refresh_assignment(assignment.id)
+        )
+
+    @staticmethod
+    def _validate_assignment_dates(
+        *,
+        project: Project,
+        assignment_start_date: date,
+        assignment_end_date: date | None,
+    ) -> None:
+        if assignment_end_date is not None and assignment_end_date < assignment_start_date:
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_DATE_RANGE_INVALID",
+                "assignment_end_date must be on or after assignment_start_date.",
+                400,
+            )
+        if assignment_start_date < project.start_date:
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_BEFORE_PROJECT_START",
+                "assignment_start_date cannot be before the project start_date.",
+                400,
+            )
+        if (
+            project.end_date is not None
+            and assignment_end_date is not None
+            and assignment_end_date > project.end_date
+        ):
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_AFTER_PROJECT_END",
+                "assignment_end_date cannot be after the project end_date.",
+                400,
+            )
+        if project.close_date is not None and assignment_start_date > project.close_date:
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_AFTER_PROJECT_CLOSE",
+                "assignment_start_date cannot be after the project close_date.",
+                400,
+            )
+
+    @staticmethod
+    def _get_scoped_assignment(current_user: CurrentUser, assignment_id: int) -> ProjectAssignment:
+        try:
+            assignment = ProjectAssignment.objects.select_related(
+                "project",
+                "project__business_unit",
+                "employee",
+                "employee__primary_business_unit",
+                "status",
+            ).get(id=assignment_id)
+        except ProjectAssignment.DoesNotExist as exc:
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_NOT_FOUND", "Project Assignment not found.", 404
+            ) from exc
+        _ensure_business_units_in_scope(current_user, {assignment.project.business_unit_id})
+        return assignment
+
+    @staticmethod
+    def _refresh_assignment(assignment_id: int) -> ProjectAssignment:
+        return ProjectAssignment.objects.select_related(
+            "project",
+            "project__business_unit",
+            "employee",
+            "employee__primary_business_unit",
+            "status",
+        ).get(id=assignment_id)

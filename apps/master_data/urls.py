@@ -35,6 +35,28 @@ urlpatterns = [
         views.general_charge_code_detail,
         name="admin-general-charge-code-detail",
     ),
+    path("admin/projects/", views.projects_collection, name="admin-project-collection"),
+    path("admin/projects/<int:project_id>/", views.project_detail, name="admin-project-detail"),
+    path(
+        "admin/project-assignments/",
+        views.project_assignments_collection,
+        name="admin-project-assignment-collection",
+    ),
+    path(
+        "admin/project-assignments/<int:assignment_id>/",
+        views.project_assignment_detail,
+        name="admin-project-assignment-detail",
+    ),
+    path(
+        "admin/calendar-period-rules/",
+        views.calendar_period_rules_collection,
+        name="admin-calendar-period-rule-collection",
+    ),
+    path(
+        "admin/calendar-period-rules/<int:period_rule_id>/",
+        views.calendar_period_rule_detail,
+        name="admin-calendar-period-rule-detail",
+    ),
     path("admin/employees/", views.create_employee, name="admin-employee-create"),
     path("admin/employees/<int:employee_id>/", views.update_employee, name="admin-employee-update"),
     path(

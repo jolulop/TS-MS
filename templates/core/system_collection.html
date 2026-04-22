@@ -18,6 +18,20 @@
       <p>{{ page_intro }}</p>
     </div>
 
+    {% if filter_links %}
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>{{ filter_title|default:"Filters" }}</h2>
+          <p>Use lifecycle filters to switch between active, inactive, and full history views.</p>
+        </div>
+        <nav class="subnav" aria-label="{{ filter_title|default:'Filters' }}">
+          {% for link in filter_links %}
+            <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+          {% endfor %}
+        </nav>
+      </section>
+    {% endif %}
+
     <div class="split-grid">
       <section class="surface-card">
         <div class="section-header">
@@ -31,6 +45,7 @@
                   {% for header in table_headers %}
                     <th>{{ header }}</th>
                   {% endfor %}
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -45,6 +60,7 @@
                         {% endif %}
                       </td>
                     {% endfor %}
+                    <td><a href="{{ row.href }}">Open / Edit</a></td>
                   </tr>
                 {% endfor %}
               </tbody>

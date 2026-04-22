@@ -116,6 +116,24 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         summary="Scoped general charge code management screens.",
                         current_path=current_path,
                     ),
+                    _nav_item(
+                        label="Projects",
+                        href="/system/projects/",
+                        summary="Scoped project setup and lifecycle management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Project Assignments",
+                        href="/system/project-assignments/",
+                        summary="Scoped project staffing and lifecycle management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Calendar Period Rules",
+                        href="/system/calendar-period-rules/",
+                        summary="Scoped daily-hour period-rule management screens.",
+                        current_path=current_path,
+                    ),
                 ]
             )
         groups.append(NavGroup(label="System Management", items=tuple(system_items)))

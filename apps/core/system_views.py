@@ -7,14 +7,19 @@ from django.views.decorators.http import require_http_methods
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
 from apps.core.views import _page_context, _render_access_denied, _require_user
-from apps.master_data.models import BusinessUnit
+from apps.master_data.models import BusinessUnit, Employee, Project, YearlyCalendar
 from apps.master_data.models import Client as ClientRecord
+from apps.master_data.models import CostCenter as CostCenterRecord
+from apps.master_data.models import InternalCategory as InternalCategoryRecord
 from apps.master_data.services import (
+    CalendarPeriodRuleManagementService,
     ClientManagementService,
     CostCenterManagementService,
     EmployeeManagementService,
     GeneralChargeCodeManagementService,
     InternalCategoryManagementService,
+    ProjectAssignmentManagementService,
+    ProjectManagementService,
 )
 from apps.reference_data.models import RefValue
 
@@ -59,6 +64,9 @@ def _system_section_links(current_user: CurrentUser, current_path: str) -> list[
         ("internal-categories", "Internal Categories", "/system/internal-categories/"),
         ("cost-centers", "Cost Centers", "/system/cost-centers/"),
         ("general-charge-codes", "General Charge Codes", "/system/general-charge-codes/"),
+        ("projects", "Projects", "/system/projects/"),
+        ("project-assignments", "Project Assignments", "/system/project-assignments/"),
+        ("calendar-period-rules", "Calendar Period Rules", "/system/calendar-period-rules/"),
     ]
     return [
         {
@@ -224,8 +232,239 @@ def _field(
     }
 
 
+def _status_filter_links(
+    request: HttpRequest,
+    *,
+    domain_code: str,
+    default_code: str = "ALL",
+) -> tuple[str, list[dict]]:
+    raw_selected = str(request.GET.get("status", default_code)).strip().upper() or default_code
+    available_values = list(
+        RefValue.objects.filter(domain__domain_code=domain_code, active_flag=True).order_by(
+            "sort_order",
+            "value_code",
+        )
+    )
+    allowed_codes = {"ALL", *(value.value_code for value in available_values)}
+    selected_code = raw_selected if raw_selected in allowed_codes else default_code
+    links = [{"label": "All", "href": request.path, "active": selected_code == "ALL"}]
+    links.extend(
+        {
+            "label": ref_value.value_label,
+            "href": f"{request.path}?status={ref_value.value_code}",
+            "active": selected_code == ref_value.value_code,
+        }
+        for ref_value in available_values
+    )
+    return selected_code, links
+
+
+def _service_status_code(selected_code: str) -> str | None:
+    return None if selected_code == "ALL" else selected_code
+
+
 def _bool_from_post(post_data: QueryDict, field_name: str) -> bool:
     return post_data.get(field_name) == "on"
+
+
+def _scoped_client_options(
+    current_user: CurrentUser,
+    *,
+    business_unit_id: int | None = None,
+    selected: object = None,
+    include_blank: bool = False,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select a Client", selected_values=selected_values))
+    clients = ClientRecord.objects.filter(
+        business_unit_id__in=current_user.scoped_business_unit_ids
+    ).select_related("business_unit")
+    if business_unit_id is not None:
+        clients = clients.filter(business_unit_id=business_unit_id)
+    clients = clients.order_by("business_unit__bu_code", "client_code")
+    options.extend(
+        _option(
+            client.id,
+            f"{client.business_unit.bu_code} - {client.client_code} - {client.name}",
+            selected_values=selected_values,
+        )
+        for client in clients
+    )
+    return options
+
+
+def _scoped_internal_category_options(
+    current_user: CurrentUser,
+    *,
+    business_unit_id: int | None = None,
+    selected: object = None,
+    include_blank: bool = False,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select an Internal Category", selected_values=selected_values))
+    categories = InternalCategoryRecord.objects.filter(
+        business_unit_id__in=current_user.scoped_business_unit_ids
+    ).select_related("business_unit")
+    if business_unit_id is not None:
+        categories = categories.filter(business_unit_id=business_unit_id)
+    categories = categories.order_by("business_unit__bu_code", "category_code")
+    options.extend(
+        _option(
+            category.id,
+            f"{category.business_unit.bu_code} - {category.category_code} - {category.name}",
+            selected_values=selected_values,
+        )
+        for category in categories
+    )
+    return options
+
+
+def _scoped_cost_center_options(
+    current_user: CurrentUser,
+    *,
+    business_unit_id: int | None = None,
+    selected: object = None,
+    include_blank: bool = False,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select a Cost Center", selected_values=selected_values))
+    cost_centers = CostCenterRecord.objects.filter(
+        business_unit_id__in=current_user.scoped_business_unit_ids
+    ).select_related("business_unit")
+    if business_unit_id is not None:
+        cost_centers = cost_centers.filter(business_unit_id=business_unit_id)
+    cost_centers = cost_centers.order_by("business_unit__bu_code", "cost_center_code")
+    options.extend(
+        _option(
+            cost_center.id,
+            (
+                f"{cost_center.business_unit.bu_code} - "
+                f"{cost_center.cost_center_code} - {cost_center.name}"
+            ),
+            selected_values=selected_values,
+        )
+        for cost_center in cost_centers
+    )
+    return options
+
+
+def _scoped_employee_options(
+    current_user: CurrentUser,
+    *,
+    selected: object = None,
+    include_blank: bool = False,
+    required_role_code: str | None = None,
+    business_unit_id: int | None = None,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select an Employee", selected_values=selected_values))
+    employees = (
+        Employee.objects.select_related("primary_business_unit")
+        .prefetch_related(
+            "role_assignments__role",
+            "role_assignments__status__domain",
+            "business_unit_assignments__status__domain",
+        )
+        .filter(
+            business_unit_assignments__business_unit_id__in=current_user.scoped_business_unit_ids
+        )
+        .distinct()
+        .order_by("primary_business_unit__bu_code", "employee_code")
+    )
+    if business_unit_id is not None:
+        employees = employees.filter(
+            business_unit_assignments__business_unit_id=business_unit_id,
+            business_unit_assignments__status__domain__domain_code="EMPLOYEE_BU_STATUS",
+            business_unit_assignments__status__value_code="ACTIVE",
+            business_unit_assignments__valid_to__isnull=True,
+        )
+    employee_options = []
+    for employee in employees:
+        if required_role_code is not None:
+            active_role_codes = {
+                assignment.role.value_code
+                for assignment in employee.role_assignments.all()
+                if assignment.status.domain.domain_code == "ROLE_ASSIGNMENT_STATUS"
+                and assignment.status.value_code == "ACTIVE"
+                and assignment.valid_to is None
+            }
+            if required_role_code not in active_role_codes:
+                continue
+        employee_options.append(
+            _option(
+                employee.id,
+                (
+                    f"{employee.primary_business_unit.bu_code} - "
+                    f"{employee.employee_code} - {employee.full_name}"
+                ),
+                selected_values=selected_values,
+            )
+        )
+    options.extend(employee_options)
+    return options
+
+
+def _scoped_project_options(
+    current_user: CurrentUser,
+    *,
+    selected: object = None,
+    include_blank: bool = False,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select a Project", selected_values=selected_values))
+    projects = (
+        Project.objects.select_related("business_unit", "status")
+        .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+        .order_by("business_unit__bu_code", "project_code")
+    )
+    options.extend(
+        _option(
+            project.id,
+            f"{project.business_unit.bu_code} - {project.project_code} - {project.name}",
+            selected_values=selected_values,
+        )
+        for project in projects
+    )
+    return options
+
+
+def _scoped_yearly_calendar_options(
+    current_user: CurrentUser,
+    *,
+    selected: object = None,
+    include_blank: bool = False,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select a Calendar", selected_values=selected_values))
+    calendars = (
+        YearlyCalendar.objects.select_related("business_unit")
+        .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+        .order_by("business_unit__bu_code", "calendar_year", "calendar_name")
+    )
+    options.extend(
+        _option(
+            calendar.id,
+            (
+                f"{calendar.business_unit.bu_code} - "
+                f"{calendar.calendar_year} - {calendar.calendar_name}"
+            ),
+            selected_values=selected_values,
+        )
+        for calendar in calendars
+    )
+    return options
 
 
 def _employee_create_fields(
@@ -672,6 +911,377 @@ def _general_charge_code_fields(
     ]
 
 
+def _project_form_fields(
+    current_user: CurrentUser,
+    *,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
+    selected_business_unit = post_data.get("business_unit_id", "") if post_data is not None else ""
+    if entity is not None and post_data is None:
+        selected_business_unit = str(entity["business_unit"]["id"])
+    scoped_business_unit_id = (
+        int(selected_business_unit) if str(selected_business_unit).isdigit() else None
+    )
+    return [
+        _field(
+            name="business_unit_id",
+            label="Business Unit",
+            kind="select",
+            options=_scoped_business_unit_options(
+                current_user,
+                selected=selected_business_unit,
+                include_blank=entity is None,
+            ),
+            required=True,
+        ),
+        _field(
+            name="project_code",
+            label="Project Code",
+            kind="text",
+            value=post_data.get("project_code", entity["project_code"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="name",
+            label="Project Name",
+            kind="text",
+            value=post_data.get("name", entity["name"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="description",
+            label="Description",
+            kind="textarea",
+            value=post_data.get("description", entity["description"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+        ),
+        _field(
+            name="project_owner_employee_id",
+            label="Project Owner",
+            kind="select",
+            options=_scoped_employee_options(
+                current_user,
+                selected=post_data.get(
+                    "project_owner_employee_id",
+                    entity["project_owner_employee"]["id"] if entity else "",
+                )
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+                required_role_code="PROJECT_OWNER",
+                business_unit_id=scoped_business_unit_id,
+            ),
+            required=True,
+        ),
+        _field(
+            name="project_manager_employee_id",
+            label="Project Manager",
+            kind="select",
+            options=_scoped_employee_options(
+                current_user,
+                selected=post_data.get(
+                    "project_manager_employee_id",
+                    entity["project_manager_employee"]["id"] if entity else "",
+                )
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+                required_role_code="PROJECT_MANAGER",
+                business_unit_id=scoped_business_unit_id,
+            ),
+            required=True,
+        ),
+        _field(
+            name="client_id",
+            label="Client",
+            kind="select",
+            options=_scoped_client_options(
+                current_user,
+                business_unit_id=scoped_business_unit_id,
+                selected=post_data.get("client_id", entity["client"]["id"] if entity else "")
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+            ),
+            required=True,
+        ),
+        _field(
+            name="internal_category_id",
+            label="Internal Category",
+            kind="select",
+            options=_scoped_internal_category_options(
+                current_user,
+                business_unit_id=scoped_business_unit_id,
+                selected=post_data.get(
+                    "internal_category_id",
+                    entity["internal_category"]["id"] if entity else "",
+                )
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+            ),
+            required=True,
+        ),
+        _field(
+            name="cost_center_id",
+            label="Cost Center",
+            kind="select",
+            options=_scoped_cost_center_options(
+                current_user,
+                business_unit_id=scoped_business_unit_id,
+                selected=post_data.get(
+                    "cost_center_id", entity["cost_center"]["id"] if entity else ""
+                )
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+            ),
+            required=True,
+        ),
+        _field(
+            name="start_date",
+            label="Start Date",
+            kind="date",
+            value=post_data.get("start_date", entity["start_date"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="end_date",
+            label="End Date",
+            kind="date",
+            value=post_data.get(
+                "end_date", entity["end_date"] if entity and entity["end_date"] else ""
+            )
+            if post_data is not None or entity is not None
+            else "",
+        ),
+        _field(
+            name="close_date",
+            label="Close Date",
+            kind="date",
+            value=post_data.get(
+                "close_date",
+                entity["close_date"] if entity and entity["close_date"] else "",
+            )
+            if post_data is not None or entity is not None
+            else "",
+        ),
+        _field(
+            name="billable_flag",
+            label="Billable",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "billable_flag")
+            if post_data is not None
+            else bool(entity["billable_flag"])
+            if entity is not None
+            else False,
+        ),
+        _field(
+            name="status_code",
+            label="Status",
+            kind="select",
+            options=_ref_options(
+                "PROJECT_STATUS",
+                selected=post_data.get("status_code", entity["status"] if entity else "DRAFT")
+                if post_data is not None or entity is not None
+                else "DRAFT",
+            ),
+            required=True,
+        ),
+    ]
+
+
+def _project_assignment_fields(
+    current_user: CurrentUser,
+    *,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
+    return [
+        _field(
+            name="project_id",
+            label="Project",
+            kind="select",
+            options=_scoped_project_options(
+                current_user,
+                selected=post_data.get("project_id", entity["project"]["id"] if entity else "")
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+            ),
+            required=True,
+        ),
+        _field(
+            name="employee_id",
+            label="Employee",
+            kind="select",
+            options=_scoped_employee_options(
+                current_user,
+                selected=post_data.get("employee_id", entity["employee"]["id"] if entity else "")
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+            ),
+            required=True,
+        ),
+        _field(
+            name="assignment_start_date",
+            label="Assignment Start Date",
+            kind="date",
+            value=post_data.get(
+                "assignment_start_date",
+                entity["assignment_start_date"] if entity else "",
+            )
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="assignment_end_date",
+            label="Assignment End Date",
+            kind="date",
+            value=post_data.get(
+                "assignment_end_date",
+                entity["assignment_end_date"] if entity and entity["assignment_end_date"] else "",
+            )
+            if post_data is not None or entity is not None
+            else "",
+        ),
+        _field(
+            name="status_code",
+            label="Status",
+            kind="select",
+            options=_ref_options(
+                "PROJECT_ASSIGNMENT_STATUS",
+                selected=post_data.get("status_code", entity["status"] if entity else "ACTIVE")
+                if post_data is not None or entity is not None
+                else "ACTIVE",
+            ),
+            required=True,
+        ),
+    ]
+
+
+def _calendar_period_rule_fields(
+    current_user: CurrentUser,
+    *,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
+    return [
+        _field(
+            name="yearly_calendar_id",
+            label="Yearly Calendar",
+            kind="select",
+            options=_scoped_yearly_calendar_options(
+                current_user,
+                selected=post_data.get(
+                    "yearly_calendar_id",
+                    entity["yearly_calendar"]["id"] if entity else "",
+                )
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+            ),
+            required=True,
+        ),
+        _field(
+            name="effective_from",
+            label="Effective From",
+            kind="date",
+            value=post_data.get("effective_from", entity["effective_from"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="effective_to",
+            label="Effective To",
+            kind="date",
+            value=post_data.get("effective_to", entity["effective_to"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="monday_max_hours",
+            label="Monday Max Hours",
+            kind="number",
+            value=post_data.get(
+                "monday_max_hours", entity["monday_max_hours"] if entity else "8.00"
+            )
+            if post_data is not None or entity is not None
+            else "8.00",
+            required=True,
+        ),
+        _field(
+            name="tuesday_max_hours",
+            label="Tuesday Max Hours",
+            kind="number",
+            value=post_data.get(
+                "tuesday_max_hours", entity["tuesday_max_hours"] if entity else "8.00"
+            )
+            if post_data is not None or entity is not None
+            else "8.00",
+            required=True,
+        ),
+        _field(
+            name="wednesday_max_hours",
+            label="Wednesday Max Hours",
+            kind="number",
+            value=post_data.get(
+                "wednesday_max_hours",
+                entity["wednesday_max_hours"] if entity else "8.00",
+            )
+            if post_data is not None or entity is not None
+            else "8.00",
+            required=True,
+        ),
+        _field(
+            name="thursday_max_hours",
+            label="Thursday Max Hours",
+            kind="number",
+            value=post_data.get(
+                "thursday_max_hours", entity["thursday_max_hours"] if entity else "8.00"
+            )
+            if post_data is not None or entity is not None
+            else "8.00",
+            required=True,
+        ),
+        _field(
+            name="friday_max_hours",
+            label="Friday Max Hours",
+            kind="number",
+            value=post_data.get(
+                "friday_max_hours", entity["friday_max_hours"] if entity else "8.00"
+            )
+            if post_data is not None or entity is not None
+            else "8.00",
+            required=True,
+        ),
+        _field(
+            name="status_code",
+            label="Status",
+            kind="select",
+            options=_ref_options(
+                "CALENDAR_PERIOD_STATUS",
+                selected=post_data.get("status_code", entity["status"] if entity else "ACTIVE")
+                if post_data is not None or entity is not None
+                else "ACTIVE",
+            ),
+            required=True,
+        ),
+    ]
+
+
 def _render_collection_page(
     request: HttpRequest,
     current_user: CurrentUser,
@@ -687,6 +1297,8 @@ def _render_collection_page(
     form_fields: list[dict],
     submit_label: str,
     form_error: str = "",
+    filter_links: list[dict] | None = None,
+    filter_title: str = "Filters",
 ) -> HttpResponse:
     context = _system_context(
         request,
@@ -705,6 +1317,8 @@ def _render_collection_page(
             "form_fields": form_fields,
             "submit_label": submit_label,
             "form_error": form_error,
+            "filter_links": filter_links or [],
+            "filter_title": filter_title,
         }
     )
     return render(request, "core/system_collection.html", context)
@@ -897,6 +1511,102 @@ def _general_charge_code_detail_rows(general_charge_code: dict) -> list[tuple[st
     ]
 
 
+def _project_rows(projects: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/projects/{project['id']}/",
+            "cells": [
+                project["business_unit"]["bu_code"],
+                project["project_code"],
+                project["name"],
+                project["status"],
+                project["project_owner_employee"]["employee_code"],
+                project["project_manager_employee"]["employee_code"],
+            ],
+        }
+        for project in projects
+    ]
+
+
+def _project_detail_rows(project: dict) -> list[tuple[str, str]]:
+    return [
+        ("Business Unit", project["business_unit"]["bu_code"]),
+        ("Project Code", project["project_code"]),
+        ("Project Name", project["name"]),
+        ("Description", project["description"] or "None"),
+        ("Project Owner", project["project_owner_employee"]["employee_code"]),
+        ("Project Manager", project["project_manager_employee"]["employee_code"]),
+        ("Client", project["client"]["client_code"]),
+        ("Internal Category", project["internal_category"]["category_code"]),
+        ("Cost Center", project["cost_center"]["cost_center_code"]),
+        ("Start Date", project["start_date"]),
+        ("End Date", project["end_date"] or "Open-ended"),
+        ("Close Date", project["close_date"] or "Open"),
+        ("Billable", "Yes" if project["billable_flag"] else "No"),
+        ("Status", project["status"]),
+    ]
+
+
+def _project_assignment_rows(assignments: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/project-assignments/{assignment['id']}/",
+            "cells": [
+                assignment["project"]["business_unit"]["bu_code"],
+                assignment["project"]["project_code"],
+                assignment["employee"]["employee_code"],
+                assignment["assignment_start_date"],
+                assignment["assignment_end_date"] or "Open-ended",
+                assignment["status"],
+            ],
+        }
+        for assignment in assignments
+    ]
+
+
+def _project_assignment_detail_rows(assignment: dict) -> list[tuple[str, str]]:
+    return [
+        ("Business Unit", assignment["project"]["business_unit"]["bu_code"]),
+        ("Project", assignment["project"]["project_code"]),
+        ("Employee", assignment["employee"]["employee_code"]),
+        ("Assignment Start Date", assignment["assignment_start_date"]),
+        ("Assignment End Date", assignment["assignment_end_date"] or "Open-ended"),
+        ("Status", assignment["status"]),
+    ]
+
+
+def _calendar_period_rule_rows(period_rules: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/calendar-period-rules/{period_rule['id']}/",
+            "cells": [
+                period_rule["yearly_calendar"]["business_unit"]["bu_code"],
+                str(period_rule["yearly_calendar"]["calendar_year"]),
+                period_rule["yearly_calendar"]["calendar_name"],
+                period_rule["effective_from"],
+                period_rule["effective_to"],
+                period_rule["status"],
+            ],
+        }
+        for period_rule in period_rules
+    ]
+
+
+def _calendar_period_rule_detail_rows(period_rule: dict) -> list[tuple[str, str]]:
+    return [
+        ("Business Unit", period_rule["yearly_calendar"]["business_unit"]["bu_code"]),
+        ("Calendar", period_rule["yearly_calendar"]["name"]),
+        ("Effective From", period_rule["effective_from"]),
+        ("Effective To", period_rule["effective_to"]),
+        ("Monday Max Hours", period_rule["monday_max_hours"]),
+        ("Tuesday Max Hours", period_rule["tuesday_max_hours"]),
+        ("Wednesday Max Hours", period_rule["wednesday_max_hours"]),
+        ("Thursday Max Hours", period_rule["thursday_max_hours"]),
+        ("Friday Max Hours", period_rule["friday_max_hours"]),
+        ("Status", period_rule["status"]),
+    ]
+
+
 CLIENT_CONFIG = MasterUiConfig(
     section_key="clients",
     list_title="Client Management",
@@ -967,6 +1677,54 @@ GENERAL_CHARGE_CODE_CONFIG = MasterUiConfig(
     empty_message="No general charge codes are available in your assigned Business Units yet.",
 )
 
+PROJECT_CONFIG = MasterUiConfig(
+    section_key="projects",
+    list_title="Project Management",
+    list_eyebrow="SCR-180",
+    list_intro="Scoped project list with create form for Timesheet Administrators.",
+    detail_title="Project Detail",
+    detail_eyebrow="SCR-181",
+    detail_intro="Update project ownership, classification, dates, and lifecycle fields.",
+    singular_label="Project",
+    plural_label="Projects",
+    collection_path="/system/projects/",
+    detail_path_prefix="/system/projects/",
+    table_headers=("Business Unit", "Project Code", "Name", "Status", "Owner", "Manager"),
+    empty_message="No projects are available in your assigned Business Units yet.",
+)
+
+PROJECT_ASSIGNMENT_CONFIG = MasterUiConfig(
+    section_key="project-assignments",
+    list_title="Project Assignment Management",
+    list_eyebrow="SCR-190",
+    list_intro="Scoped project assignment list with lifecycle-aware create and update flows.",
+    detail_title="Project Assignment Detail",
+    detail_eyebrow="SCR-191",
+    detail_intro="Update assignment window and active/inactive lifecycle fields.",
+    singular_label="Project Assignment",
+    plural_label="Project Assignments",
+    collection_path="/system/project-assignments/",
+    detail_path_prefix="/system/project-assignments/",
+    table_headers=("Business Unit", "Project", "Employee", "Start", "End", "Status"),
+    empty_message="No project assignments are available in your assigned Business Units yet.",
+)
+
+CALENDAR_PERIOD_RULE_CONFIG = MasterUiConfig(
+    section_key="calendar-period-rules",
+    list_title="Calendar Period Rule Management",
+    list_eyebrow="SCR-120",
+    list_intro="Scoped calendar period rule list with overlap-safe create and update flows.",
+    detail_title="Calendar Period Rule Detail",
+    detail_eyebrow="SCR-121",
+    detail_intro="Update period-rule windows and daily hour limits inside the shared shell.",
+    singular_label="Calendar Period Rule",
+    plural_label="Calendar Period Rules",
+    collection_path="/system/calendar-period-rules/",
+    detail_path_prefix="/system/calendar-period-rules/",
+    table_headers=("Business Unit", "Year", "Calendar", "Effective From", "Effective To", "Status"),
+    empty_message="No calendar period rules are available in your assigned Business Units yet.",
+)
+
 
 @require_http_methods(["GET", "POST"])
 def employees_collection(request: HttpRequest) -> HttpResponse:
@@ -995,7 +1753,15 @@ def employees_collection(request: HttpRequest) -> HttpResponse:
         else:
             return redirect(f"/system/employees/{employee['id']}/")
 
-    employees = EmployeeManagementService.list_employees(current_user)
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="EMPLOYEE_STATUS",
+        default_code="ACTIVE",
+    )
+    employees = EmployeeManagementService.list_employees(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
     return _render_collection_page(
         request,
         current_user,
@@ -1015,6 +1781,8 @@ def employees_collection(request: HttpRequest) -> HttpResponse:
         form_fields=_employee_create_fields(current_user, post_data=post_data),
         submit_label="Create Employee",
         form_error=form_error,
+        filter_links=filter_links,
+        filter_title="Employee Status",
     )
 
 
@@ -1144,6 +1912,7 @@ def _render_master_collection(
     form_fields: list[dict],
     table_rows: list[dict],
     form_error: str,
+    filter_links: list[dict],
 ) -> HttpResponse:
     return _render_collection_page(
         request,
@@ -1161,6 +1930,8 @@ def _render_master_collection(
         form_fields=form_fields,
         submit_label=f"Create {config.singular_label}",
         form_error=form_error,
+        filter_links=filter_links,
+        filter_title=f"{config.singular_label} Status",
     )
 
 
@@ -1225,7 +1996,15 @@ def clients_collection(request: HttpRequest) -> HttpResponse:
         else:
             return redirect(f"/system/clients/{client['id']}/")
 
-    clients = ClientManagementService.list_clients(current_user)
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="CLIENT_STATUS",
+        default_code="ACTIVE",
+    )
+    clients = ClientManagementService.list_clients(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
     return _render_master_collection(
         request,
         current_user,
@@ -1234,6 +2013,7 @@ def clients_collection(request: HttpRequest) -> HttpResponse:
         form_fields=_client_form_fields(current_user, post_data=post_data),
         table_rows=_client_rows(clients),
         form_error=form_error,
+        filter_links=filter_links,
     )
 
 
@@ -1310,7 +2090,15 @@ def internal_categories_collection(request: HttpRequest) -> HttpResponse:
         else:
             return redirect(f"/system/internal-categories/{category['id']}/")
 
-    categories = InternalCategoryManagementService.list_categories(current_user)
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="INTERNAL_CATEGORY_STATUS",
+        default_code="ACTIVE",
+    )
+    categories = InternalCategoryManagementService.list_categories(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
     return _render_master_collection(
         request,
         current_user,
@@ -1329,6 +2117,7 @@ def internal_categories_collection(request: HttpRequest) -> HttpResponse:
         ),
         table_rows=_internal_category_rows(categories),
         form_error=form_error,
+        filter_links=filter_links,
     )
 
 
@@ -1415,7 +2204,15 @@ def cost_centers_collection(request: HttpRequest) -> HttpResponse:
         else:
             return redirect(f"/system/cost-centers/{cost_center['id']}/")
 
-    cost_centers = CostCenterManagementService.list_cost_centers(current_user)
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="COST_CENTER_STATUS",
+        default_code="ACTIVE",
+    )
+    cost_centers = CostCenterManagementService.list_cost_centers(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
     return _render_master_collection(
         request,
         current_user,
@@ -1434,6 +2231,7 @@ def cost_centers_collection(request: HttpRequest) -> HttpResponse:
         ),
         table_rows=_cost_center_rows(cost_centers),
         form_error=form_error,
+        filter_links=filter_links,
     )
 
 
@@ -1530,8 +2328,14 @@ def general_charge_codes_collection(request: HttpRequest) -> HttpResponse:
         else:
             return redirect(f"/system/general-charge-codes/{general_charge_code['id']}/")
 
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="GENERAL_CHARGE_CODE_STATUS",
+        default_code="ACTIVE",
+    )
     general_charge_codes = GeneralChargeCodeManagementService.list_general_charge_codes(
-        current_user
+        current_user,
+        status_code=_service_status_code(selected_status_code),
     )
     return _render_master_collection(
         request,
@@ -1541,6 +2345,7 @@ def general_charge_codes_collection(request: HttpRequest) -> HttpResponse:
         form_fields=_general_charge_code_fields(current_user, post_data=post_data),
         table_rows=_general_charge_code_rows(general_charge_codes),
         form_error=form_error,
+        filter_links=filter_links,
     )
 
 
@@ -1607,6 +2412,336 @@ def general_charge_code_detail(
             current_user,
             post_data=post_data,
             entity=general_charge_code,
+        ),
+        form_error=form_error,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def projects_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            project = ProjectManagementService.create_project(
+                current_user,
+                {
+                    "business_unit_id": request.POST.get("business_unit_id", ""),
+                    "project_code": request.POST.get("project_code", ""),
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
+                    "project_owner_employee_id": request.POST.get(
+                        "project_owner_employee_id",
+                        "",
+                    ),
+                    "project_manager_employee_id": request.POST.get(
+                        "project_manager_employee_id",
+                        "",
+                    ),
+                    "client_id": request.POST.get("client_id", ""),
+                    "internal_category_id": request.POST.get("internal_category_id", ""),
+                    "cost_center_id": request.POST.get("cost_center_id", ""),
+                    "start_date": request.POST.get("start_date", ""),
+                    "end_date": request.POST.get("end_date", ""),
+                    "close_date": request.POST.get("close_date", ""),
+                    "billable_flag": _bool_from_post(request.POST, "billable_flag"),
+                    "status_code": request.POST.get("status_code", "DRAFT"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/projects/{project['id']}/")
+
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="PROJECT_STATUS",
+        default_code="ACTIVE",
+    )
+    projects = ProjectManagementService.list_projects(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
+    return _render_master_collection(
+        request,
+        current_user,
+        config=PROJECT_CONFIG,
+        entities=projects,
+        form_fields=_project_form_fields(current_user, post_data=post_data),
+        table_rows=_project_rows(projects),
+        form_error=form_error,
+        filter_links=filter_links,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def project_detail(request: HttpRequest, project_id: int) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            ProjectManagementService.update_project(
+                current_user,
+                project_id,
+                {
+                    "project_code": request.POST.get("project_code", ""),
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
+                    "project_owner_employee_id": request.POST.get(
+                        "project_owner_employee_id",
+                        "",
+                    ),
+                    "project_manager_employee_id": request.POST.get(
+                        "project_manager_employee_id",
+                        "",
+                    ),
+                    "client_id": request.POST.get("client_id", ""),
+                    "internal_category_id": request.POST.get("internal_category_id", ""),
+                    "cost_center_id": request.POST.get("cost_center_id", ""),
+                    "start_date": request.POST.get("start_date", ""),
+                    "end_date": request.POST.get("end_date", ""),
+                    "close_date": request.POST.get("close_date", ""),
+                    "billable_flag": _bool_from_post(request.POST, "billable_flag"),
+                    "status_code": request.POST.get("status_code", ""),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/projects/{project_id}/")
+
+    try:
+        project = ProjectManagementService.get_project(current_user, project_id)
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=PROJECT_CONFIG.detail_title,
+            eyebrow=PROJECT_CONFIG.detail_eyebrow,
+            intro=PROJECT_CONFIG.detail_intro,
+            error=error,
+        )
+
+    return _render_master_detail(
+        request,
+        current_user,
+        config=PROJECT_CONFIG,
+        entity=project,
+        detail_rows=_project_detail_rows(project),
+        form_fields=_project_form_fields(current_user, post_data=post_data, entity=project),
+        form_error=form_error,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def project_assignments_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            assignment = ProjectAssignmentManagementService.create_assignment(
+                current_user,
+                {
+                    "project_id": request.POST.get("project_id", ""),
+                    "employee_id": request.POST.get("employee_id", ""),
+                    "assignment_start_date": request.POST.get("assignment_start_date", ""),
+                    "assignment_end_date": request.POST.get("assignment_end_date", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/project-assignments/{assignment['id']}/")
+
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="PROJECT_ASSIGNMENT_STATUS",
+        default_code="ACTIVE",
+    )
+    assignments = ProjectAssignmentManagementService.list_assignments(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
+    return _render_master_collection(
+        request,
+        current_user,
+        config=PROJECT_ASSIGNMENT_CONFIG,
+        entities=assignments,
+        form_fields=_project_assignment_fields(current_user, post_data=post_data),
+        table_rows=_project_assignment_rows(assignments),
+        form_error=form_error,
+        filter_links=filter_links,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def project_assignment_detail(request: HttpRequest, assignment_id: int) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            ProjectAssignmentManagementService.update_assignment(
+                current_user,
+                assignment_id,
+                {
+                    "assignment_start_date": request.POST.get("assignment_start_date", ""),
+                    "assignment_end_date": request.POST.get("assignment_end_date", ""),
+                    "status_code": request.POST.get("status_code", ""),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/project-assignments/{assignment_id}/")
+
+    try:
+        assignment = ProjectAssignmentManagementService.get_assignment(current_user, assignment_id)
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=PROJECT_ASSIGNMENT_CONFIG.detail_title,
+            eyebrow=PROJECT_ASSIGNMENT_CONFIG.detail_eyebrow,
+            intro=PROJECT_ASSIGNMENT_CONFIG.detail_intro,
+            error=error,
+        )
+
+    return _render_master_detail(
+        request,
+        current_user,
+        config=PROJECT_ASSIGNMENT_CONFIG,
+        entity=assignment,
+        detail_rows=_project_assignment_detail_rows(assignment),
+        form_fields=_project_assignment_fields(
+            current_user,
+            post_data=post_data,
+            entity=assignment,
+        ),
+        form_error=form_error,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def calendar_period_rules_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            period_rule = CalendarPeriodRuleManagementService.create_period_rule(
+                current_user,
+                {
+                    "yearly_calendar_id": request.POST.get("yearly_calendar_id", ""),
+                    "effective_from": request.POST.get("effective_from", ""),
+                    "effective_to": request.POST.get("effective_to", ""),
+                    "monday_max_hours": request.POST.get("monday_max_hours", ""),
+                    "tuesday_max_hours": request.POST.get("tuesday_max_hours", ""),
+                    "wednesday_max_hours": request.POST.get("wednesday_max_hours", ""),
+                    "thursday_max_hours": request.POST.get("thursday_max_hours", ""),
+                    "friday_max_hours": request.POST.get("friday_max_hours", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/calendar-period-rules/{period_rule['id']}/")
+
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="CALENDAR_PERIOD_STATUS",
+        default_code="ACTIVE",
+    )
+    period_rules = CalendarPeriodRuleManagementService.list_period_rules(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
+    return _render_master_collection(
+        request,
+        current_user,
+        config=CALENDAR_PERIOD_RULE_CONFIG,
+        entities=period_rules,
+        form_fields=_calendar_period_rule_fields(current_user, post_data=post_data),
+        table_rows=_calendar_period_rule_rows(period_rules),
+        form_error=form_error,
+        filter_links=filter_links,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def calendar_period_rule_detail(request: HttpRequest, period_rule_id: int) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            CalendarPeriodRuleManagementService.update_period_rule(
+                current_user,
+                period_rule_id,
+                {
+                    "effective_from": request.POST.get("effective_from", ""),
+                    "effective_to": request.POST.get("effective_to", ""),
+                    "monday_max_hours": request.POST.get("monday_max_hours", ""),
+                    "tuesday_max_hours": request.POST.get("tuesday_max_hours", ""),
+                    "wednesday_max_hours": request.POST.get("wednesday_max_hours", ""),
+                    "thursday_max_hours": request.POST.get("thursday_max_hours", ""),
+                    "friday_max_hours": request.POST.get("friday_max_hours", ""),
+                    "status_code": request.POST.get("status_code", ""),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/calendar-period-rules/{period_rule_id}/")
+
+    try:
+        period_rule = CalendarPeriodRuleManagementService.get_period_rule(
+            current_user,
+            period_rule_id,
+        )
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=CALENDAR_PERIOD_RULE_CONFIG.detail_title,
+            eyebrow=CALENDAR_PERIOD_RULE_CONFIG.detail_eyebrow,
+            intro=CALENDAR_PERIOD_RULE_CONFIG.detail_intro,
+            error=error,
+        )
+
+    return _render_master_detail(
+        request,
+        current_user,
+        config=CALENDAR_PERIOD_RULE_CONFIG,
+        entity=period_rule,
+        detail_rows=_calendar_period_rule_detail_rows(period_rule),
+        form_fields=_calendar_period_rule_fields(
+            current_user,
+            post_data=post_data,
+            entity=period_rule,
         ),
         form_error=form_error,
     )

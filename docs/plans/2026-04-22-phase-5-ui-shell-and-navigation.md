@@ -155,7 +155,10 @@ Shared shell work:
   - internal category list and detail/edit
   - cost center list and detail/edit
   - general charge code list and detail/edit
-  - calendars and project-management screens remain deferred
+  - active/inactive status filters on the admin collections
+  - project list and detail/edit
+  - project assignment list and detail/edit
+  - calendar period rule list and detail/edit
 
 ### Milestone 3
 - TS Management screens
@@ -199,7 +202,10 @@ Integration tests:
 - Assumption: Milestone 1 uses top-level navigation and overview placeholders rather than full submenu trees for all future screens.
 - Assumption: `PROJECT_OWNER` gets visibility of the System Management block in Milestone 1 because the authorization matrix gives limited system/project-management access there.
 - Assumption: `PROJECT_MANAGER` gets Approval Worklist visibility, while TS Admin approval oversight remains deferred.
-- Assumption: Milestone 2 covers the TS Admin-managed screens already backed by services in the repo today: employees and the classification masters. Calendar and project-management screens stay out of this milestone to keep the rollout small and consistent with existing backend coverage.
+- Assumption: Milestone 2 originally shipped with employees and classification masters only, but user feedback reopens the milestone to add the missing System Management capabilities before later UI work continues.
+- Assumption: editing remains detail-page driven rather than inline in the collection tables, but the collection pages will make the edit path explicit and will add status filtering for lifecycle-based records.
+- Assumption: the Calendar screen added in this correction pass is scoped to calendar period rules only; yearly calendar creation remains outside this milestone and uses existing seeded or pre-created calendars as references.
+- Assumption: Project and Project Assignment management remain TS Admin-scoped in this milestone; project-owner-specific management UX can still be layered later without broadening backend permissions here.
 - Assumption: Milestone 3 covers the employee-owned TS Management flow already backed by the Phase IV timesheet engine: list/create, edit, read-only detail/history, and submit/withdraw. Project-time inquiry remains out of scope for this milestone because it needs additional scoped inquiry UI beyond the current self-service backend.
 
 ## 18. Definition of done
@@ -217,7 +223,7 @@ Status:
 
 Completed milestone:
 - Milestone 1: shell and role-aware navigation
-- Milestone 2: System Management screens for employees and classification masters
+- Milestone 2: corrected System Management screens for employees, classification masters, projects, project assignments, calendar period rules, and status filters
 - Milestone 3: self-service TS Management screens
 
 Still pending:
@@ -243,6 +249,15 @@ Validation completed for Milestone 2:
 - `make format-check`
 
 Validation completed for Milestone 3:
+- `make format`
+- `make lint`
+- `.venv/bin/python manage.py check`
+- `.venv/bin/python manage.py makemigrations --check`
+- `.venv/bin/python manage.py migrate`
+- `make test`
+- `make format-check`
+
+Validation completed for the Milestone 2 correction pass:
 - `make format`
 - `make lint`
 - `.venv/bin/python manage.py check`

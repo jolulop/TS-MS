@@ -49,6 +49,32 @@ urlpatterns = [
         system_views.general_charge_code_detail,
         name="system-general-charge-code-detail",
     ),
+    path("system/projects/", system_views.projects_collection, name="system-projects"),
+    path(
+        "system/projects/<int:project_id>/",
+        system_views.project_detail,
+        name="system-project-detail",
+    ),
+    path(
+        "system/project-assignments/",
+        system_views.project_assignments_collection,
+        name="system-project-assignments",
+    ),
+    path(
+        "system/project-assignments/<int:assignment_id>/",
+        system_views.project_assignment_detail,
+        name="system-project-assignment-detail",
+    ),
+    path(
+        "system/calendar-period-rules/",
+        system_views.calendar_period_rules_collection,
+        name="system-calendar-period-rules",
+    ),
+    path(
+        "system/calendar-period-rules/<int:period_rule_id>/",
+        system_views.calendar_period_rule_detail,
+        name="system-calendar-period-rule-detail",
+    ),
     path("ts/", ts_views.my_timesheets, name="ts-management"),
     path("ts/history/", ts_views.my_history, name="ts-history"),
     path("ts/inquiry/", ts_views.project_time_inquiry_placeholder, name="ts-project-inquiry"),

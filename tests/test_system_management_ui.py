@@ -4,15 +4,18 @@ import pytest
 from django.test import Client
 
 from apps.master_data.models import (
+    CalendarPeriodRule,
+    Employee,
+    EmployeeBusinessUnit,
+    EmployeeRole,
+    Project,
+    ProjectAssignment,
+)
+from apps.master_data.models import (
     Client as ClientRecord,
 )
 from apps.master_data.models import (
     CostCenter as CostCenterRecord,
-)
-from apps.master_data.models import (
-    Employee,
-    EmployeeBusinessUnit,
-    EmployeeRole,
 )
 from apps.master_data.models import (
     GeneralChargeCode as GeneralChargeCodeRecord,
@@ -21,11 +24,16 @@ from apps.master_data.models import (
     InternalCategory as InternalCategoryRecord,
 )
 from tests.helpers import (
+    assign_calendar,
     assign_employee_to_business_unit,
     assign_role,
     create_business_unit,
     create_client,
+    create_cost_center,
     create_employee,
+    create_internal_category,
+    create_project,
+    create_yearly_calendar,
     initialize_ui_session,
     seed_reference_data,
 )
@@ -58,6 +66,55 @@ def _build_ts_admin_client() -> tuple[Client, Employee, list]:
     return client, employee, [primary_business_unit, secondary_business_unit]
 
 
+def _build_project_management_context(
+    business_unit,
+) -> tuple[Employee, Employee, ClientRecord, InternalCategoryRecord, CostCenterRecord]:
+    project_owner = create_employee(
+        employee_code="EMP-PO-1",
+        full_name="Project Owner",
+        email="project-owner@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=project_owner,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_owner, role_code="USER")
+    assign_role(employee=project_owner, role_code="PROJECT_OWNER")
+
+    project_manager = create_employee(
+        employee_code="EMP-PM-1",
+        full_name="Project Manager",
+        email="project-manager@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=project_manager,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_manager, role_code="USER")
+    assign_role(employee=project_manager, role_code="PROJECT_MANAGER")
+
+    client = create_client(
+        business_unit=business_unit,
+        client_code="CLI-PROJ",
+        name="Project Client",
+    )
+    category = create_internal_category(
+        business_unit=business_unit,
+        category_code="CAT-PROJ",
+        name="Project Category",
+    )
+    cost_center = create_cost_center(
+        business_unit=business_unit,
+        cost_center_code="CC-PROJ",
+        name="Project Cost Center",
+    )
+    return project_owner, project_manager, client, category, cost_center
+
+
 @pytest.mark.django_db
 def test_system_management_hub_shows_real_admin_screen_links() -> None:
     client, _, _ = _build_ts_admin_client()
@@ -70,6 +127,9 @@ def test_system_management_hub_shows_real_admin_screen_links() -> None:
     assert "/system/employees/" in content
     assert "/system/clients/" in content
     assert "/system/general-charge-codes/" in content
+    assert "/system/projects/" in content
+    assert "/system/project-assignments/" in content
+    assert "/system/calendar-period-rules/" in content
 
 
 @pytest.mark.django_db
@@ -348,3 +408,219 @@ def test_general_charge_code_management_create_and_update_via_html() -> None:
     assert general_charge_code.description_required_flag is True
     assert general_charge_code.valid_to is None
     assert general_charge_code.status.value_code == "INACTIVE"
+
+
+@pytest.mark.django_db
+def test_system_management_collection_filter_can_show_active_or_inactive_records() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    active_client = create_client(
+        business_unit=business_units[0],
+        client_code="CLI-ACTIVE",
+        name="Active Client",
+        active=True,
+    )
+    inactive_client = create_client(
+        business_unit=business_units[0],
+        client_code="CLI-INACTIVE",
+        name="Inactive Client",
+        active=False,
+    )
+
+    active_response = client.get("/system/clients/?status=ACTIVE")
+    inactive_response = client.get("/system/clients/?status=INACTIVE")
+
+    active_content = active_response.content.decode()
+    inactive_content = inactive_response.content.decode()
+
+    assert active_response.status_code == 200
+    assert f"/system/clients/{active_client.id}/" in active_content
+    assert f"/system/clients/{inactive_client.id}/" not in active_content
+    assert inactive_response.status_code == 200
+    assert f"/system/clients/{inactive_client.id}/" in inactive_content
+    assert f"/system/clients/{active_client.id}/" not in inactive_content
+
+
+@pytest.mark.django_db
+def test_project_management_create_and_update_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    project_owner, project_manager, project_client, category, cost_center = (
+        _build_project_management_context(business_units[0])
+    )
+
+    create_response = client.post(
+        "/system/projects/",
+        data={
+            "business_unit_id": str(business_units[0].id),
+            "project_code": "PRJ-NEW",
+            "name": "New Project",
+            "description": "Project description",
+            "project_owner_employee_id": str(project_owner.id),
+            "project_manager_employee_id": str(project_manager.id),
+            "client_id": str(project_client.id),
+            "internal_category_id": str(category.id),
+            "cost_center_id": str(cost_center.id),
+            "start_date": date(2026, 4, 1).isoformat(),
+            "end_date": date(2026, 12, 31).isoformat(),
+            "billable_flag": "on",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    project = Project.objects.get(project_code="PRJ-NEW")
+    assert project.project_owner_employee_id == project_owner.id
+    assert project.project_manager_employee_id == project_manager.id
+    assert project.billable_flag is True
+
+    update_response = client.post(
+        f"/system/projects/{project.id}/",
+        data={
+            "project_code": "PRJ-UPD",
+            "name": "Updated Project",
+            "description": "Updated description",
+            "project_owner_employee_id": str(project_owner.id),
+            "project_manager_employee_id": str(project_manager.id),
+            "client_id": str(project_client.id),
+            "internal_category_id": str(category.id),
+            "cost_center_id": str(cost_center.id),
+            "start_date": date(2026, 4, 1).isoformat(),
+            "end_date": "",
+            "close_date": date(2026, 10, 31).isoformat(),
+            "status_code": "CLOSED",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    project.refresh_from_db()
+    assert project.project_code == "PRJ-UPD"
+    assert project.name == "Updated Project"
+    assert project.close_date == date(2026, 10, 31)
+    assert project.status.value_code == "CLOSED"
+
+
+@pytest.mark.django_db
+def test_project_assignment_management_create_and_update_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    project_owner, project_manager, project_client, category, cost_center = (
+        _build_project_management_context(business_units[0])
+    )
+    assigned_employee = create_employee(
+        employee_code="EMP-ASSIGN-1",
+        full_name="Assigned Employee",
+        email="assigned-employee@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=assigned_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=assigned_employee, role_code="USER")
+    project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-ASN",
+        name="Assignment Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        start_date=date(2026, 4, 1),
+    )
+
+    create_response = client.post(
+        "/system/project-assignments/",
+        data={
+            "project_id": str(project.id),
+            "employee_id": str(assigned_employee.id),
+            "assignment_start_date": date(2026, 4, 7).isoformat(),
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    assignment = ProjectAssignment.objects.get(project=project, employee=assigned_employee)
+
+    update_response = client.post(
+        f"/system/project-assignments/{assignment.id}/",
+        data={
+            "assignment_start_date": date(2026, 4, 7).isoformat(),
+            "assignment_end_date": date(2026, 9, 30).isoformat(),
+            "status_code": "INACTIVE",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    assignment.refresh_from_db()
+    assert assignment.assignment_end_date == date(2026, 9, 30)
+    assert assignment.status.value_code == "INACTIVE"
+
+
+@pytest.mark.django_db
+def test_calendar_period_rule_management_create_and_update_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_units[0],
+        calendar_year=2026,
+        calendar_name="Standard Calendar",
+    )
+    base_employee = create_employee(
+        employee_code="EMP-CAL-1",
+        full_name="Calendar Employee",
+        email="calendar-employee@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=base_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=base_employee, role_code="USER")
+    assign_calendar(employee=base_employee, yearly_calendar=yearly_calendar)
+
+    create_response = client.post(
+        "/system/calendar-period-rules/",
+        data={
+            "yearly_calendar_id": str(yearly_calendar.id),
+            "effective_from": date(2026, 1, 1).isoformat(),
+            "effective_to": date(2026, 3, 31).isoformat(),
+            "monday_max_hours": "8.00",
+            "tuesday_max_hours": "8.00",
+            "wednesday_max_hours": "8.00",
+            "thursday_max_hours": "8.00",
+            "friday_max_hours": "6.00",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    period_rule = CalendarPeriodRule.objects.get(
+        yearly_calendar=yearly_calendar,
+        effective_from=date(2026, 1, 1),
+    )
+
+    update_response = client.post(
+        f"/system/calendar-period-rules/{period_rule.id}/",
+        data={
+            "effective_from": date(2026, 1, 1).isoformat(),
+            "effective_to": date(2026, 4, 30).isoformat(),
+            "monday_max_hours": "7.50",
+            "tuesday_max_hours": "7.50",
+            "wednesday_max_hours": "7.50",
+            "thursday_max_hours": "7.50",
+            "friday_max_hours": "6.00",
+            "status_code": "INACTIVE",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    period_rule.refresh_from_db()
+    assert period_rule.effective_to == date(2026, 4, 30)
+    assert str(period_rule.monday_max_hours) == "7.50"
+    assert period_rule.status.value_code == "INACTIVE"

@@ -140,10 +140,10 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                     {
                         "title": "Calendars",
                         "summary": (
-                            "Yearly calendar and period-rule screens remain "
-                            "deferred to a later milestone."
+                            "Manage calendar period rules and daily hour limits by calendar."
                         ),
-                        "status": "Planned",
+                        "status": "Ready now",
+                        "href": "/system/calendar-period-rules/",
                     },
                     {
                         "title": "Clients",
@@ -173,6 +173,22 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         "status": "Ready now",
                         "href": "/system/general-charge-codes/",
                     },
+                    {
+                        "title": "Projects",
+                        "summary": (
+                            "Manage project ownership, classification, and lifecycle fields."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/projects/",
+                    },
+                    {
+                        "title": "Project Assignments",
+                        "summary": (
+                            "Manage project staffing windows and active/inactive assignment scope."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/project-assignments/",
+                    },
                 ]
             )
         if current_user.has_role("PROJECT_OWNER"):
@@ -180,9 +196,10 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                 {
                     "title": "Project Management",
                     "summary": (
-                        "Project and assignment screens will surface here for project owners."
+                        "TS Admin screens for project and assignment management are now available."
                     ),
-                    "status": "Planned",
+                    "status": "Ready now",
+                    "href": "/system/projects/",
                 }
             )
         return cards
