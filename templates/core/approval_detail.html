@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | TS Management{% endblock %}
+
+{% block content %}
+  <div class="content-stack">
+    <div class="page-header">
+      <p class="eyebrow">{{ page_eyebrow }}</p>
+      <div class="detail-header">
+        <div>
+          <h1>{{ page_title }}</h1>
+          <p>{{ page_intro }}</p>
+        </div>
+        <span class="chip">{{ approval_item.status }}</span>
+      </div>
+    </div>
+
+    <div class="split-grid">
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>Approval Context</h2>
+          <p><a href="/approvals/">Back to Approval Worklist</a></p>
+        </div>
+        <dl class="meta-grid">
+          <div class="meta-row">
+            <dt>Employee</dt>
+            <dd>{{ timesheet_employee_label }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Project Scope</dt>
+            <dd>{{ approval_project_label }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Submission No.</dt>
+            <dd>{{ approval_item.submission_no }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Scope Type</dt>
+            <dd>{{ approval_item.scope_type }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Status</dt>
+            <dd>{{ approval_item.status }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Rejection Reason</dt>
+            <dd>{{ approval_item.rejection_reason|default:"Not rejected" }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>Decision Notes</h2>
+          <p>The backend still enforces approver scope, pending-only actions, and self-approval prevention.</p>
+        </div>
+        {% if can_decide %}
+          <p>This approval item is still pending, so you can approve it or reject it with a required reason.</p>
+        {% else %}
+          <p>Decision Recorded. This approval item is now read-only in the current UI.</p>
+        {% endif %}
+      </section>
+    </div>
+
+    <section class="surface-card">
+      <div class="section-header">
+        <h2>Routed Timesheet Lines</h2>
+        <p>Only the lines inside this approval item’s scoped project are shown here.</p>
+      </div>
+      {% if line_rows %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Work Date</th>
+                <th>Hours</th>
+                <th>Charge Target</th>
+                <th>Approval State</th>
+                <th>Comment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for line in line_rows %}
+                <tr>
+                  <td>{{ line.work_date }}</td>
+                  <td>{{ line.hours }}</td>
+                  <td>{{ line.charge_target }}</td>
+                  <td>{{ line.approval_state }}</td>
+                  <td>{{ line.comment_text }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">No routed lines are available for this approval item.</div>
+      {% endif %}
+    </section>
+
+    {% if can_decide %}
+      <div class="split-grid">
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>Approve Item</h2>
+            <p>Use an optional comment when the approval needs extra context for follow-up.</p>
+          </div>
+          {% if form_error and active_form == "approve" %}
+            <div class="banner error">{{ form_error }}</div>
+          {% endif %}
+          <form class="form-stack" method="post" action="">
+            {% csrf_token %}
+            <input type="hidden" name="form_name" value="approve">
+            <div class="field">
+              <label for="approve_comment_text">Comment</label>
+              <textarea id="approve_comment_text" name="comment_text">{{ approve_comment }}</textarea>
+            </div>
+            <div>
+              <button class="button" type="submit">Approve Item</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>Reject Item</h2>
+            <p>Rejecting requires a clear reason because the timesheet will move back into a rejected state.</p>
+          </div>
+          {% if form_error and active_form == "reject" %}
+            <div class="banner error">{{ form_error }}</div>
+          {% endif %}
+          <form class="form-stack" method="post" action="">
+            {% csrf_token %}
+            <input type="hidden" name="form_name" value="reject">
+            <div class="field">
+              <label for="reject_reason_text">Reason</label>
+              <textarea id="reject_reason_text" name="reason_text" required>{{ reject_reason }}</textarea>
+            </div>
+            <div>
+              <button class="button secondary" type="submit">Reject Item</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | TS Management{% endblock %}
+
+{% block content %}
+  <div class="content-stack">
+    <div class="page-header">
+      <p class="eyebrow">{{ page_eyebrow }}</p>
+      <h1>{{ page_title }}</h1>
+      <p>{{ page_intro }}</p>
+    </div>
+
+    <div class="hero-grid">
+      <article class="tile">
+        <strong>Pending Approval Items</strong>
+        <span class="tile-value">{{ pending_count }}</span>
+        <p>Approval items still waiting for your project-manager decision.</p>
+      </article>
+      <article class="tile">
+        <strong>Completed Decisions</strong>
+        <span class="tile-value">{{ decided_count }}</span>
+        <p>Previously approved or rejected items that remain visible in your scope.</p>
+      </article>
+    </div>
+
+    <section class="surface-card">
+      <div class="section-header">
+        <h2>Pending Approval Items</h2>
+        <p>Open a work item to review the routed project lines and record the final decision.</p>
+      </div>
+      {% if pending_rows %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Project Scope</th>
+                <th>Submission No.</th>
+                <th>Status</th>
+                <th>Decision Context</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in pending_rows %}
+                <tr>
+                  {% for cell in row.cells %}
+                    <td>{{ cell }}</td>
+                  {% endfor %}
+                  <td><a href="{{ row.href }}">Open Review</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">No pending approval items are waiting in your current managed-project scope.</div>
+      {% endif %}
+    </section>
+
+    <section class="surface-card">
+      <div class="section-header">
+        <h2>Recent Decisions</h2>
+        <p>Approved and rejected items stay visible here for follow-up and audit-friendly context.</p>
+      </div>
+      {% if decided_rows %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Project Scope</th>
+                <th>Submission No.</th>
+                <th>Status</th>
+                <th>Reason</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in decided_rows %}
+                <tr>
+                  {% for cell in row.cells %}
+                    <td>{{ cell }}</td>
+                  {% endfor %}
+                  <td><a href="{{ row.href }}">View Detail</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">No completed approval decisions exist yet in your current scope.</div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

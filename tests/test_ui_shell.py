@@ -124,7 +124,7 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     assert "Project Manager User" in profile_content
     assert "PROJECT_MANAGER" in profile_content
     assert approval_response.status_code == 200
-    assert "Placeholder worklist surface" in approval_response.content.decode()
+    assert "Pending Approval Items" in approval_response.content.decode()
 
 
 @pytest.mark.django_db
