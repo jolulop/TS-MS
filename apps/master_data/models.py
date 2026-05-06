@@ -4,10 +4,31 @@ from django.db.models import Q
 from apps.common.models import AuditFieldsModel
 
 
+class Country(AuditFieldsModel):
+    country_name = models.CharField(max_length=200, unique=True)
+    status = models.ForeignKey(
+        "reference_data.RefValue",
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "country"
+        ordering = ["country_name"]
+
+    def __str__(self) -> str:
+        return self.country_name
+
+
 class BusinessUnit(AuditFieldsModel):
     bu_code = models.CharField(max_length=50, unique=True)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    country = models.ForeignKey(
+        Country,
+        on_delete=models.PROTECT,
+        related_name="business_units",
+    )
     status = models.ForeignKey(
         "reference_data.RefValue",
         on_delete=models.PROTECT,
@@ -25,6 +46,11 @@ class BusinessUnit(AuditFieldsModel):
 class YearlyCalendar(AuditFieldsModel):
     business_unit = models.ForeignKey(
         BusinessUnit,
+        on_delete=models.PROTECT,
+        related_name="yearly_calendars",
+    )
+    country = models.ForeignKey(
+        Country,
         on_delete=models.PROTECT,
         related_name="yearly_calendars",
     )
@@ -55,6 +81,11 @@ class Employee(AuditFieldsModel):
     full_name = models.CharField(max_length=200)
     email = models.EmailField(max_length=320)
     canonical_email = models.CharField(max_length=320, unique=True)
+    country = models.ForeignKey(
+        Country,
+        on_delete=models.PROTECT,
+        related_name="employees",
+    )
     status = models.ForeignKey(
         "reference_data.RefValue",
         on_delete=models.PROTECT,
@@ -169,6 +200,11 @@ class CalendarPeriodRule(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="period_rules",
     )
+    country = models.ForeignKey(
+        Country,
+        on_delete=models.PROTECT,
+        related_name="calendar_period_rules",
+    )
     effective_from = models.DateField()
     effective_to = models.DateField()
     monday_max_hours = models.DecimalField(max_digits=5, decimal_places=2)
@@ -196,6 +232,11 @@ class CalendarPeriodRule(AuditFieldsModel):
 class Client(AuditFieldsModel):
     business_unit = models.ForeignKey(
         BusinessUnit,
+        on_delete=models.PROTECT,
+        related_name="clients",
+    )
+    country = models.ForeignKey(
+        Country,
         on_delete=models.PROTECT,
         related_name="clients",
     )
@@ -231,6 +272,11 @@ class InternalCategory(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="internal_categories",
     )
+    country = models.ForeignKey(
+        Country,
+        on_delete=models.PROTECT,
+        related_name="internal_categories",
+    )
     category_code = models.CharField(max_length=50)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -257,6 +303,11 @@ class CostCenter(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="cost_centers",
     )
+    country = models.ForeignKey(
+        Country,
+        on_delete=models.PROTECT,
+        related_name="cost_centers",
+    )
     cost_center_code = models.CharField(max_length=50)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -280,6 +331,11 @@ class CostCenter(AuditFieldsModel):
 class GeneralChargeCode(AuditFieldsModel):
     business_unit = models.ForeignKey(
         BusinessUnit,
+        on_delete=models.PROTECT,
+        related_name="general_charge_codes",
+    )
+    country = models.ForeignKey(
+        Country,
         on_delete=models.PROTECT,
         related_name="general_charge_codes",
     )
@@ -353,6 +409,11 @@ class CalendarSpecialDay(AuditFieldsModel):
 class Project(AuditFieldsModel):
     business_unit = models.ForeignKey(
         BusinessUnit,
+        on_delete=models.PROTECT,
+        related_name="projects",
+    )
+    country = models.ForeignKey(
+        Country,
         on_delete=models.PROTECT,
         related_name="projects",
     )

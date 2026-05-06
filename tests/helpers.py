@@ -7,6 +7,7 @@ from apps.master_data.models import (
     BusinessUnit,
     BusinessUnitConfiguration,
     CalendarPeriodRule,
+    Country,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -44,11 +45,30 @@ def ref_value(domain_code: str, value_code: str) -> RefValue:
     return RefValue.objects.get(domain__domain_code=domain_code, value_code=value_code)
 
 
-def create_business_unit(*, bu_code: str, name: str) -> BusinessUnit:
+def get_country(country_name: str = "Holding") -> Country:
+    return Country.objects.get(country_name=country_name)
+
+
+def create_country(*, country_name: str, active: bool = True) -> Country:
+    return Country.objects.create(
+        country_name=country_name,
+        status=ref_value("COUNTRY_STATUS", "ACTIVE" if active else "INACTIVE"),
+        created_by=SYSTEM_ACTOR,
+        updated_by=SYSTEM_ACTOR,
+    )
+
+
+def create_business_unit(
+    *,
+    bu_code: str,
+    name: str,
+    country: Country | None = None,
+) -> BusinessUnit:
     return BusinessUnit.objects.create(
         bu_code=bu_code,
         name=name,
         description="",
+        country=country or get_country(),
         status=ref_value("BUSINESS_UNIT_STATUS", "ACTIVE"),
         created_by=SYSTEM_ACTOR,
         updated_by=SYSTEM_ACTOR,
@@ -91,6 +111,7 @@ def create_employee(
         full_name=full_name,
         email=email,
         canonical_email=normalized_email,
+        country=primary_business_unit.country,
         status=ref_value("EMPLOYEE_STATUS", "ACTIVE" if active else "INACTIVE"),
         primary_business_unit=primary_business_unit,
         created_by=SYSTEM_ACTOR,
@@ -142,6 +163,7 @@ def create_client(
 ) -> ClientRecord:
     return ClientRecord.objects.create(
         business_unit=business_unit,
+        country=business_unit.country,
         parent_client=parent_client,
         client_code=client_code,
         name=name,
@@ -161,6 +183,7 @@ def create_internal_category(
 ) -> InternalCategoryRecord:
     return InternalCategoryRecord.objects.create(
         business_unit=business_unit,
+        country=business_unit.country,
         category_code=category_code,
         name=name,
         description=description,
@@ -180,6 +203,7 @@ def create_cost_center(
 ) -> CostCenterRecord:
     return CostCenterRecord.objects.create(
         business_unit=business_unit,
+        country=business_unit.country,
         cost_center_code=cost_center_code,
         name=name,
         description=description,
@@ -205,6 +229,7 @@ def create_general_charge_code(
 ) -> GeneralChargeCodeRecord:
     return GeneralChargeCodeRecord.objects.create(
         business_unit=business_unit,
+        country=business_unit.country,
         code=code,
         name=name,
         charge_type=ref_value("GENERAL_CHARGE_CODE_TYPE", charge_type_code),
@@ -228,6 +253,7 @@ def create_yearly_calendar(
 ) -> YearlyCalendar:
     return YearlyCalendar.objects.create(
         business_unit=business_unit,
+        country=business_unit.country,
         calendar_year=calendar_year,
         calendar_name=calendar_name,
         status=ref_value("CALENDAR_STATUS", "ACTIVE"),
@@ -249,6 +275,7 @@ def create_calendar_period_rule(
 ) -> CalendarPeriodRule:
     return CalendarPeriodRule.objects.create(
         yearly_calendar=yearly_calendar,
+        country=yearly_calendar.country,
         effective_from=effective_from,
         effective_to=effective_to,
         monday_max_hours=monday_max_hours,
@@ -286,6 +313,7 @@ def create_project(
 ) -> Project:
     return Project.objects.create(
         business_unit=business_unit,
+        country=business_unit.country,
         project_code=project_code,
         name=name,
         description="",

@@ -536,6 +536,7 @@
               <strong>{{ current_user.full_name }}</strong>
               <span>{{ current_user.email }}</span>
               <span>{{ role_summary }} · {{ current_user.primary_business_unit_code }}</span>
+              <span>Country: {{ current_user.country_name }}</span>
             </div>
             <form class="logout-form" method="post" action="/logout/">
               {% csrf_token %}

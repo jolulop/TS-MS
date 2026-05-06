@@ -49,7 +49,7 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
         _nav_item(
             label="Reports",
             href="/reports/",
-            summary="Reporting hub placeholder for later milestones.",
+            summary="Role-aware report hub and scoped viewers.",
             current_path=current_path,
         ),
     ]
@@ -74,7 +74,11 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
 
     groups = [NavGroup(label="TS Management", items=tuple(work_items))]
 
-    if current_user.is_ts_admin or current_user.has_role("PROJECT_OWNER"):
+    if (
+        current_user.is_ts_admin
+        or current_user.is_ts_admin_master
+        or current_user.has_role("PROJECT_OWNER")
+    ):
         system_items = [
             _nav_item(
                 label="System Management",
@@ -83,6 +87,15 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                 current_path=current_path,
             ),
         ]
+        if current_user.is_ts_admin_master:
+            system_items.append(
+                _nav_item(
+                    label="Countries",
+                    href="/system/countries/",
+                    summary="Country lifecycle management for master administration.",
+                    current_path=current_path,
+                )
+            )
         if current_user.is_ts_admin:
             system_items.extend(
                 [

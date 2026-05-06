@@ -5,6 +5,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 
 from apps.audit.services import write_audit_event
+from apps.auth.constants import ACTIVE_COUNTRY_STATUS
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
 from apps.auth.policies import AuthorizationPolicyService
@@ -12,6 +13,7 @@ from apps.auth.services import canonicalize_email
 from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
+    Country,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -51,6 +53,94 @@ def _ensure_ts_admin(current_user: CurrentUser) -> None:
             "AUTH_ACCESS_DENIED",
             "You are not authorized to perform this administrative action.",
             403,
+        )
+
+
+def _ensure_ts_admin_master(current_user: CurrentUser) -> None:
+    if not current_user.is_ts_admin_master:
+        raise AuthError(
+            "AUTH_ACCESS_DENIED",
+            "You are not authorized to perform this master administrative action.",
+            403,
+        )
+
+
+def _get_current_country(current_user: CurrentUser) -> Country:
+    try:
+        return Country.objects.select_related("status").get(id=current_user.country_id)
+    except Country.DoesNotExist as exc:
+        raise AuthError("COUNTRY_NOT_FOUND", "Country not found.", 404) from exc
+
+
+def _ensure_country_in_scope(
+    current_user: CurrentUser,
+    country_id: int,
+    *,
+    message: str,
+) -> None:
+    if country_id != current_user.country_id:
+        raise AuthError("COUNTRY_OUT_OF_SCOPE", message, 403)
+
+
+def _ensure_country_active_for_write(country: Country, *, message: str) -> None:
+    if country.status.value_code != ACTIVE_COUNTRY_STATUS:
+        raise AuthError("COUNTRY_INACTIVE_FOR_WRITE", message, 403)
+
+
+def _ensure_current_country_active_for_write(current_user: CurrentUser) -> Country:
+    current_country = _get_current_country(current_user)
+    _ensure_country_active_for_write(
+        current_country,
+        message="Your active country is inactive. New records and edits are blocked.",
+    )
+    return current_country
+
+
+def _ensure_scoped_active_country_for_write(
+    current_user: CurrentUser,
+    country: Country,
+    *,
+    out_of_scope_message: str,
+) -> None:
+    _ensure_country_in_scope(
+        current_user,
+        country.id,
+        message=out_of_scope_message,
+    )
+    _ensure_country_active_for_write(
+        country,
+        message="Records in inactive countries cannot be created or edited.",
+    )
+
+
+def _validate_optional_country_payload(
+    payload: dict,
+    *,
+    code_prefix: str,
+    expected_country_id: int,
+    mismatch_message: str,
+    immutable_country_id: int | None = None,
+    immutable_message: str | None = None,
+) -> None:
+    if "country_id" not in payload:
+        return
+
+    payload_country_id = _parse_required_int(
+        payload.get("country_id"),
+        code=f"{code_prefix}_COUNTRY_REQUIRED",
+        message="country_id must be a valid country identifier.",
+    )
+    if immutable_country_id is not None and payload_country_id != immutable_country_id:
+        raise AuthError(
+            f"{code_prefix}_COUNTRY_IMMUTABLE",
+            immutable_message or "Country cannot be changed.",
+            400,
+        )
+    if payload_country_id != expected_country_id:
+        raise AuthError(
+            f"{code_prefix}_COUNTRY_MISMATCH",
+            mismatch_message,
+            400,
         )
 
 
@@ -162,15 +252,23 @@ def _ensure_business_units_in_scope(current_user: CurrentUser, business_unit_ids
 def _get_scoped_business_unit(current_user: CurrentUser, business_unit_id: int) -> BusinessUnit:
     _ensure_business_units_in_scope(current_user, {business_unit_id})
     try:
-        return BusinessUnit.objects.get(id=business_unit_id)
+        business_unit = BusinessUnit.objects.select_related("country", "country__status").get(
+            id=business_unit_id
+        )
     except BusinessUnit.DoesNotExist as exc:
         raise AuthError("BUSINESS_UNIT_NOT_FOUND", "Business Unit not found.", 404) from exc
+    _ensure_country_in_scope(
+        current_user,
+        business_unit.country_id,
+        message="Business Unit is outside your active country.",
+    )
+    return business_unit
 
 
 def _get_scoped_employee_for_management(current_user: CurrentUser, employee_id: int) -> Employee:
     try:
         employee = (
-            Employee.objects.select_related("primary_business_unit", "status")
+            Employee.objects.select_related("primary_business_unit", "country", "status")
             .prefetch_related(
                 "business_unit_assignments__business_unit",
                 "business_unit_assignments__status__domain",
@@ -188,12 +286,17 @@ def _get_scoped_employee_for_management(current_user: CurrentUser, employee_id: 
             "You are not authorized to manage this employee.",
             403,
         )
+    _ensure_country_in_scope(
+        current_user,
+        employee.country_id,
+        message="Employee is outside your active country.",
+    )
     return employee
 
 
 def _refresh_employee(employee_id: int) -> Employee:
     return (
-        Employee.objects.select_related("primary_business_unit", "status")
+        Employee.objects.select_related("primary_business_unit", "country", "status")
         .prefetch_related(
             "business_unit_assignments__business_unit",
             "business_unit_assignments__status__domain",
@@ -202,6 +305,17 @@ def _refresh_employee(employee_id: int) -> Employee:
         )
         .get(id=employee_id)
     )
+
+
+def _get_employee_for_project_assignment(employee_id: int) -> Employee:
+    try:
+        return Employee.objects.select_related(
+            "primary_business_unit",
+            "country",
+            "status",
+        ).get(id=employee_id)
+    except Employee.DoesNotExist as exc:
+        raise AuthError("EMPLOYEE_NOT_FOUND", "Employee not found.", 404) from exc
 
 
 def _actor_employee(current_user: CurrentUser) -> Employee | None:
@@ -266,6 +380,10 @@ def _serialize_employee(employee: Employee) -> dict:
         "email": employee.email,
         "canonical_email": employee.canonical_email,
         "status": employee.status.value_code,
+        "country": {
+            "id": employee.country_id,
+            "country_name": employee.country.country_name,
+        },
         "primary_business_unit": {
             "id": employee.primary_business_unit_id,
             "bu_code": employee.primary_business_unit.bu_code,
@@ -285,6 +403,10 @@ def _serialize_client(client: ClientRecord) -> dict:
         "client_code": client.client_code,
         "name": client.name,
         "status": client.status.value_code,
+        "country": {
+            "id": client.country_id,
+            "country_name": client.country.country_name,
+        },
         "business_unit": {
             "id": client.business_unit_id,
             "bu_code": client.business_unit.bu_code,
@@ -309,6 +431,10 @@ def _serialize_internal_category(category: InternalCategoryRecord) -> dict:
         "name": category.name,
         "description": category.description,
         "status": category.status.value_code,
+        "country": {
+            "id": category.country_id,
+            "country_name": category.country.country_name,
+        },
         "business_unit": {
             "id": category.business_unit_id,
             "bu_code": category.business_unit.bu_code,
@@ -324,6 +450,10 @@ def _serialize_cost_center(cost_center: CostCenterRecord) -> dict:
         "name": cost_center.name,
         "description": cost_center.description,
         "status": cost_center.status.value_code,
+        "country": {
+            "id": cost_center.country_id,
+            "country_name": cost_center.country.country_name,
+        },
         "business_unit": {
             "id": cost_center.business_unit_id,
             "bu_code": cost_center.business_unit.bu_code,
@@ -347,6 +477,10 @@ def _serialize_general_charge_code(general_charge_code: GeneralChargeCodeRecord)
         if general_charge_code.valid_to
         else None,
         "status": general_charge_code.status.value_code,
+        "country": {
+            "id": general_charge_code.country_id,
+            "country_name": general_charge_code.country.country_name,
+        },
         "business_unit": {
             "id": general_charge_code.business_unit_id,
             "bu_code": general_charge_code.business_unit.bu_code,
@@ -362,6 +496,10 @@ def _serialize_yearly_calendar(yearly_calendar: YearlyCalendar) -> dict:
         "calendar_name": yearly_calendar.calendar_name,
         "status": yearly_calendar.status.value_code,
         "name": f"{yearly_calendar.calendar_year} - {yearly_calendar.calendar_name}",
+        "country": {
+            "id": yearly_calendar.country_id,
+            "country_name": yearly_calendar.country.country_name,
+        },
         "business_unit": {
             "id": yearly_calendar.business_unit_id,
             "bu_code": yearly_calendar.business_unit.bu_code,
@@ -385,6 +523,10 @@ def _serialize_calendar_period_rule(rule: CalendarPeriodRule) -> dict:
         "thursday_max_hours": str(rule.thursday_max_hours),
         "friday_max_hours": str(rule.friday_max_hours),
         "status": rule.status.value_code,
+        "country": {
+            "id": rule.country_id,
+            "country_name": rule.country.country_name,
+        },
         "yearly_calendar": _serialize_yearly_calendar(rule.yearly_calendar),
     }
 
@@ -400,6 +542,10 @@ def _serialize_project(project: Project) -> dict:
         "close_date": project.close_date.isoformat() if project.close_date else None,
         "billable_flag": project.billable_flag,
         "status": project.status.value_code,
+        "country": {
+            "id": project.country_id,
+            "country_name": project.country.country_name,
+        },
         "business_unit": {
             "id": project.business_unit_id,
             "bu_code": project.business_unit.bu_code,
@@ -468,6 +614,119 @@ def _serialize_project_assignment(assignment: ProjectAssignment) -> dict:
     }
 
 
+def _serialize_country(country: Country) -> dict:
+    return {
+        "id": country.id,
+        "name": country.country_name,
+        "country_name": country.country_name,
+        "status": country.status.value_code,
+    }
+
+
+class CountryManagementService:
+    @staticmethod
+    def list_countries(current_user: CurrentUser, *, status_code: str | None = None) -> list[dict]:
+        _ensure_ts_admin_master(current_user)
+        countries = _apply_status_filter(
+            Country.objects.select_related("status").order_by("country_name"),
+            status_code,
+        )
+        return [_serialize_country(country) for country in countries]
+
+    @staticmethod
+    def get_country(current_user: CurrentUser, country_id: int) -> dict:
+        _ensure_ts_admin_master(current_user)
+        return _serialize_country(CountryManagementService._refresh_country(country_id))
+
+    @staticmethod
+    @transaction.atomic
+    def create_country(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin_master(current_user)
+        actor_employee = _actor_employee(current_user)
+        country_name = str(payload.get("country_name", "")).strip()
+        if not country_name:
+            raise AuthError("COUNTRY_NAME_REQUIRED", "Country name is required.", 400)
+        status_code = str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE"
+        try:
+            country = Country.objects.create(
+                country_name=country_name,
+                status=_ref_value("COUNTRY_STATUS", status_code),
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+        except IntegrityError as exc:
+            raise AuthError(
+                "COUNTRY_NAME_NOT_UNIQUE",
+                "Country name must be unique.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="country",
+            entity_id=country.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            reason_text="Country created by Timesheet Master Administrator.",
+        )
+        return _serialize_country(CountryManagementService._refresh_country(country.id))
+
+    @staticmethod
+    @transaction.atomic
+    def update_country(current_user: CurrentUser, country_id: int, payload: dict) -> dict:
+        _ensure_ts_admin_master(current_user)
+        actor_employee = _actor_employee(current_user)
+        country = CountryManagementService._refresh_country(country_id)
+        changed_fields: list[tuple[str, str, str]] = []
+
+        if "country_name" in payload:
+            new_country_name = str(payload.get("country_name", "")).strip()
+            if not new_country_name:
+                raise AuthError("COUNTRY_NAME_REQUIRED", "Country name is required.", 400)
+            if new_country_name != country.country_name:
+                changed_fields.append(("country_name", country.country_name, new_country_name))
+                country.country_name = new_country_name
+
+        if "status_code" in payload:
+            new_status = _ref_value("COUNTRY_STATUS", str(payload.get("status_code", "")).strip())
+            if new_status.id != country.status_id:
+                changed_fields.append(("status", country.status.value_code, new_status.value_code))
+                country.status = new_status
+
+        if changed_fields:
+            try:
+                country.updated_by = current_user.email
+                country.save()
+            except IntegrityError as exc:
+                raise AuthError(
+                    "COUNTRY_NAME_NOT_UNIQUE",
+                    "Country name must be unique.",
+                    400,
+                ) from exc
+
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="country",
+                entity_id=country.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="Country updated by Timesheet Master Administrator.",
+            )
+
+        return _serialize_country(CountryManagementService._refresh_country(country.id))
+
+    @staticmethod
+    def _refresh_country(country_id: int) -> Country:
+        try:
+            return Country.objects.select_related("status").get(id=country_id)
+        except Country.DoesNotExist as exc:
+            raise AuthError("COUNTRY_NOT_FOUND", "Country not found.", 404) from exc
+
+
 class EmployeeManagementService:
     @staticmethod
     def list_employees(
@@ -477,14 +736,17 @@ class EmployeeManagementService:
     ) -> list[dict]:
         _ensure_ts_admin(current_user)
         employees = _apply_status_filter(
-            Employee.objects.select_related("primary_business_unit", "status")
+            Employee.objects.select_related("primary_business_unit", "country", "status")
             .prefetch_related(
                 "business_unit_assignments__business_unit",
                 "business_unit_assignments__status__domain",
                 "role_assignments__role",
                 "role_assignments__status__domain",
             )
-            .filter(primary_business_unit_id__in=current_user.scoped_business_unit_ids)
+            .filter(
+                primary_business_unit_id__in=current_user.scoped_business_unit_ids,
+                country_id=current_user.country_id,
+            )
             .order_by("employee_code"),
             _parse_status_filter(status_code, domain_code="EMPLOYEE_STATUS"),
         )
@@ -500,6 +762,7 @@ class EmployeeManagementService:
     @transaction.atomic
     def create_employee(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
 
         employee_code = str(payload.get("employee_code", "")).strip()
@@ -523,6 +786,19 @@ class EmployeeManagementService:
             raise AuthError(
                 "BUSINESS_UNIT_NOT_FOUND", "Primary Business Unit not found.", 404
             ) from exc
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            primary_business_unit.country,
+            out_of_scope_message="Primary Business Unit is outside your active country.",
+        )
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="EMPLOYEE",
+            expected_country_id=primary_business_unit.country_id,
+            mismatch_message=(
+                "Employee country must match the selected primary Business Unit country."
+            ),
+        )
 
         try:
             employee = Employee.objects.create(
@@ -530,6 +806,7 @@ class EmployeeManagementService:
                 full_name=full_name,
                 email=email,
                 canonical_email=canonicalize_email(email),
+                country=primary_business_unit.country,
                 status=_ref_value("EMPLOYEE_STATUS", status_code),
                 primary_business_unit=primary_business_unit,
                 created_by=current_user.email,
@@ -573,8 +850,22 @@ class EmployeeManagementService:
     @transaction.atomic
     def update_employee(current_user: CurrentUser, employee_id: int, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         employee = _get_scoped_employee_for_management(current_user, employee_id)
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            employee.country,
+            out_of_scope_message="Employee is outside your active country.",
+        )
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="EMPLOYEE",
+            expected_country_id=employee.country_id,
+            immutable_country_id=employee.country_id,
+            mismatch_message="Employee country must match the employee country.",
+            immutable_message="Employee country cannot be changed.",
+        )
 
         changed_fields: list[tuple[str, str, str]] = []
 
@@ -650,10 +941,19 @@ class EmployeeManagementService:
     @transaction.atomic
     def replace_business_units(current_user: CurrentUser, employee_id: int, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         employee = _get_scoped_employee_for_management(current_user, employee_id)
         actor_employee = _actor_employee(current_user)
         primary_business_unit_id, business_unit_ids = _parse_business_unit_scope(payload)
         _ensure_business_units_in_scope(current_user, business_unit_ids)
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="EMPLOYEE",
+            expected_country_id=employee.country_id,
+            immutable_country_id=employee.country_id,
+            mismatch_message="Employee country must match the employee country.",
+            immutable_message="Employee country cannot be changed.",
+        )
 
         EmployeeManagementService._replace_business_unit_assignments(
             current_user,
@@ -766,9 +1066,9 @@ class EmployeeManagementService:
         inactive_status = _ref_value("EMPLOYEE_BU_STATUS", "INACTIVE")
         desired_business_units = {
             business_unit.id: business_unit
-            for business_unit in BusinessUnit.objects.filter(id__in=business_unit_ids).order_by(
-                "bu_code"
-            )
+            for business_unit in BusinessUnit.objects.select_related("country", "country__status")
+            .filter(id__in=business_unit_ids)
+            .order_by("bu_code")
         }
         if primary_business_unit_id not in desired_business_units:
             raise AuthError(
@@ -776,6 +1076,27 @@ class EmployeeManagementService:
                 "Primary Business Unit must be included in the employee scope.",
                 400,
             )
+        if employee.country_id != desired_business_units[primary_business_unit_id].country_id:
+            raise AuthError(
+                "EMPLOYEE_COUNTRY_IMMUTABLE",
+                "Employee country cannot be changed.",
+                400,
+            )
+        desired_country_ids = {
+            business_unit.country_id for business_unit in desired_business_units.values()
+        }
+        if len(desired_country_ids) != 1:
+            raise AuthError(
+                "EMPLOYEE_BUSINESS_UNIT_COUNTRY_MISMATCH",
+                "All employee Business Units must belong to the same country.",
+                400,
+            )
+        desired_country = next(iter(desired_business_units.values())).country
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            desired_country,
+            out_of_scope_message="Employee Business Units must stay inside your active country.",
+        )
 
         active_assignments = {
             assignment.business_unit_id: assignment
@@ -867,8 +1188,16 @@ class ClientManagementService:
     ) -> list[dict]:
         _ensure_ts_admin(current_user)
         clients = _apply_status_filter(
-            ClientRecord.objects.select_related("business_unit", "parent_client", "status")
-            .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+            ClientRecord.objects.select_related(
+                "business_unit",
+                "country",
+                "parent_client",
+                "status",
+            )
+            .filter(
+                business_unit_id__in=current_user.scoped_business_unit_ids,
+                country_id=current_user.country_id,
+            )
             .order_by("business_unit__bu_code", "client_code"),
             _parse_status_filter(status_code, domain_code="CLIENT_STATUS"),
         )
@@ -884,6 +1213,7 @@ class ClientManagementService:
     @transaction.atomic
     def create_client(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
 
         business_unit_id = _parse_required_int(
@@ -892,6 +1222,11 @@ class ClientManagementService:
             message="business_unit_id is required.",
         )
         business_unit = _get_scoped_business_unit(current_user, business_unit_id)
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            business_unit.country,
+            out_of_scope_message="Client Business Unit is outside your active country.",
+        )
 
         client_code = str(payload.get("client_code", "")).strip()
         name = str(payload.get("name", "")).strip()
@@ -906,10 +1241,17 @@ class ClientManagementService:
             parent_client_id=payload.get("parent_client_id"),
         )
         status_code = str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE"
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="CLIENT",
+            expected_country_id=business_unit.country_id,
+            mismatch_message="Client country must match the selected Business Unit country.",
+        )
 
         try:
             client = ClientRecord.objects.create(
                 business_unit=business_unit,
+                country=business_unit.country,
                 parent_client=parent_client,
                 client_code=client_code,
                 name=name,
@@ -939,8 +1281,22 @@ class ClientManagementService:
     @transaction.atomic
     def update_client(current_user: CurrentUser, client_id: int, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         client = ClientManagementService._get_scoped_client(current_user, client_id)
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            client.country,
+            out_of_scope_message="Client is outside your active country.",
+        )
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="CLIENT",
+            expected_country_id=client.country_id,
+            immutable_country_id=client.country_id,
+            mismatch_message="Client country must match the client country.",
+            immutable_message="Client country cannot be changed.",
+        )
 
         if (
             "business_unit_id" in payload
@@ -1024,19 +1380,24 @@ class ClientManagementService:
     def _get_scoped_client(current_user: CurrentUser, client_id: int) -> ClientRecord:
         try:
             client = ClientRecord.objects.select_related(
-                "business_unit", "parent_client", "status"
+                "business_unit", "country", "parent_client", "status"
             ).get(id=client_id)
         except ClientRecord.DoesNotExist as exc:
             raise AuthError("CLIENT_NOT_FOUND", "Client not found.", 404) from exc
 
         _ensure_business_units_in_scope(current_user, {client.business_unit_id})
+        _ensure_country_in_scope(
+            current_user,
+            client.country_id,
+            message="Client is outside your active country.",
+        )
         return client
 
     @staticmethod
     def _refresh_client(client_id: int) -> ClientRecord:
-        return ClientRecord.objects.select_related("business_unit", "parent_client", "status").get(
-            id=client_id
-        )
+        return ClientRecord.objects.select_related(
+            "business_unit", "country", "parent_client", "status"
+        ).get(id=client_id)
 
     @staticmethod
     def _resolve_parent_client(
@@ -1079,8 +1440,11 @@ class InternalCategoryManagementService:
     ) -> list[dict]:
         _ensure_ts_admin(current_user)
         categories = _apply_status_filter(
-            InternalCategoryRecord.objects.select_related("business_unit", "status")
-            .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+            InternalCategoryRecord.objects.select_related("business_unit", "country", "status")
+            .filter(
+                business_unit_id__in=current_user.scoped_business_unit_ids,
+                country_id=current_user.country_id,
+            )
             .order_by("business_unit__bu_code", "category_code"),
             _parse_status_filter(status_code, domain_code="INTERNAL_CATEGORY_STATUS"),
         )
@@ -1096,6 +1460,7 @@ class InternalCategoryManagementService:
     @transaction.atomic
     def create_category(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
 
         business_unit_id = _parse_required_int(
@@ -1104,6 +1469,11 @@ class InternalCategoryManagementService:
             message="business_unit_id is required.",
         )
         business_unit = _get_scoped_business_unit(current_user, business_unit_id)
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            business_unit.country,
+            out_of_scope_message="Internal category Business Unit is outside your active country.",
+        )
 
         category_code = str(payload.get("category_code", "")).strip()
         name = str(payload.get("name", "")).strip()
@@ -1114,10 +1484,19 @@ class InternalCategoryManagementService:
             raise AuthError("INTERNAL_CATEGORY_NAME_REQUIRED", "Category name is required.", 400)
 
         status_code = str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE"
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="INTERNAL_CATEGORY",
+            expected_country_id=business_unit.country_id,
+            mismatch_message=(
+                "Internal category country must match the selected Business Unit country."
+            ),
+        )
 
         try:
             category = InternalCategoryRecord.objects.create(
                 business_unit=business_unit,
+                country=business_unit.country,
                 category_code=category_code,
                 name=name,
                 description=description,
@@ -1149,8 +1528,22 @@ class InternalCategoryManagementService:
     @transaction.atomic
     def update_category(current_user: CurrentUser, category_id: int, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         category = InternalCategoryManagementService._get_scoped_category(current_user, category_id)
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            category.country,
+            out_of_scope_message="Internal category is outside your active country.",
+        )
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="INTERNAL_CATEGORY",
+            expected_country_id=category.country_id,
+            immutable_country_id=category.country_id,
+            mismatch_message="Internal category country must match the internal category country.",
+            immutable_message="Internal category country cannot be changed.",
+        )
 
         if (
             "business_unit_id" in payload
@@ -1239,22 +1632,29 @@ class InternalCategoryManagementService:
         category_id: int,
     ) -> InternalCategoryRecord:
         try:
-            category = InternalCategoryRecord.objects.select_related("business_unit", "status").get(
-                id=category_id
-            )
+            category = InternalCategoryRecord.objects.select_related(
+                "business_unit", "country", "status"
+            ).get(id=category_id)
         except InternalCategoryRecord.DoesNotExist as exc:
             raise AuthError(
                 "INTERNAL_CATEGORY_NOT_FOUND", "Internal category not found.", 404
             ) from exc
 
         _ensure_business_units_in_scope(current_user, {category.business_unit_id})
+        _ensure_country_in_scope(
+            current_user,
+            category.country_id,
+            message="Internal category is outside your active country.",
+        )
         return category
 
     @staticmethod
     def _refresh_category(category_id: int) -> InternalCategoryRecord:
-        return InternalCategoryRecord.objects.select_related("business_unit", "status").get(
-            id=category_id
-        )
+        return InternalCategoryRecord.objects.select_related(
+            "business_unit",
+            "country",
+            "status",
+        ).get(id=category_id)
 
 
 class CostCenterManagementService:
@@ -1266,8 +1666,11 @@ class CostCenterManagementService:
     ) -> list[dict]:
         _ensure_ts_admin(current_user)
         cost_centers = _apply_status_filter(
-            CostCenterRecord.objects.select_related("business_unit", "status")
-            .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+            CostCenterRecord.objects.select_related("business_unit", "country", "status")
+            .filter(
+                business_unit_id__in=current_user.scoped_business_unit_ids,
+                country_id=current_user.country_id,
+            )
             .order_by("business_unit__bu_code", "cost_center_code"),
             _parse_status_filter(status_code, domain_code="COST_CENTER_STATUS"),
         )
@@ -1285,6 +1688,7 @@ class CostCenterManagementService:
     @transaction.atomic
     def create_cost_center(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
 
         business_unit_id = _parse_required_int(
@@ -1293,6 +1697,11 @@ class CostCenterManagementService:
             message="business_unit_id is required.",
         )
         business_unit = _get_scoped_business_unit(current_user, business_unit_id)
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            business_unit.country,
+            out_of_scope_message="Cost center Business Unit is outside your active country.",
+        )
 
         cost_center_code = str(payload.get("cost_center_code", "")).strip()
         name = str(payload.get("name", "")).strip()
@@ -1303,10 +1712,17 @@ class CostCenterManagementService:
             raise AuthError("COST_CENTER_NAME_REQUIRED", "Cost center name is required.", 400)
 
         status_code = str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE"
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="COST_CENTER",
+            expected_country_id=business_unit.country_id,
+            mismatch_message="Cost center country must match the selected Business Unit country.",
+        )
 
         try:
             cost_center = CostCenterRecord.objects.create(
                 business_unit=business_unit,
+                country=business_unit.country,
                 cost_center_code=cost_center_code,
                 name=name,
                 description=description,
@@ -1338,9 +1754,23 @@ class CostCenterManagementService:
     @transaction.atomic
     def update_cost_center(current_user: CurrentUser, cost_center_id: int, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         cost_center = CostCenterManagementService._get_scoped_cost_center(
             current_user, cost_center_id
+        )
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            cost_center.country,
+            out_of_scope_message="Cost center is outside your active country.",
+        )
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="COST_CENTER",
+            expected_country_id=cost_center.country_id,
+            immutable_country_id=cost_center.country_id,
+            mismatch_message="Cost center country must match the cost center country.",
+            immutable_message="Cost center country cannot be changed.",
         )
 
         if (
@@ -1430,18 +1860,23 @@ class CostCenterManagementService:
         cost_center_id: int,
     ) -> CostCenterRecord:
         try:
-            cost_center = CostCenterRecord.objects.select_related("business_unit", "status").get(
-                id=cost_center_id
-            )
+            cost_center = CostCenterRecord.objects.select_related(
+                "business_unit", "country", "status"
+            ).get(id=cost_center_id)
         except CostCenterRecord.DoesNotExist as exc:
             raise AuthError("COST_CENTER_NOT_FOUND", "Cost center not found.", 404) from exc
 
         _ensure_business_units_in_scope(current_user, {cost_center.business_unit_id})
+        _ensure_country_in_scope(
+            current_user,
+            cost_center.country_id,
+            message="Cost center is outside your active country.",
+        )
         return cost_center
 
     @staticmethod
     def _refresh_cost_center(cost_center_id: int) -> CostCenterRecord:
-        return CostCenterRecord.objects.select_related("business_unit", "status").get(
+        return CostCenterRecord.objects.select_related("business_unit", "country", "status").get(
             id=cost_center_id
         )
 
@@ -1455,8 +1890,14 @@ class GeneralChargeCodeManagementService:
     ) -> list[dict]:
         _ensure_ts_admin(current_user)
         general_charge_codes = _apply_status_filter(
-            GeneralChargeCodeRecord.objects.select_related("business_unit", "charge_type", "status")
+            GeneralChargeCodeRecord.objects.select_related(
+                "business_unit",
+                "country",
+                "charge_type",
+                "status",
+            )
             .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+            .filter(country_id=current_user.country_id)
             .order_by("business_unit__bu_code", "code"),
             _parse_status_filter(status_code, domain_code="GENERAL_CHARGE_CODE_STATUS"),
         )
@@ -1478,6 +1919,7 @@ class GeneralChargeCodeManagementService:
     @transaction.atomic
     def create_general_charge_code(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         business_unit_id = _parse_required_int(
             payload.get("business_unit_id"),
@@ -1485,6 +1927,13 @@ class GeneralChargeCodeManagementService:
             message="business_unit_id is required.",
         )
         business_unit = _get_scoped_business_unit(current_user, business_unit_id)
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            business_unit.country,
+            out_of_scope_message=(
+                "General charge code Business Unit is outside your active country."
+            ),
+        )
 
         code = str(payload.get("code", "")).strip()
         name = str(payload.get("name", "")).strip()
@@ -1511,10 +1960,19 @@ class GeneralChargeCodeManagementService:
 
         charge_type_code = str(payload.get("charge_type_code", "STANDARD")).strip() or "STANDARD"
         status_code = str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE"
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="GENERAL_CHARGE_CODE",
+            expected_country_id=business_unit.country_id,
+            mismatch_message=(
+                "General charge code country must match the selected Business Unit country."
+            ),
+        )
 
         try:
             general_charge_code = GeneralChargeCodeRecord.objects.create(
                 business_unit=business_unit,
+                country=business_unit.country,
                 code=code,
                 name=name,
                 charge_type=_ref_value("GENERAL_CHARGE_CODE_TYPE", charge_type_code),
@@ -1556,10 +2014,24 @@ class GeneralChargeCodeManagementService:
         payload: dict,
     ) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         general_charge_code = GeneralChargeCodeManagementService._get_scoped_general_charge_code(
             current_user,
             general_charge_code_id,
+        )
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            general_charge_code.country,
+            out_of_scope_message="General charge code is outside your active country.",
+        )
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="GENERAL_CHARGE_CODE",
+            expected_country_id=general_charge_code.country_id,
+            immutable_country_id=general_charge_code.country_id,
+            mismatch_message="General charge code country must match the existing country.",
+            immutable_message="General charge code country cannot be changed.",
         )
 
         if (
@@ -1724,7 +2196,7 @@ class GeneralChargeCodeManagementService:
     ) -> GeneralChargeCodeRecord:
         try:
             general_charge_code = GeneralChargeCodeRecord.objects.select_related(
-                "business_unit", "charge_type", "status"
+                "business_unit", "country", "charge_type", "status"
             ).get(id=general_charge_code_id)
         except GeneralChargeCodeRecord.DoesNotExist as exc:
             raise AuthError(
@@ -1734,6 +2206,11 @@ class GeneralChargeCodeManagementService:
             ) from exc
 
         _ensure_business_units_in_scope(current_user, {general_charge_code.business_unit_id})
+        _ensure_country_in_scope(
+            current_user,
+            general_charge_code.country_id,
+            message="General charge code is outside your active country.",
+        )
         return general_charge_code
 
     @staticmethod
@@ -1741,7 +2218,7 @@ class GeneralChargeCodeManagementService:
         general_charge_code_id: int,
     ) -> GeneralChargeCodeRecord:
         return GeneralChargeCodeRecord.objects.select_related(
-            "business_unit", "charge_type", "status"
+            "business_unit", "country", "charge_type", "status"
         ).get(id=general_charge_code_id)
 
 
@@ -1755,12 +2232,17 @@ class CalendarPeriodRuleManagementService:
         _ensure_ts_admin(current_user)
         period_rules = _apply_status_filter(
             CalendarPeriodRule.objects.select_related(
+                "country",
                 "yearly_calendar",
+                "yearly_calendar__country",
                 "yearly_calendar__business_unit",
                 "yearly_calendar__status",
                 "status",
             )
-            .filter(yearly_calendar__business_unit_id__in=current_user.scoped_business_unit_ids)
+            .filter(
+                yearly_calendar__business_unit_id__in=current_user.scoped_business_unit_ids,
+                country_id=current_user.country_id,
+            )
             .order_by(
                 "yearly_calendar__business_unit__bu_code",
                 "yearly_calendar__calendar_year",
@@ -1775,8 +2257,11 @@ class CalendarPeriodRuleManagementService:
     def list_yearly_calendars(current_user: CurrentUser) -> list[dict]:
         _ensure_ts_admin(current_user)
         calendars = (
-            YearlyCalendar.objects.select_related("business_unit", "status")
-            .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+            YearlyCalendar.objects.select_related("business_unit", "country", "status")
+            .filter(
+                business_unit_id__in=current_user.scoped_business_unit_ids,
+                country_id=current_user.country_id,
+            )
             .order_by("business_unit__bu_code", "calendar_year", "calendar_name")
         )
         return [_serialize_yearly_calendar(calendar) for calendar in calendars]
@@ -1794,6 +2279,7 @@ class CalendarPeriodRuleManagementService:
     @transaction.atomic
     def create_period_rule(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         yearly_calendar = CalendarPeriodRuleManagementService._get_scoped_yearly_calendar(
             current_user,
@@ -1802,6 +2288,11 @@ class CalendarPeriodRuleManagementService:
                 code="CALENDAR_PERIOD_RULE_CALENDAR_REQUIRED",
                 message="yearly_calendar_id is required.",
             ),
+        )
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            yearly_calendar.country,
+            out_of_scope_message="Yearly calendar is outside your active country.",
         )
         effective_from = _parse_iso_date(
             payload.get("effective_from"),
@@ -1819,8 +2310,17 @@ class CalendarPeriodRuleManagementService:
             effective_from=effective_from,
             effective_to=effective_to,
         )
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="CALENDAR_PERIOD_RULE",
+            expected_country_id=yearly_calendar.country_id,
+            mismatch_message=(
+                "Calendar Period Rule country must match the selected yearly calendar country."
+            ),
+        )
         period_rule = CalendarPeriodRule.objects.create(
             yearly_calendar=yearly_calendar,
+            country=yearly_calendar.country,
             effective_from=effective_from,
             effective_to=effective_to,
             monday_max_hours=_parse_decimal(
@@ -1872,10 +2372,24 @@ class CalendarPeriodRuleManagementService:
     @transaction.atomic
     def update_period_rule(current_user: CurrentUser, period_rule_id: int, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         period_rule = CalendarPeriodRuleManagementService._get_scoped_period_rule(
             current_user,
             period_rule_id,
+        )
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            period_rule.country,
+            out_of_scope_message="Calendar Period Rule is outside your active country.",
+        )
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="CALENDAR_PERIOD_RULE",
+            expected_country_id=period_rule.country_id,
+            immutable_country_id=period_rule.country_id,
+            mismatch_message="Calendar Period Rule country must match the existing country.",
+            immutable_message="Calendar Period Rule country cannot be changed.",
         )
         if (
             "yearly_calendar_id" in payload
@@ -2034,12 +2548,20 @@ class CalendarPeriodRuleManagementService:
         current_user: CurrentUser, yearly_calendar_id: int
     ) -> YearlyCalendar:
         try:
-            yearly_calendar = YearlyCalendar.objects.select_related("business_unit", "status").get(
-                id=yearly_calendar_id
-            )
+            yearly_calendar = YearlyCalendar.objects.select_related(
+                "business_unit",
+                "country",
+                "country__status",
+                "status",
+            ).get(id=yearly_calendar_id)
         except YearlyCalendar.DoesNotExist as exc:
             raise AuthError("YEARLY_CALENDAR_NOT_FOUND", "Yearly calendar not found.", 404) from exc
         _ensure_business_units_in_scope(current_user, {yearly_calendar.business_unit_id})
+        _ensure_country_in_scope(
+            current_user,
+            yearly_calendar.country_id,
+            message="Yearly calendar is outside your active country.",
+        )
         return yearly_calendar
 
     @staticmethod
@@ -2048,7 +2570,9 @@ class CalendarPeriodRuleManagementService:
     ) -> CalendarPeriodRule:
         try:
             period_rule = CalendarPeriodRule.objects.select_related(
+                "country",
                 "yearly_calendar",
+                "yearly_calendar__country",
                 "yearly_calendar__business_unit",
                 "yearly_calendar__status",
                 "status",
@@ -2060,12 +2584,19 @@ class CalendarPeriodRuleManagementService:
         _ensure_business_units_in_scope(
             current_user, {period_rule.yearly_calendar.business_unit_id}
         )
+        _ensure_country_in_scope(
+            current_user,
+            period_rule.country_id,
+            message="Calendar Period Rule is outside your active country.",
+        )
         return period_rule
 
     @staticmethod
     def _refresh_period_rule(period_rule_id: int) -> CalendarPeriodRule:
         return CalendarPeriodRule.objects.select_related(
+            "country",
             "yearly_calendar",
+            "yearly_calendar__country",
             "yearly_calendar__business_unit",
             "yearly_calendar__status",
             "status",
@@ -2083,6 +2614,7 @@ class ProjectManagementService:
         projects = _apply_status_filter(
             Project.objects.select_related(
                 "business_unit",
+                "country",
                 "project_owner_employee",
                 "project_manager_employee",
                 "client",
@@ -2090,7 +2622,10 @@ class ProjectManagementService:
                 "cost_center",
                 "status",
             )
-            .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+            .filter(
+                business_unit_id__in=current_user.scoped_business_unit_ids,
+                country_id=current_user.country_id,
+            )
             .order_by("business_unit__bu_code", "project_code"),
             _parse_status_filter(status_code, domain_code="PROJECT_STATUS"),
         )
@@ -2106,6 +2641,7 @@ class ProjectManagementService:
     @transaction.atomic
     def create_project(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         business_unit = _get_scoped_business_unit(
             current_user,
@@ -2114,6 +2650,11 @@ class ProjectManagementService:
                 code="PROJECT_BUSINESS_UNIT_REQUIRED",
                 message="business_unit_id is required.",
             ),
+        )
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            business_unit.country,
+            out_of_scope_message="Project Business Unit is outside your active country.",
         )
         project_code = str(payload.get("project_code", "")).strip()
         name = str(payload.get("name", "")).strip()
@@ -2171,9 +2712,16 @@ class ProjectManagementService:
             end_date=end_date,
             close_date=close_date,
         )
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="PROJECT",
+            expected_country_id=business_unit.country_id,
+            mismatch_message="Project country must match the selected Business Unit country.",
+        )
         try:
             project = Project.objects.create(
                 business_unit=business_unit,
+                country=business_unit.country,
                 project_code=project_code,
                 name=name,
                 description=description,
@@ -2214,8 +2762,22 @@ class ProjectManagementService:
     @transaction.atomic
     def update_project(current_user: CurrentUser, project_id: int, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         project = ProjectManagementService._get_scoped_project(current_user, project_id)
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            project.country,
+            out_of_scope_message="Project is outside your active country.",
+        )
+        _validate_optional_country_payload(
+            payload,
+            code_prefix="PROJECT",
+            expected_country_id=project.country_id,
+            immutable_country_id=project.country_id,
+            mismatch_message="Project country must match the project country.",
+            immutable_message="Project country cannot be changed.",
+        )
         if (
             "business_unit_id" in payload
             and _parse_required_int(
@@ -2547,6 +3109,7 @@ class ProjectManagementService:
         try:
             project = Project.objects.select_related(
                 "business_unit",
+                "country",
                 "project_owner_employee",
                 "project_manager_employee",
                 "client",
@@ -2557,12 +3120,18 @@ class ProjectManagementService:
         except Project.DoesNotExist as exc:
             raise AuthError("PROJECT_NOT_FOUND", "Project not found.", 404) from exc
         _ensure_business_units_in_scope(current_user, {project.business_unit_id})
+        _ensure_country_in_scope(
+            current_user,
+            project.country_id,
+            message="Project is outside your active country.",
+        )
         return project
 
     @staticmethod
     def _refresh_project(project_id: int) -> Project:
         return Project.objects.select_related(
             "business_unit",
+            "country",
             "project_owner_employee",
             "project_manager_employee",
             "client",
@@ -2583,12 +3152,16 @@ class ProjectAssignmentManagementService:
         assignments = _apply_status_filter(
             ProjectAssignment.objects.select_related(
                 "project",
+                "project__country",
                 "project__business_unit",
                 "employee",
                 "employee__primary_business_unit",
                 "status",
             )
-            .filter(project__business_unit_id__in=current_user.scoped_business_unit_ids)
+            .filter(
+                project__business_unit_id__in=current_user.scoped_business_unit_ids,
+                project__country_id=current_user.country_id,
+            )
             .order_by(
                 "project__business_unit__bu_code",
                 "project__project_code",
@@ -2612,6 +3185,7 @@ class ProjectAssignmentManagementService:
     @transaction.atomic
     def create_assignment(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         project = ProjectManagementService._get_scoped_project(
             current_user,
@@ -2627,8 +3201,7 @@ class ProjectAssignmentManagementService:
                 "Closed projects cannot receive new assignments.",
                 400,
             )
-        employee = _get_scoped_employee_for_management(
-            current_user,
+        employee = _get_employee_for_project_assignment(
             _parse_required_int(
                 payload.get("employee_id"),
                 code="PROJECT_ASSIGNMENT_EMPLOYEE_REQUIRED",
@@ -2639,12 +3212,6 @@ class ProjectAssignmentManagementService:
             raise AuthError(
                 "PROJECT_ASSIGNMENT_EMPLOYEE_INACTIVE",
                 "Project assignment employee must be active.",
-                400,
-            )
-        if not _employee_has_active_business_unit_scope(employee.id, project.business_unit_id):
-            raise AuthError(
-                "PROJECT_ASSIGNMENT_EMPLOYEE_BU_SCOPE_INVALID",
-                "Assigned employee must belong to the project Business Unit.",
                 400,
             )
         assignment_start_date = _parse_iso_date(
@@ -2698,10 +3265,16 @@ class ProjectAssignmentManagementService:
     @transaction.atomic
     def update_assignment(current_user: CurrentUser, assignment_id: int, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
+        _ensure_current_country_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         assignment = ProjectAssignmentManagementService._get_scoped_assignment(
             current_user,
             assignment_id,
+        )
+        _ensure_scoped_active_country_for_write(
+            current_user,
+            assignment.project.country,
+            out_of_scope_message="Project assignment is outside your active country.",
         )
         if (
             "project_id" in payload
@@ -2852,6 +3425,7 @@ class ProjectAssignmentManagementService:
         try:
             assignment = ProjectAssignment.objects.select_related(
                 "project",
+                "project__country",
                 "project__business_unit",
                 "employee",
                 "employee__primary_business_unit",
@@ -2862,12 +3436,18 @@ class ProjectAssignmentManagementService:
                 "PROJECT_ASSIGNMENT_NOT_FOUND", "Project Assignment not found.", 404
             ) from exc
         _ensure_business_units_in_scope(current_user, {assignment.project.business_unit_id})
+        _ensure_country_in_scope(
+            current_user,
+            assignment.project.country_id,
+            message="Project assignment is outside your active country.",
+        )
         return assignment
 
     @staticmethod
     def _refresh_assignment(assignment_id: int) -> ProjectAssignment:
         return ProjectAssignment.objects.select_related(
             "project",
+            "project__country",
             "project__business_unit",
             "employee",
             "employee__primary_business_unit",

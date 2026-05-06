@@ -9,6 +9,7 @@ from tests.helpers import (
     assign_employee_to_business_unit,
     assign_role,
     create_business_unit,
+    create_country,
     create_employee,
     seed_reference_data,
 )
@@ -174,6 +175,58 @@ def test_ts_admin_cannot_create_employee_with_out_of_scope_business_unit() -> No
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "BUSINESS_UNIT_OUT_OF_SCOPE"
+
+
+@pytest.mark.django_db
+def test_ts_admin_cannot_create_employee_with_business_units_from_multiple_countries() -> None:
+    seed_reference_data()
+    holding_country = create_country(country_name="Test Holding Country")
+    other_country = create_country(country_name="Test Other Country")
+    primary_bu = create_business_unit(
+        bu_code="BU-ADMIN",
+        name="Admin BU",
+        country=holding_country,
+    )
+    foreign_bu = create_business_unit(
+        bu_code="BU-OTHER-COUNTRY",
+        name="Other Country BU",
+        country=other_country,
+    )
+    admin_employee = create_employee(
+        employee_code="EMP-703",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=primary_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=primary_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(employee=admin_employee, business_unit=foreign_bu)
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=primary_bu)
+    assign_role(employee=admin_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.post(
+        "/api/v1/admin/employees/",
+        data=json.dumps(
+            {
+                "employee_code": "EMP-704",
+                "full_name": "Cross Country Scope",
+                "email": "cross-country@example.com",
+                "primary_business_unit_id": primary_bu.id,
+                "business_unit_ids": [primary_bu.id, foreign_bu.id],
+                "role_codes": ["USER"],
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "EMPLOYEE_BUSINESS_UNIT_COUNTRY_MISMATCH"
 
 
 @pytest.mark.django_db

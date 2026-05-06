@@ -22,6 +22,7 @@ from tests.helpers import (
     create_calendar_period_rule,
     create_client,
     create_cost_center,
+    create_country,
     create_employee,
     create_general_charge_code,
     create_internal_category,
@@ -172,6 +173,114 @@ def create_ts_admin_for_business_unit(
     )
     assign_role(employee=admin, role_code="TS_ADMIN")
     return admin
+
+
+def setup_cross_country_project_approval_context() -> dict:
+    home_country = create_country(country_name="Project Country")
+    foreign_country = create_country(country_name="Worker Country")
+    project_business_unit = create_business_unit(
+        bu_code="BU-PROJECT-CC",
+        name="Project Country BU",
+        country=home_country,
+    )
+    worker_business_unit = create_business_unit(
+        bu_code="BU-WORKER-CC",
+        name="Worker Country BU",
+        country=foreign_country,
+    )
+    create_business_unit_configuration(
+        business_unit=worker_business_unit,
+        approval_mode_code="PROJECT",
+    )
+
+    worker = create_employee(
+        employee_code="EMP-CC-WORKER",
+        full_name="Cross Country Worker",
+        email="cross-country-worker@example.com",
+        primary_business_unit=worker_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=worker,
+        business_unit=worker_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=worker, role_code="USER")
+
+    project_owner = create_employee(
+        employee_code="EMP-CC-OWNER",
+        full_name="Cross Country Owner",
+        email="cross-country-owner@example.com",
+        primary_business_unit=project_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=project_owner,
+        business_unit=project_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_owner, role_code="PROJECT_OWNER")
+
+    project_manager = create_employee(
+        employee_code="EMP-CC-PM",
+        full_name="Cross Country PM",
+        email="cross-country-pm@example.com",
+        primary_business_unit=project_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=project_manager,
+        business_unit=project_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_manager, role_code="PROJECT_MANAGER")
+
+    worker_calendar = create_yearly_calendar(
+        business_unit=worker_business_unit,
+        calendar_year=2026,
+        calendar_name="Worker 2026",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=worker_calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+    assign_calendar(employee=worker, yearly_calendar=worker_calendar)
+
+    client_record = create_client(
+        business_unit=project_business_unit,
+        client_code="CLI-CC",
+        name="Cross Country Client",
+    )
+    category = create_internal_category(
+        business_unit=project_business_unit,
+        category_code="CAT-CC",
+        name="Cross Country Category",
+    )
+    cost_center = create_cost_center(
+        business_unit=project_business_unit,
+        cost_center_code="CC-CC",
+        name="Cross Country Cost Center",
+    )
+    project = create_project(
+        business_unit=project_business_unit,
+        project_code="PRJ-CC",
+        name="Cross Country Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=client_record,
+        internal_category=category,
+        cost_center=cost_center,
+        start_date=date(2026, 1, 1),
+        billable_flag=True,
+    )
+    assign_project(project=project, employee=worker, assignment_start_date=date(2026, 1, 1))
+
+    return {
+        "project_business_unit": project_business_unit,
+        "worker_business_unit": worker_business_unit,
+        "worker": worker,
+        "project_owner": project_owner,
+        "project_manager": project_manager,
+        "project": project,
+    }
 
 
 @pytest.mark.django_db
@@ -711,6 +820,63 @@ def test_submit_creates_project_approval_items_and_pm_worklist() -> None:
     assert (
         detail_response.json()["approval_item"]["lines"][0]["project"]["id"]
         == context["project"].id
+    )
+
+
+@pytest.mark.django_db
+def test_cross_country_project_assignment_supports_timesheet_submit_and_pm_review() -> None:
+    seed_reference_data()
+    context = setup_cross_country_project_approval_context()
+
+    employee_client = Client()
+    initialize_session(employee_client, context["worker"].email)
+    timesheet = create_timesheet(employee_client, "2026-05-04")
+
+    save_response = employee_client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "5.00",
+                        "comment_text": "Cross-country project work",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    submit_response = employee_client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({"comment_text": "Submit cross-country project time"}),
+        content_type="application/json",
+    )
+
+    assert save_response.status_code == 200
+    assert submit_response.status_code == 200
+    assert submit_response.json()["timesheet"]["status"] == "SUBMITTED"
+
+    approval_item = ApprovalItem.objects.get(submission_cycle__weekly_timesheet_id=timesheet["id"])
+    timesheet_record = WeeklyTimesheet.objects.get(id=timesheet["id"])
+    assert timesheet_record.business_unit_id == context["worker_business_unit"].id
+    assert approval_item.project_id == context["project"].id
+    assert approval_item.approver_employee_id == context["project_manager"].id
+
+    pm_client = Client()
+    initialize_session(pm_client, context["project_manager"].email)
+    worklist_response = pm_client.get("/api/v1/approvals/")
+    detail_response = pm_client.get(f"/api/v1/approvals/{approval_item.id}/")
+
+    assert worklist_response.status_code == 200
+    assert worklist_response.json()["approval_items"][0]["timesheet_employee"]["employee_code"] == (
+        "EMP-CC-WORKER"
+    )
+    assert detail_response.status_code == 200
+    assert detail_response.json()["approval_item"]["project"]["project_code"] == "PRJ-CC"
+    assert detail_response.json()["approval_item"]["lines"][0]["comment_text"] == (
+        "Cross-country project work"
     )
 
 

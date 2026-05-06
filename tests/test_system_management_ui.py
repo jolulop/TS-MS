@@ -3,8 +3,10 @@ from datetime import date
 import pytest
 from django.test import Client
 
+from apps.audit.models import AuditLog
 from apps.master_data.models import (
     CalendarPeriodRule,
+    Country,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -28,13 +30,17 @@ from tests.helpers import (
     assign_employee_to_business_unit,
     assign_role,
     create_business_unit,
+    create_calendar_period_rule,
     create_client,
     create_cost_center,
+    create_country,
     create_employee,
     create_internal_category,
     create_project,
     create_yearly_calendar,
+    get_country,
     initialize_ui_session,
+    ref_value,
     seed_reference_data,
 )
 
@@ -64,6 +70,27 @@ def _build_ts_admin_client() -> tuple[Client, Employee, list]:
     client = Client()
     initialize_ui_session(client, employee.email)
     return client, employee, [primary_business_unit, secondary_business_unit]
+
+
+def _build_ts_admin_master_client() -> tuple[Client, Employee, list]:
+    seed_reference_data()
+    primary_business_unit = create_business_unit(bu_code="BU-MASTER-1", name="Master BU 1")
+    employee = create_employee(
+        employee_code="EMP-SYS-MASTER",
+        full_name="System Master Admin",
+        email="system-master-admin@example.com",
+        primary_business_unit=primary_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=primary_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="TS_ADMIN_MASTER")
+
+    client = Client()
+    initialize_ui_session(client, employee.email)
+    return client, employee, [primary_business_unit]
 
 
 def _build_project_management_context(
@@ -153,6 +180,16 @@ def test_non_admin_cannot_open_employee_management_screen() -> None:
     initialize_ui_session(client, employee.email)
 
     response = client.get("/system/employees/")
+
+    assert response.status_code == 403
+    assert "Access Denied" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_ts_admin_cannot_open_country_management_screen() -> None:
+    client, _, _ = _build_ts_admin_client()
+
+    response = client.get("/system/countries/")
 
     assert response.status_code == 403
     assert "Access Denied" in response.content.decode()
@@ -296,6 +333,64 @@ def test_client_management_create_and_update_via_html() -> None:
     assert created_client.name == "New Client Updated"
     assert created_client.status.value_code == "INACTIVE"
     assert created_client.parent_client_id is None
+
+
+@pytest.mark.django_db
+def test_country_bound_forms_show_read_only_country_context() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    managed_client = create_client(
+        business_unit=business_units[0],
+        client_code="CLI-READONLY",
+        name="Read Only Client",
+    )
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_units[0],
+        calendar_year=2026,
+        calendar_name="Readonly Calendar",
+    )
+    period_rule = create_calendar_period_rule(
+        yearly_calendar=yearly_calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 3, 31),
+    )
+
+    collection_response = client.get("/system/clients/")
+    client_detail_response = client.get(f"/system/clients/{managed_client.id}/")
+    period_rule_detail_response = client.get(f"/system/calendar-period-rules/{period_rule.id}/")
+
+    for response in (
+        collection_response,
+        client_detail_response,
+        period_rule_detail_response,
+    ):
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'name="country_name_display"' in content
+        assert 'value="Holding"' in content
+        assert "readonly" in content
+
+
+@pytest.mark.django_db
+def test_html_country_bound_writes_are_blocked_when_active_country_becomes_inactive() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    holding_country = get_country()
+    holding_country.status = ref_value("COUNTRY_STATUS", "INACTIVE")
+    holding_country.save(update_fields=["status", "updated_at"])
+
+    response = client.post(
+        "/system/clients/",
+        data={
+            "business_unit_id": str(business_units[0].id),
+            "client_code": "CLI-BLOCKED",
+            "name": "Blocked Client",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/"
+    assert ClientRecord.objects.filter(client_code="CLI-BLOCKED").exists() is False
 
 
 @pytest.mark.django_db
@@ -506,15 +601,21 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
     project_owner, project_manager, project_client, category, cost_center = (
         _build_project_management_context(business_units[0])
     )
+    foreign_country = create_country(country_name="Assignment UI Country")
+    foreign_business_unit = create_business_unit(
+        bu_code="BU-ASN-FOREIGN",
+        name="Assignment Foreign BU",
+        country=foreign_country,
+    )
     assigned_employee = create_employee(
         employee_code="EMP-ASSIGN-1",
         full_name="Assigned Employee",
         email="assigned-employee@example.com",
-        primary_business_unit=business_units[0],
+        primary_business_unit=foreign_business_unit,
     )
     assign_employee_to_business_unit(
         employee=assigned_employee,
-        business_unit=business_units[0],
+        business_unit=foreign_business_unit,
         is_primary_flag=True,
     )
     assign_role(employee=assigned_employee, role_code="USER")
@@ -529,6 +630,10 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
         cost_center=cost_center,
         start_date=date(2026, 4, 1),
     )
+
+    collection_response = client.get("/system/project-assignments/")
+    assert collection_response.status_code == 200
+    assert "EMP-ASSIGN-1" in collection_response.content.decode()
 
     create_response = client.post(
         "/system/project-assignments/",
@@ -624,3 +729,102 @@ def test_calendar_period_rule_management_create_and_update_via_html() -> None:
     assert period_rule.effective_to == date(2026, 4, 30)
     assert str(period_rule.monday_max_hours) == "7.50"
     assert period_rule.status.value_code == "INACTIVE"
+
+
+@pytest.mark.django_db
+def test_calendar_period_rule_detail_renders_on_get() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_units[0],
+        calendar_year=2026,
+        calendar_name="Operations Calendar",
+    )
+    period_rule = create_calendar_period_rule(
+        yearly_calendar=yearly_calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 3, 31),
+    )
+
+    response = client.get(f"/system/calendar-period-rules/{period_rule.id}/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Operations Calendar" in content
+    assert date(2026, 1, 1).isoformat() in content
+
+
+@pytest.mark.django_db
+def test_calendar_period_rule_management_all_filter_shows_active_and_inactive_records() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_units[0],
+        calendar_year=2026,
+        calendar_name="All Calendars View",
+    )
+    active_rule = create_calendar_period_rule(
+        yearly_calendar=yearly_calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 3, 31),
+    )
+    inactive_rule = create_calendar_period_rule(
+        yearly_calendar=yearly_calendar,
+        effective_from=date(2026, 4, 1),
+        effective_to=date(2026, 6, 30),
+    )
+    inactive_rule.status = ref_value("CALENDAR_PERIOD_STATUS", "INACTIVE")
+    inactive_rule.save(update_fields=["status", "updated_at"])
+
+    response = client.get("/system/calendar-period-rules/?status=ALL")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert 'href="/system/calendar-period-rules/?status=ALL"' in content
+    assert f"/system/calendar-period-rules/{active_rule.id}/" in content
+    assert f"/system/calendar-period-rules/{inactive_rule.id}/" in content
+
+
+@pytest.mark.django_db
+def test_country_management_create_and_update_via_html() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+
+    create_response = client.post(
+        "/system/countries/",
+        data={
+            "country_name": "Chile",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    country = Country.objects.get(country_name="Chile")
+
+    update_response = client.post(
+        f"/system/countries/{country.id}/",
+        data={
+            "country_name": "Chile Updated",
+            "status_code": "INACTIVE",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    country.refresh_from_db()
+    assert country.country_name == "Chile Updated"
+    assert country.status.value_code == "INACTIVE"
+    assert AuditLog.objects.filter(entity_name="country", entity_id=country.id).count() == 3
+
+
+@pytest.mark.django_db
+def test_country_management_all_filter_shows_active_and_inactive_records() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    active_country = create_country(country_name="Uruguay", active=True)
+    inactive_country = create_country(country_name="Brazil", active=False)
+
+    response = client.get("/system/countries/?status=ALL")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert 'href="/system/countries/?status=ALL"' in content
+    assert f"/system/countries/{active_country.id}/" in content
+    assert f"/system/countries/{inactive_country.id}/" in content

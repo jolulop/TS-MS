@@ -2,6 +2,10 @@
 
 ## Active Plans
 
+- `2026-05-05`: `docs/plans/2026-05-05-country-management-foundation.md`
+  - status: completed
+  - focus: country master data, country-bound session context, immutable country assignment, and cross-country project staffing rules
+  - progress: milestones 1-5 completed; plan complete
 - `2026-04-21`: `docs/plans/2026-04-21-phase-2-employee-auth-foundation.md`
   - status: completed
   - focus: internal session initialization, employee/BU scope loading, and backend authorization foundation
@@ -16,9 +20,9 @@
   - focus: weekly timesheet engine, line validation, day limits, lifecycle, approvals, and admin state transitions
   - progress: milestones 1-7 completed
 - `2026-04-22`: `docs/plans/2026-04-22-phase-5-ui-shell-and-navigation.md`
-  - status: in progress
+  - status: completed
   - focus: app shell, access entry, dashboard, profile/session context, and role-aware top-level navigation
-  - progress: milestones 1-4 completed; milestone 2 correction pass finished with status filters plus project, project assignment, and calendar period rule management screens; milestone 5 next
+  - progress: milestones 1-5 completed; milestone 2 correction pass finished with status filters plus project, project assignment, and calendar period rule management screens; Phase V complete
 
 ## Purpose
 

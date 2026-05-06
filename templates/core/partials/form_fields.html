@@ -17,6 +17,7 @@
           <textarea
             id="{{ field.name }}"
             name="{{ field.name }}"
+            {% if field.readonly %}readonly{% endif %}
             {% if field.required %}required{% endif %}>{{ field.value }}</textarea>
         {% elif field.kind == "select" %}
           <select
@@ -43,6 +44,7 @@
             name="{{ field.name }}"
             type="{{ field.kind }}"
             value="{{ field.value }}"
+            {% if field.readonly %}readonly{% endif %}
             {% if field.required %}required{% endif %}>
         {% endif %}
       {% endif %}

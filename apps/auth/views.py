@@ -23,6 +23,11 @@ def _serialize_current_user(current_user) -> dict:
             "full_name": current_user.full_name,
             "email": current_user.email,
             "canonical_email": current_user.canonical_email,
+            "country": {
+                "id": current_user.country_id,
+                "country_name": current_user.country_name,
+                "status": current_user.country_status,
+            },
             "primary_business_unit_id": current_user.primary_business_unit_id,
             "primary_business_unit_code": current_user.primary_business_unit_code,
         },
@@ -51,6 +56,11 @@ def _serialize_employee(employee: Employee) -> dict:
             "id": employee.primary_business_unit_id,
             "bu_code": employee.primary_business_unit.bu_code,
             "name": employee.primary_business_unit.name,
+        },
+        "country": {
+            "id": employee.country_id,
+            "country_name": employee.country.country_name,
+            "status": employee.country.status.value_code,
         },
         "roles": role_codes,
         "status": employee.status.value_code,
@@ -102,7 +112,9 @@ def list_employees(request: HttpRequest) -> JsonResponse:
 
     effective_date = date.today()
     employees = (
-        Employee.objects.select_related("primary_business_unit", "status")
+        Employee.objects.select_related(
+            "primary_business_unit", "status", "country", "country__status"
+        )
         .prefetch_related("role_assignments__role")
         .filter(
             Q(primary_business_unit_id__in=current_user.scoped_business_unit_ids)
@@ -130,6 +142,7 @@ def employee_detail(request: HttpRequest, employee_id: int) -> JsonResponse:
         current_user = CurrentUserService.get_from_request(request)
         employee = (
             Employee.objects.select_related("primary_business_unit", "status")
+            .select_related("country", "country__status")
             .prefetch_related("role_assignments__role", "business_unit_assignments")
             .get(id=employee_id)
         )

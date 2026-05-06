@@ -17,6 +17,9 @@ class InternalSessionMiddleware(MiddlewareMixin):
             employee = Employee.objects.select_related(
                 "status",
                 "status__domain",
+                "country",
+                "country__status",
+                "country__status__domain",
                 "primary_business_unit",
             ).get(id=employee_id)
             request.ts_user = CurrentUserService.build_for_employee(employee)

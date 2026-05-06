@@ -5,8 +5,21 @@ REFERENCE_DATA = {
         "values": [
             {"code": "USER", "label": "User", "sort_order": 10},
             {"code": "TS_ADMIN", "label": "Timesheet Administrator", "sort_order": 20},
-            {"code": "PROJECT_OWNER", "label": "Project Owner", "sort_order": 30},
-            {"code": "PROJECT_MANAGER", "label": "Project Manager", "sort_order": 40},
+            {
+                "code": "TS_ADMIN_MASTER",
+                "label": "Timesheet Master Administrator",
+                "sort_order": 30,
+            },
+            {"code": "PROJECT_OWNER", "label": "Project Owner", "sort_order": 40},
+            {"code": "PROJECT_MANAGER", "label": "Project Manager", "sort_order": 50},
+        ],
+    },
+    "COUNTRY_STATUS": {
+        "name": "Country Status",
+        "description": "Country lifecycle status values.",
+        "values": [
+            {"code": "ACTIVE", "label": "Active", "sort_order": 10},
+            {"code": "INACTIVE", "label": "Inactive", "sort_order": 20},
         ],
     },
     "EMPLOYEE_STATUS": {

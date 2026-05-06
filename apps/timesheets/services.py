@@ -180,20 +180,12 @@ def _validate_week_start_date(week_start_date: date) -> tuple[date, date]:
     return week_start_date, week_start_date + timedelta(days=4)
 
 
-def _get_project_for_line(
-    employee: Employee, work_date: date, project_id: int, business_unit_id: int
-) -> Project:
+def _get_project_for_line(employee: Employee, work_date: date, project_id: int) -> Project:
     try:
         project = Project.objects.select_related("status").get(id=project_id)
     except Project.DoesNotExist as exc:
         raise AuthError("PROJECT_NOT_FOUND", "Project not found.", 404) from exc
 
-    if project.business_unit_id != business_unit_id:
-        raise AuthError(
-            "TIMESHEET_PROJECT_INVALID",
-            "Project is not available for this timesheet Business Unit.",
-            400,
-        )
     if project.status.value_code != "ACTIVE":
         raise AuthError("TIMESHEET_PROJECT_INVALID", "Project is not active.", 400)
     if work_date < project.start_date:
@@ -488,7 +480,6 @@ def _get_approval_item_for_view(current_user: CurrentUser, approval_item_id: int
 def _available_projects_for_week(timesheet: WeeklyTimesheet) -> list[dict]:
     projects = (
         Project.objects.filter(
-            business_unit_id=timesheet.business_unit_id,
             status__domain__domain_code="PROJECT_STATUS",
             status__value_code="ACTIVE",
             start_date__lte=timesheet.week_end_date,
@@ -689,7 +680,6 @@ class TimesheetService:
                     employee,
                     work_date,
                     int(project_id),
-                    timesheet.business_unit_id,
                 )
                 billable_flag = project.billable_flag
             else:

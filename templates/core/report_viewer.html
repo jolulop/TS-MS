@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | TS Management{% endblock %}
+
+{% block content %}
+  <div class="content-stack">
+    <div class="page-header">
+      <p class="eyebrow">{{ page_eyebrow }}</p>
+      <div class="detail-header">
+        <div>
+          <h1>{{ page_title }}</h1>
+          <p>{{ page_intro }}</p>
+        </div>
+        <span class="chip">{{ report_definition.audience }}</span>
+      </div>
+    </div>
+
+    <div class="split-grid">
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>Filter Panel</h2>
+          <p>Filters stay inside your authorized report scope. Empty values keep the broader scoped default.</p>
+        </div>
+        <form class="form-stack" method="get" action="">
+          <div class="form-grid two-column">
+            {% for field in filter_fields %}
+              <div class="field">
+                <label for="{{ field.name }}">{{ field.label }}</label>
+                {% if field.type == "select" %}
+                  <select id="{{ field.name }}" name="{{ field.name }}">
+                    <option value="">All</option>
+                    {% for option in field.options %}
+                      <option value="{{ option.value }}"{% if option.value == field.value %} selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif field.type == "date" %}
+                  <input id="{{ field.name }}" name="{{ field.name }}" type="date" value="{{ field.value }}">
+                {% else %}
+                  <input id="{{ field.name }}" name="{{ field.name }}" type="text" value="{{ field.value }}">
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+          <div class="detail-header">
+            <button class="button" type="submit">Run Report</button>
+            <a class="button secondary" href="/reports/{{ report_code }}/">Reset Filters</a>
+          </div>
+        </form>
+      </section>
+
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>Report Totals</h2>
+          <p>These totals reflect the currently filtered rows only.</p>
+        </div>
+        <dl class="meta-grid">
+          {% for total in totals %}
+            <div class="meta-row">
+              <dt>{{ total.label }}</dt>
+              <dd>{{ total.value }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
+      </section>
+    </div>
+
+    <section class="surface-card">
+      <div class="section-header">
+        <h2>Results Grid</h2>
+        <p><a href="/reports/">Back to Reports Hub</a></p>
+      </div>
+      {% if table_rows %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                {% for header in table_headers %}
+                  <th>{{ header }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in table_rows %}
+                <tr>
+                  {% for cell in row %}
+                    <td>{{ cell }}</td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">{{ empty_message }}</div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

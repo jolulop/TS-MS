@@ -15,6 +15,7 @@ from apps.master_data.services import (
     CalendarPeriodRuleManagementService,
     ClientManagementService,
     CostCenterManagementService,
+    CountryManagementService,
     EmployeeManagementService,
     GeneralChargeCodeManagementService,
     InternalCategoryManagementService,
@@ -53,21 +54,46 @@ def _require_ts_admin(request: HttpRequest) -> CurrentUser | HttpResponse:
     return current_user
 
 
+def _require_ts_admin_master(request: HttpRequest) -> CurrentUser | HttpResponse:
+    current_user = _require_user(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+    if not current_user.is_ts_admin_master:
+        return _render_access_denied(
+            request,
+            message="You do not have permission to open this Country Management screen.",
+        )
+    return current_user
+
+
 def _system_section_links(current_user: CurrentUser, current_path: str) -> list[dict]:
-    if not current_user.is_ts_admin:
+    if not (current_user.is_ts_admin or current_user.is_ts_admin_master):
         return []
 
-    sections = [
-        ("overview", "Overview", "/system/"),
-        ("employees", "Employees", "/system/employees/"),
-        ("clients", "Clients", "/system/clients/"),
-        ("internal-categories", "Internal Categories", "/system/internal-categories/"),
-        ("cost-centers", "Cost Centers", "/system/cost-centers/"),
-        ("general-charge-codes", "General Charge Codes", "/system/general-charge-codes/"),
-        ("projects", "Projects", "/system/projects/"),
-        ("project-assignments", "Project Assignments", "/system/project-assignments/"),
-        ("calendar-period-rules", "Calendar Period Rules", "/system/calendar-period-rules/"),
-    ]
+    sections = [("overview", "Overview", "/system/")]
+    if current_user.is_ts_admin_master:
+        sections.append(("countries", "Countries", "/system/countries/"))
+    if current_user.is_ts_admin:
+        sections.extend(
+            [
+                ("employees", "Employees", "/system/employees/"),
+                ("clients", "Clients", "/system/clients/"),
+                ("internal-categories", "Internal Categories", "/system/internal-categories/"),
+                ("cost-centers", "Cost Centers", "/system/cost-centers/"),
+                (
+                    "general-charge-codes",
+                    "General Charge Codes",
+                    "/system/general-charge-codes/",
+                ),
+                ("projects", "Projects", "/system/projects/"),
+                ("project-assignments", "Project Assignments", "/system/project-assignments/"),
+                (
+                    "calendar-period-rules",
+                    "Calendar Period Rules",
+                    "/system/calendar-period-rules/",
+                ),
+            ]
+        )
     return [
         {
             "key": key,
@@ -171,7 +197,8 @@ def _scoped_business_unit_options(
     if include_blank:
         options.append(_option("", "Select a Business Unit", selected_values=selected_values))
     business_units = BusinessUnit.objects.filter(
-        id__in=current_user.scoped_business_unit_ids
+        id__in=current_user.scoped_business_unit_ids,
+        country_id=current_user.country_id,
     ).order_by("bu_code")
     options.extend(
         _option(
@@ -193,7 +220,8 @@ def _parent_client_options(
     selected_values = _selected_values(selected)
     options = [_option("", "No parent client", selected_values=selected_values)]
     clients = ClientRecord.objects.filter(
-        business_unit_id__in=current_user.scoped_business_unit_ids
+        business_unit_id__in=current_user.scoped_business_unit_ids,
+        country_id=current_user.country_id,
     ).select_related("business_unit")
     if exclude_client_id is not None:
         clients = clients.exclude(id=exclude_client_id)
@@ -219,6 +247,7 @@ def _field(
     help_text: str = "",
     options: list[dict] | None = None,
     checked: bool = False,
+    readonly: bool = False,
 ) -> dict:
     return {
         "name": name,
@@ -229,7 +258,18 @@ def _field(
         "help_text": help_text,
         "options": options or [],
         "checked": checked,
+        "readonly": readonly,
     }
+
+
+def _country_display_field(country_name: str) -> dict:
+    return _field(
+        name="country_name_display",
+        label="Country",
+        kind="text",
+        value=country_name,
+        readonly=True,
+    )
 
 
 def _status_filter_links(
@@ -247,7 +287,8 @@ def _status_filter_links(
     )
     allowed_codes = {"ALL", *(value.value_code for value in available_values)}
     selected_code = raw_selected if raw_selected in allowed_codes else default_code
-    links = [{"label": "All", "href": request.path, "active": selected_code == "ALL"}]
+    all_href = request.path if default_code == "ALL" else f"{request.path}?status=ALL"
+    links = [{"label": "All", "href": all_href, "active": selected_code == "ALL"}]
     links.extend(
         {
             "label": ref_value.value_label,
@@ -279,7 +320,8 @@ def _scoped_client_options(
     if include_blank:
         options.append(_option("", "Select a Client", selected_values=selected_values))
     clients = ClientRecord.objects.filter(
-        business_unit_id__in=current_user.scoped_business_unit_ids
+        business_unit_id__in=current_user.scoped_business_unit_ids,
+        country_id=current_user.country_id,
     ).select_related("business_unit")
     if business_unit_id is not None:
         clients = clients.filter(business_unit_id=business_unit_id)
@@ -307,7 +349,8 @@ def _scoped_internal_category_options(
     if include_blank:
         options.append(_option("", "Select an Internal Category", selected_values=selected_values))
     categories = InternalCategoryRecord.objects.filter(
-        business_unit_id__in=current_user.scoped_business_unit_ids
+        business_unit_id__in=current_user.scoped_business_unit_ids,
+        country_id=current_user.country_id,
     ).select_related("business_unit")
     if business_unit_id is not None:
         categories = categories.filter(business_unit_id=business_unit_id)
@@ -335,7 +378,8 @@ def _scoped_cost_center_options(
     if include_blank:
         options.append(_option("", "Select a Cost Center", selected_values=selected_values))
     cost_centers = CostCenterRecord.objects.filter(
-        business_unit_id__in=current_user.scoped_business_unit_ids
+        business_unit_id__in=current_user.scoped_business_unit_ids,
+        country_id=current_user.country_id,
     ).select_related("business_unit")
     if business_unit_id is not None:
         cost_centers = cost_centers.filter(business_unit_id=business_unit_id)
@@ -361,6 +405,8 @@ def _scoped_employee_options(
     include_blank: bool = False,
     required_role_code: str | None = None,
     business_unit_id: int | None = None,
+    restrict_to_current_country: bool = False,
+    include_all_employees: bool = False,
 ) -> list[dict]:
     selected_values = _selected_values(selected)
     options = []
@@ -373,12 +419,19 @@ def _scoped_employee_options(
             "role_assignments__status__domain",
             "business_unit_assignments__status__domain",
         )
-        .filter(
-            business_unit_assignments__business_unit_id__in=current_user.scoped_business_unit_ids
-        )
-        .distinct()
-        .order_by("primary_business_unit__bu_code", "employee_code")
     )
+    if include_all_employees:
+        employees = employees.order_by("primary_business_unit__bu_code", "employee_code")
+    else:
+        employees = (
+            employees.filter(
+                business_unit_assignments__business_unit_id__in=current_user.scoped_business_unit_ids
+            )
+            .distinct()
+            .order_by("primary_business_unit__bu_code", "employee_code")
+        )
+    if restrict_to_current_country:
+        employees = employees.filter(country_id=current_user.country_id)
     if business_unit_id is not None:
         employees = employees.filter(
             business_unit_assignments__business_unit_id=business_unit_id,
@@ -424,7 +477,10 @@ def _scoped_project_options(
         options.append(_option("", "Select a Project", selected_values=selected_values))
     projects = (
         Project.objects.select_related("business_unit", "status")
-        .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+        .filter(
+            business_unit_id__in=current_user.scoped_business_unit_ids,
+            country_id=current_user.country_id,
+        )
         .order_by("business_unit__bu_code", "project_code")
     )
     options.extend(
@@ -450,7 +506,10 @@ def _scoped_yearly_calendar_options(
         options.append(_option("", "Select a Calendar", selected_values=selected_values))
     calendars = (
         YearlyCalendar.objects.select_related("business_unit")
-        .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+        .filter(
+            business_unit_id__in=current_user.scoped_business_unit_ids,
+            country_id=current_user.country_id,
+        )
         .order_by("business_unit__bu_code", "calendar_year", "calendar_name")
     )
     options.extend(
@@ -478,6 +537,7 @@ def _employee_create_fields(
         else [str(current_user.primary_business_unit_id)]
     )
     return [
+        _country_display_field(current_user.country_name),
         _field(
             name="employee_code",
             label="Employee Code",
@@ -551,6 +611,7 @@ def _employee_create_fields(
 
 def _employee_core_fields(employee: dict, *, post_data: QueryDict | None = None) -> list[dict]:
     return [
+        _country_display_field(employee["country"]["country_name"]),
         _field(
             name="full_name",
             label="Full Name",
@@ -640,15 +701,19 @@ def _client_form_fields(
     post_data: QueryDict | None = None,
     entity: dict | None = None,
 ) -> list[dict]:
-    selected_business_unit = post_data.get("business_unit_id", "") if post_data is not None else ""
+    submitted_data = post_data or QueryDict("")
+    selected_business_unit = submitted_data.get("business_unit_id", "")
     if entity is not None and post_data is None:
         selected_business_unit = str(entity["business_unit"]["id"])
 
-    selected_parent = post_data.get("parent_client_id", "") if post_data is not None else ""
+    selected_parent = submitted_data.get("parent_client_id", "")
     if entity is not None and post_data is None and entity["parent_client"] is not None:
         selected_parent = str(entity["parent_client"]["id"])
 
     return [
+        _country_display_field(
+            entity["country"]["country_name"] if entity else current_user.country_name
+        ),
         _field(
             name="business_unit_id",
             label="Business Unit",
@@ -664,7 +729,7 @@ def _client_form_fields(
             name="client_code",
             label="Client Code",
             kind="text",
-            value=post_data.get("client_code", entity["client_code"] if entity else "")
+            value=submitted_data.get("client_code", entity["client_code"] if entity else "")
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -673,7 +738,7 @@ def _client_form_fields(
             name="name",
             label="Client Name",
             kind="text",
-            value=post_data.get("name", entity["name"] if entity else "")
+            value=submitted_data.get("name", entity["name"] if entity else "")
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -684,7 +749,9 @@ def _client_form_fields(
             kind="select",
             options=_ref_options(
                 "CLIENT_STATUS",
-                selected=post_data.get("status_code", entity["status"] if entity else "ACTIVE")
+                selected=submitted_data.get(
+                    "status_code", entity["status"] if entity else "ACTIVE"
+                )
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -715,7 +782,8 @@ def _simple_master_fields(
     description_label: str,
     status_domain: str,
 ) -> list[dict]:
-    selected_business_unit = post_data.get("business_unit_id", "") if post_data is not None else ""
+    submitted_data = post_data or QueryDict("")
+    selected_business_unit = submitted_data.get("business_unit_id", "")
     if entity is not None and post_data is None:
         selected_business_unit = str(entity["business_unit"]["id"])
 
@@ -723,9 +791,12 @@ def _simple_master_fields(
     if entity is not None:
         description_value = entity["description"]
     if post_data is not None:
-        description_value = post_data.get("description", description_value)
+        description_value = submitted_data.get("description", description_value)
 
     return [
+        _country_display_field(
+            entity["country"]["country_name"] if entity else current_user.country_name
+        ),
         _field(
             name="business_unit_id",
             label=business_unit_label,
@@ -741,7 +812,7 @@ def _simple_master_fields(
             name=code_name,
             label=code_label,
             kind="text",
-            value=post_data.get(code_name, entity[code_name] if entity else "")
+            value=submitted_data.get(code_name, entity[code_name] if entity else "")
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -750,7 +821,7 @@ def _simple_master_fields(
             name="name",
             label=name_label,
             kind="text",
-            value=post_data.get("name", entity["name"] if entity else "")
+            value=submitted_data.get("name", entity["name"] if entity else "")
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -767,7 +838,9 @@ def _simple_master_fields(
             kind="select",
             options=_ref_options(
                 status_domain,
-                selected=post_data.get("status_code", entity["status"] if entity else "ACTIVE")
+                selected=submitted_data.get(
+                    "status_code", entity["status"] if entity else "ACTIVE"
+                )
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -782,7 +855,8 @@ def _general_charge_code_fields(
     post_data: QueryDict | None = None,
     entity: dict | None = None,
 ) -> list[dict]:
-    selected_business_unit = post_data.get("business_unit_id", "") if post_data is not None else ""
+    submitted_data = post_data or QueryDict("")
+    selected_business_unit = submitted_data.get("business_unit_id", "")
     if entity is not None and post_data is None:
         selected_business_unit = str(entity["business_unit"]["id"])
 
@@ -790,15 +864,18 @@ def _general_charge_code_fields(
     if entity is not None:
         valid_from_value = entity["valid_from"]
     if post_data is not None:
-        valid_from_value = post_data.get("valid_from", valid_from_value)
+        valid_from_value = submitted_data.get("valid_from", valid_from_value)
 
     valid_to_value = ""
     if entity is not None and entity["valid_to"] is not None:
         valid_to_value = entity["valid_to"]
     if post_data is not None:
-        valid_to_value = post_data.get("valid_to", valid_to_value)
+        valid_to_value = submitted_data.get("valid_to", valid_to_value)
 
     return [
+        _country_display_field(
+            entity["country"]["country_name"] if entity else current_user.country_name
+        ),
         _field(
             name="business_unit_id",
             label="Business Unit",
@@ -814,7 +891,7 @@ def _general_charge_code_fields(
             name="code",
             label="Code",
             kind="text",
-            value=post_data.get("code", entity["code"] if entity else "")
+            value=submitted_data.get("code", entity["code"] if entity else "")
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -823,7 +900,7 @@ def _general_charge_code_fields(
             name="name",
             label="Name",
             kind="text",
-            value=post_data.get("name", entity["name"] if entity else "")
+            value=submitted_data.get("name", entity["name"] if entity else "")
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -834,7 +911,7 @@ def _general_charge_code_fields(
             kind="select",
             options=_ref_options(
                 "GENERAL_CHARGE_CODE_TYPE",
-                selected=post_data.get(
+                selected=submitted_data.get(
                     "charge_type_code",
                     entity["charge_type"] if entity else "STANDARD",
                 )
@@ -902,7 +979,9 @@ def _general_charge_code_fields(
             kind="select",
             options=_ref_options(
                 "GENERAL_CHARGE_CODE_STATUS",
-                selected=post_data.get("status_code", entity["status"] if entity else "ACTIVE")
+                selected=submitted_data.get(
+                    "status_code", entity["status"] if entity else "ACTIVE"
+                )
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -917,13 +996,17 @@ def _project_form_fields(
     post_data: QueryDict | None = None,
     entity: dict | None = None,
 ) -> list[dict]:
-    selected_business_unit = post_data.get("business_unit_id", "") if post_data is not None else ""
+    submitted_data = post_data or QueryDict("")
+    selected_business_unit = submitted_data.get("business_unit_id", "")
     if entity is not None and post_data is None:
         selected_business_unit = str(entity["business_unit"]["id"])
     scoped_business_unit_id = (
         int(selected_business_unit) if str(selected_business_unit).isdigit() else None
     )
     return [
+        _country_display_field(
+            entity["country"]["country_name"] if entity else current_user.country_name
+        ),
         _field(
             name="business_unit_id",
             label="Business Unit",
@@ -939,7 +1022,7 @@ def _project_form_fields(
             name="project_code",
             label="Project Code",
             kind="text",
-            value=post_data.get("project_code", entity["project_code"] if entity else "")
+            value=submitted_data.get("project_code", entity["project_code"] if entity else "")
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -948,7 +1031,7 @@ def _project_form_fields(
             name="name",
             label="Project Name",
             kind="text",
-            value=post_data.get("name", entity["name"] if entity else "")
+            value=submitted_data.get("name", entity["name"] if entity else "")
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -957,7 +1040,7 @@ def _project_form_fields(
             name="description",
             label="Description",
             kind="textarea",
-            value=post_data.get("description", entity["description"] if entity else "")
+            value=submitted_data.get("description", entity["description"] if entity else "")
             if post_data is not None or entity is not None
             else "",
         ),
@@ -967,7 +1050,7 @@ def _project_form_fields(
             kind="select",
             options=_scoped_employee_options(
                 current_user,
-                selected=post_data.get(
+                selected=submitted_data.get(
                     "project_owner_employee_id",
                     entity["project_owner_employee"]["id"] if entity else "",
                 )
@@ -976,6 +1059,7 @@ def _project_form_fields(
                 include_blank=entity is None,
                 required_role_code="PROJECT_OWNER",
                 business_unit_id=scoped_business_unit_id,
+                restrict_to_current_country=True,
             ),
             required=True,
         ),
@@ -985,7 +1069,7 @@ def _project_form_fields(
             kind="select",
             options=_scoped_employee_options(
                 current_user,
-                selected=post_data.get(
+                selected=submitted_data.get(
                     "project_manager_employee_id",
                     entity["project_manager_employee"]["id"] if entity else "",
                 )
@@ -994,6 +1078,7 @@ def _project_form_fields(
                 include_blank=entity is None,
                 required_role_code="PROJECT_MANAGER",
                 business_unit_id=scoped_business_unit_id,
+                restrict_to_current_country=True,
             ),
             required=True,
         ),
@@ -1004,7 +1089,9 @@ def _project_form_fields(
             options=_scoped_client_options(
                 current_user,
                 business_unit_id=scoped_business_unit_id,
-                selected=post_data.get("client_id", entity["client"]["id"] if entity else "")
+                selected=submitted_data.get(
+                    "client_id", entity["client"]["id"] if entity else ""
+                )
                 if post_data is not None or entity is not None
                 else "",
                 include_blank=entity is None,
@@ -1018,7 +1105,7 @@ def _project_form_fields(
             options=_scoped_internal_category_options(
                 current_user,
                 business_unit_id=scoped_business_unit_id,
-                selected=post_data.get(
+                selected=submitted_data.get(
                     "internal_category_id",
                     entity["internal_category"]["id"] if entity else "",
                 )
@@ -1035,7 +1122,7 @@ def _project_form_fields(
             options=_scoped_cost_center_options(
                 current_user,
                 business_unit_id=scoped_business_unit_id,
-                selected=post_data.get(
+                selected=submitted_data.get(
                     "cost_center_id", entity["cost_center"]["id"] if entity else ""
                 )
                 if post_data is not None or entity is not None
@@ -1048,7 +1135,7 @@ def _project_form_fields(
             name="start_date",
             label="Start Date",
             kind="date",
-            value=post_data.get("start_date", entity["start_date"] if entity else "")
+            value=submitted_data.get("start_date", entity["start_date"] if entity else "")
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -1057,7 +1144,7 @@ def _project_form_fields(
             name="end_date",
             label="End Date",
             kind="date",
-            value=post_data.get(
+            value=submitted_data.get(
                 "end_date", entity["end_date"] if entity and entity["end_date"] else ""
             )
             if post_data is not None or entity is not None
@@ -1067,7 +1154,7 @@ def _project_form_fields(
             name="close_date",
             label="Close Date",
             kind="date",
-            value=post_data.get(
+            value=submitted_data.get(
                 "close_date",
                 entity["close_date"] if entity and entity["close_date"] else "",
             )
@@ -1090,7 +1177,9 @@ def _project_form_fields(
             kind="select",
             options=_ref_options(
                 "PROJECT_STATUS",
-                selected=post_data.get("status_code", entity["status"] if entity else "DRAFT")
+                selected=submitted_data.get(
+                    "status_code", entity["status"] if entity else "DRAFT"
+                )
                 if post_data is not None or entity is not None
                 else "DRAFT",
             ),
@@ -1129,6 +1218,7 @@ def _project_assignment_fields(
                 if post_data is not None or entity is not None
                 else "",
                 include_blank=entity is None,
+                include_all_employees=True,
             ),
             required=True,
         ),
@@ -1176,14 +1266,18 @@ def _calendar_period_rule_fields(
     post_data: QueryDict | None = None,
     entity: dict | None = None,
 ) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
     return [
+        _country_display_field(
+            entity["country"]["country_name"] if entity else current_user.country_name
+        ),
         _field(
             name="yearly_calendar_id",
             label="Yearly Calendar",
             kind="select",
             options=_scoped_yearly_calendar_options(
                 current_user,
-                selected=post_data.get(
+                selected=submitted_data.get(
                     "yearly_calendar_id",
                     entity["yearly_calendar"]["id"] if entity else "",
                 )
@@ -1197,7 +1291,10 @@ def _calendar_period_rule_fields(
             name="effective_from",
             label="Effective From",
             kind="date",
-            value=post_data.get("effective_from", entity["effective_from"] if entity else "")
+            value=submitted_data.get(
+                "effective_from",
+                entity["effective_from"] if entity else "",
+            )
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -1206,7 +1303,10 @@ def _calendar_period_rule_fields(
             name="effective_to",
             label="Effective To",
             kind="date",
-            value=post_data.get("effective_to", entity["effective_to"] if entity else "")
+            value=submitted_data.get(
+                "effective_to",
+                entity["effective_to"] if entity else "",
+            )
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -1215,7 +1315,7 @@ def _calendar_period_rule_fields(
             name="monday_max_hours",
             label="Monday Max Hours",
             kind="number",
-            value=post_data.get(
+            value=submitted_data.get(
                 "monday_max_hours", entity["monday_max_hours"] if entity else "8.00"
             )
             if post_data is not None or entity is not None
@@ -1226,7 +1326,7 @@ def _calendar_period_rule_fields(
             name="tuesday_max_hours",
             label="Tuesday Max Hours",
             kind="number",
-            value=post_data.get(
+            value=submitted_data.get(
                 "tuesday_max_hours", entity["tuesday_max_hours"] if entity else "8.00"
             )
             if post_data is not None or entity is not None
@@ -1237,7 +1337,7 @@ def _calendar_period_rule_fields(
             name="wednesday_max_hours",
             label="Wednesday Max Hours",
             kind="number",
-            value=post_data.get(
+            value=submitted_data.get(
                 "wednesday_max_hours",
                 entity["wednesday_max_hours"] if entity else "8.00",
             )
@@ -1249,7 +1349,7 @@ def _calendar_period_rule_fields(
             name="thursday_max_hours",
             label="Thursday Max Hours",
             kind="number",
-            value=post_data.get(
+            value=submitted_data.get(
                 "thursday_max_hours", entity["thursday_max_hours"] if entity else "8.00"
             )
             if post_data is not None or entity is not None
@@ -1260,7 +1360,7 @@ def _calendar_period_rule_fields(
             name="friday_max_hours",
             label="Friday Max Hours",
             kind="number",
-            value=post_data.get(
+            value=submitted_data.get(
                 "friday_max_hours", entity["friday_max_hours"] if entity else "8.00"
             )
             if post_data is not None or entity is not None
@@ -1273,7 +1373,10 @@ def _calendar_period_rule_fields(
             kind="select",
             options=_ref_options(
                 "CALENDAR_PERIOD_STATUS",
-                selected=post_data.get("status_code", entity["status"] if entity else "ACTIVE")
+                selected=submitted_data.get(
+                    "status_code",
+                    entity["status"] if entity else "ACTIVE",
+                )
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -1607,6 +1710,70 @@ def _calendar_period_rule_detail_rows(period_rule: dict) -> list[tuple[str, str]
     ]
 
 
+def _country_form_fields(
+    *, post_data: QueryDict | None = None, entity: dict | None = None
+) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    return [
+        _field(
+            name="country_name",
+            label="Country Name",
+            kind="text",
+            value=submitted_data.get("country_name", entity["country_name"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="status_code",
+            label="Status",
+            kind="select",
+            options=_ref_options(
+                "COUNTRY_STATUS",
+                selected=submitted_data.get("status_code", entity["status"] if entity else "ACTIVE")
+                if post_data is not None or entity is not None
+                else "ACTIVE",
+            ),
+            required=True,
+            help_text="Only Timesheet Master Administrators can activate or deactivate countries.",
+        ),
+    ]
+
+
+def _country_rows(countries: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/countries/{country['id']}/",
+            "cells": [country["country_name"], country["status"]],
+        }
+        for country in countries
+    ]
+
+
+def _country_detail_rows(country: dict) -> list[tuple[str, str]]:
+    return [
+        ("Country Name", country["country_name"]),
+        ("Status", country["status"]),
+    ]
+
+
+COUNTRY_CONFIG = MasterUiConfig(
+    section_key="countries",
+    list_title="Country Management",
+    list_eyebrow="SCR-100",
+    list_intro="Master administration list for country lifecycle and identity management.",
+    detail_title="Country Detail",
+    detail_eyebrow="SCR-101",
+    detail_intro="Update country identity and active or inactive lifecycle state.",
+    singular_label="Country",
+    plural_label="Countries",
+    collection_path="/system/countries/",
+    detail_path_prefix="/system/countries/",
+    table_headers=("Country", "Status"),
+    empty_message="No countries are available yet.",
+)
+
+
 CLIENT_CONFIG = MasterUiConfig(
     section_key="clients",
     list_title="Client Management",
@@ -1724,6 +1891,102 @@ CALENDAR_PERIOD_RULE_CONFIG = MasterUiConfig(
     table_headers=("Business Unit", "Year", "Calendar", "Effective From", "Effective To", "Status"),
     empty_message="No calendar period rules are available in your assigned Business Units yet.",
 )
+
+
+@require_http_methods(["GET", "POST"])
+def countries_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin_master(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            country = CountryManagementService.create_country(
+                current_user,
+                {
+                    "country_name": request.POST.get("country_name", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/countries/{country['id']}/")
+
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="COUNTRY_STATUS",
+        default_code="ACTIVE",
+    )
+    countries = CountryManagementService.list_countries(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
+    return _render_collection_page(
+        request,
+        current_user,
+        title=COUNTRY_CONFIG.list_title,
+        eyebrow=COUNTRY_CONFIG.list_eyebrow,
+        intro=COUNTRY_CONFIG.list_intro,
+        table_headers=COUNTRY_CONFIG.table_headers,
+        table_rows=_country_rows(countries),
+        empty_message=COUNTRY_CONFIG.empty_message,
+        form_title="Create Country",
+        form_intro="Create a new country and set its initial lifecycle state.",
+        form_fields=_country_form_fields(post_data=post_data),
+        submit_label="Create Country",
+        form_error=form_error,
+        filter_links=filter_links,
+        filter_title="Country Status",
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def country_detail(request: HttpRequest, country_id: int) -> HttpResponse:
+    current_user = _require_ts_admin_master(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            CountryManagementService.update_country(
+                current_user,
+                country_id,
+                {
+                    "country_name": request.POST.get("country_name", ""),
+                    "status_code": request.POST.get("status_code", ""),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/countries/{country_id}/")
+
+    try:
+        country = CountryManagementService.get_country(current_user, country_id)
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=COUNTRY_CONFIG.detail_title,
+            eyebrow=COUNTRY_CONFIG.detail_eyebrow,
+            intro=COUNTRY_CONFIG.detail_intro,
+            error=error,
+        )
+
+    return _render_master_detail(
+        request,
+        current_user,
+        config=COUNTRY_CONFIG,
+        entity=country,
+        detail_rows=_country_detail_rows(country),
+        form_fields=_country_form_fields(post_data=post_data, entity=country),
+        form_error=form_error,
+    )
 
 
 @require_http_methods(["GET", "POST"])

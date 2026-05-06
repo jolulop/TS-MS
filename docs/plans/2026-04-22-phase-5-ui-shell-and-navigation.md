@@ -128,7 +128,8 @@ Screens to add/change:
 - TS management overview placeholder
 - approval worklist collection
 - approval item detail / decision page
-- reports placeholder
+- reports hub
+- report viewer for currently supported report slices
 
 Shared shell work:
 - authenticated header
@@ -176,7 +177,10 @@ Shared shell work:
 - reject action with required reason
 
 ### Milestone 5
-- reports UI
+- reports hub
+- report viewer
+- role-aware report cards
+- scoped filters and results grids for currently supported report slices
 
 ## 14. Test plan
 
@@ -211,6 +215,7 @@ Integration tests:
 - Assumption: Project and Project Assignment management remain TS Admin-scoped in this milestone; project-owner-specific management UX can still be layered later without broadening backend permissions here.
 - Assumption: Milestone 3 covers the employee-owned TS Management flow already backed by the Phase IV timesheet engine: list/create, edit, read-only detail/history, and submit/withdraw. Project-time inquiry remains out of scope for this milestone because it needs additional scoped inquiry UI beyond the current self-service backend.
 - Assumption: Milestone 4 stays scoped to the current Project Manager's own routed approval items. Bulk actions, TS Admin approval oversight, and broader inquiry/reporting views remain deferred.
+- Assumption: Milestone 5 closes Phase V with a real Reports Hub plus viewers only for report slices that the current backend can support truthfully today: own history, project time, pending approvals, missing timesheets, archived timesheets, audit history, and integration jobs. Full export flows and additional operational reports remain future work outside this phase.
 
 ## 18. Definition of done
 
@@ -223,16 +228,17 @@ Integration tests:
 ## 19. Implementation status
 
 Status:
-- in progress
+- completed
 
 Completed milestone:
 - Milestone 1: shell and role-aware navigation
 - Milestone 2: corrected System Management screens for employees, classification masters, projects, project assignments, calendar period rules, and status filters
 - Milestone 3: self-service TS Management screens
 - Milestone 4: project-manager approval worklist, detail, and decision UI
+- Milestone 5: reports hub and scoped report viewers for currently supported report slices
 
 Still pending:
-- Milestone 5: reports UI
+- none inside Phase V
 
 Validation completed for Milestone 1:
 - `make format`
@@ -273,3 +279,9 @@ Validation completed for the Milestone 2 correction pass:
 Validation completed for Milestone 4:
 - `.venv/bin/python manage.py check`
 - `.venv/bin/pytest tests/test_ts_management_ui.py tests/test_ui_shell.py tests/test_approval_worklist_ui.py`
+
+Validation completed for Milestone 5:
+- `.venv/bin/python manage.py check`
+- `.venv/bin/pytest tests/test_ts_management_ui.py tests/test_approval_worklist_ui.py tests/test_reports_ui.py tests/test_ui_shell.py`
+- `make lint`
+- `make format-check`

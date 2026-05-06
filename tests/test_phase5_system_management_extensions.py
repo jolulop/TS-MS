@@ -11,6 +11,7 @@ from tests.helpers import (
     create_business_unit,
     create_client,
     create_cost_center,
+    create_country,
     create_employee,
     create_internal_category,
     create_project,
@@ -72,15 +73,21 @@ def _build_admin_context():
     assign_role(employee=project_manager, role_code="USER")
     assign_role(employee=project_manager, role_code="PROJECT_MANAGER")
 
+    foreign_country = create_country(country_name="Assignment Worker Country")
+    foreign_business_unit = create_business_unit(
+        bu_code="BU-WORKER-FOREIGN",
+        name="Worker Foreign BU",
+        country=foreign_country,
+    )
     worker = create_employee(
         employee_code="EMP-WORKER-EXT",
         full_name="Worker User",
         email="worker-ext@example.com",
-        primary_business_unit=business_unit,
+        primary_business_unit=foreign_business_unit,
     )
     assign_employee_to_business_unit(
         employee=worker,
-        business_unit=business_unit,
+        business_unit=foreign_business_unit,
         is_primary_flag=True,
     )
     assign_role(employee=worker, role_code="USER")

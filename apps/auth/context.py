@@ -15,6 +15,9 @@ class CurrentUser:
     full_name: str
     email: str
     canonical_email: str
+    country_id: int
+    country_name: str
+    country_status: str
     primary_business_unit_id: int
     primary_business_unit_code: str
     role_codes: tuple[str, ...]
@@ -27,6 +30,10 @@ class CurrentUser:
     @property
     def is_ts_admin(self) -> bool:
         return "TS_ADMIN" in self.role_codes
+
+    @property
+    def is_ts_admin_master(self) -> bool:
+        return "TS_ADMIN_MASTER" in self.role_codes
 
     def has_role(self, role_code: str) -> bool:
         return role_code in self.role_codes

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | TS Management{% endblock %}
+
+{% block content %}
+  <div class="content-stack">
+    <div class="page-header">
+      <p class="eyebrow">{{ page_eyebrow }}</p>
+      <h1>{{ page_title }}</h1>
+      <p>{{ page_intro }}</p>
+    </div>
+
+    <section class="surface-card">
+      <div class="section-header">
+        <h2>Available Reports</h2>
+        <p>Cards appear only when your current TS role is allowed to run the report within its scoped data boundary.</p>
+      </div>
+      {% if report_cards %}
+        <div class="card-grid">
+          {% for card in report_cards %}
+            <article class="tile">
+              <strong>{{ card.title }}</strong>
+              <span class="tile-value">{{ card.count }}</span>
+              <p>{{ card.summary }}</p>
+              <p><strong>Audience:</strong> {{ card.audience }}</p>
+              <p><a href="{{ card.href }}">Open Report</a></p>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">No reports are available for the current user context.</div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

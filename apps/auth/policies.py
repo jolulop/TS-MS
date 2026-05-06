@@ -2,6 +2,16 @@ from apps.auth.context import CurrentUser
 
 
 class AuthorizationPolicyService:
+    REPORT_CODES = {
+        "my-timesheet-history",
+        "project-time",
+        "pending-approvals",
+        "missing-timesheets",
+        "archived-timesheets",
+        "audit-history",
+        "integration-jobs",
+    }
+
     @staticmethod
     def can_view_employee(current_user: CurrentUser, employee) -> bool:
         if current_user.employee_id == employee.id:
@@ -114,3 +124,26 @@ class AuthorizationPolicyService:
     @staticmethod
     def can_reject_approval_item(current_user: CurrentUser, approval_item) -> bool:
         return AuthorizationPolicyService.can_approve_approval_item(current_user, approval_item)
+
+    @staticmethod
+    def can_run_report(current_user: CurrentUser, report_code: str) -> bool:
+        if report_code not in AuthorizationPolicyService.REPORT_CODES:
+            return False
+        if report_code == "my-timesheet-history":
+            return True
+        if report_code == "project-time":
+            return (
+                current_user.is_ts_admin
+                or current_user.has_role("PROJECT_OWNER")
+                or current_user.has_role("PROJECT_MANAGER")
+            )
+        if report_code == "pending-approvals":
+            return current_user.is_ts_admin or current_user.has_role("PROJECT_MANAGER")
+        if report_code in {
+            "missing-timesheets",
+            "archived-timesheets",
+            "audit-history",
+            "integration-jobs",
+        }:
+            return current_user.is_ts_admin
+        return False

@@ -2,23 +2,39 @@ from django.contrib import admin
 
 from apps.master_data.models import (
     BusinessUnit,
+    Country,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
 )
 
 
+@admin.register(Country)
+class CountryAdmin(admin.ModelAdmin):
+    list_display = ("country_name", "status")
+    search_fields = ("country_name",)
+    ordering = ("country_name",)
+
+
 @admin.register(BusinessUnit)
 class BusinessUnitAdmin(admin.ModelAdmin):
-    list_display = ("bu_code", "name", "status")
-    search_fields = ("bu_code", "name")
+    list_display = ("bu_code", "name", "country", "status")
+    search_fields = ("bu_code", "name", "country__country_name")
+    list_filter = ("country", "status")
     ordering = ("bu_code",)
 
 
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
-    list_display = ("employee_code", "full_name", "email", "primary_business_unit", "status")
-    list_filter = ("primary_business_unit", "status")
+    list_display = (
+        "employee_code",
+        "full_name",
+        "email",
+        "country",
+        "primary_business_unit",
+        "status",
+    )
+    list_filter = ("country", "primary_business_unit", "status")
     search_fields = ("employee_code", "full_name", "email", "canonical_email")
     ordering = ("employee_code",)
 

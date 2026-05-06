@@ -9,7 +9,10 @@ from tests.helpers import (
     assign_role,
     create_business_unit,
     create_client,
+    create_country,
     create_employee,
+    get_country,
+    ref_value,
     seed_reference_data,
 )
 
@@ -207,3 +210,109 @@ def test_ts_admin_cannot_view_or_create_out_of_scope_client() -> None:
     assert detail_response.json()["error"]["code"] == "BUSINESS_UNIT_OUT_OF_SCOPE"
     assert create_response.status_code == 403
     assert create_response.json()["error"]["code"] == "BUSINESS_UNIT_OUT_OF_SCOPE"
+
+
+@pytest.mark.django_db
+def test_ts_admin_client_list_is_limited_to_active_country() -> None:
+    seed_reference_data()
+    admin_country = get_country()
+    other_country = create_country(country_name="List Other Country")
+    admin_bu = create_business_unit(
+        bu_code="BU-ADMIN-COUNTRY",
+        name="Admin Country BU",
+        country=admin_country,
+    )
+    other_bu = create_business_unit(
+        bu_code="BU-OTHER-COUNTRY",
+        name="Other Country BU",
+        country=other_country,
+    )
+    admin_employee = create_employee(
+        employee_code="EMP-1005",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=admin_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(employee=admin_employee, business_unit=other_bu)
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=admin_bu)
+    assign_role(employee=admin_employee, role_code="USER")
+
+    create_client(
+        business_unit=admin_bu,
+        client_code="CLIENT-HOME",
+        name="Home Country Client",
+    )
+    create_client(
+        business_unit=other_bu,
+        client_code="CLIENT-FOREIGN",
+        name="Foreign Country Client",
+    )
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.get("/api/v1/admin/clients/")
+
+    assert response.status_code == 200
+    assert [item["client_code"] for item in response.json()["clients"]] == ["CLIENT-HOME"]
+
+
+@pytest.mark.django_db
+def test_ts_admin_client_write_rejects_country_change_and_inactive_country() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    admin_employee = create_employee(
+        employee_code="EMP-1006",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=business_unit)
+    assign_role(employee=admin_employee, role_code="USER")
+
+    created_client = create_client(
+        business_unit=business_unit,
+        client_code="CLIENT-IMMUTABLE",
+        name="Immutable Client",
+    )
+    other_country = create_country(country_name="Immutable Target Country")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    immutable_response = client.patch(
+        f"/api/v1/admin/clients/{created_client.id}/",
+        data=json.dumps({"country_id": other_country.id}),
+        content_type="application/json",
+    )
+
+    assert immutable_response.status_code == 400
+    assert immutable_response.json()["error"]["code"] == "CLIENT_COUNTRY_IMMUTABLE"
+
+    business_unit.country.status = ref_value("COUNTRY_STATUS", "INACTIVE")
+    business_unit.country.save(update_fields=["status", "updated_at"])
+
+    inactive_response = client.post(
+        "/api/v1/admin/clients/",
+        data=json.dumps(
+            {
+                "business_unit_id": business_unit.id,
+                "client_code": "CLIENT-BLOCKED",
+                "name": "Blocked Client",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert inactive_response.status_code == 401
+    assert inactive_response.json()["error"]["code"] == "AUTH_SESSION_REQUIRED"

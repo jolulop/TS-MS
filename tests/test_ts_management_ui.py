@@ -14,6 +14,7 @@ from tests.helpers import (
     create_calendar_period_rule,
     create_client,
     create_cost_center,
+    create_country,
     create_employee,
     create_general_charge_code,
     create_internal_category,
@@ -206,6 +207,119 @@ def test_timesheet_editor_saves_lines_and_submits_via_html() -> None:
     assert "Timesheet Lines" in content
     assert "Withdraw Timesheet" in content
     assert "Weekly Timesheet Editor" not in content
+
+
+@pytest.mark.django_db
+def test_timesheet_editor_lists_assigned_project_from_other_country() -> None:
+    seed_reference_data()
+    home_country = create_country(country_name="TS UI Project Country")
+    foreign_country = create_country(country_name="TS UI Worker Country")
+    project_business_unit = create_business_unit(
+        bu_code="BU-TS-PROJ",
+        name="TS UI Project BU",
+        country=home_country,
+    )
+    worker_business_unit = create_business_unit(
+        bu_code="BU-TS-WORKER",
+        name="TS UI Worker BU",
+        country=foreign_country,
+    )
+    calendar = create_yearly_calendar(
+        business_unit=worker_business_unit,
+        calendar_year=_current_monday().year,
+        calendar_name="Worker Calendar",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        effective_from=date(_current_monday().year, 1, 1),
+        effective_to=date(_current_monday().year, 12, 31),
+    )
+    employee = create_employee(
+        employee_code="EMP-TS-CC",
+        full_name="Cross Country UI User",
+        email="timesheet-cross-country@example.com",
+        primary_business_unit=worker_business_unit,
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=worker_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    project_owner = create_employee(
+        employee_code="EMP-TS-CC-PO",
+        full_name="Cross Country Owner",
+        email="timesheet-cross-country-owner@example.com",
+        primary_business_unit=project_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=project_owner,
+        business_unit=project_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_owner, role_code="PROJECT_OWNER")
+
+    project_manager = create_employee(
+        employee_code="EMP-TS-CC-PM",
+        full_name="Cross Country Manager",
+        email="timesheet-cross-country-manager@example.com",
+        primary_business_unit=project_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=project_manager,
+        business_unit=project_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_manager, role_code="PROJECT_MANAGER")
+
+    client_record = create_client(
+        business_unit=project_business_unit,
+        client_code="CLI-TS-CC",
+        name="TS UI Client",
+    )
+    internal_category = create_internal_category(
+        business_unit=project_business_unit,
+        category_code="IC-TS-CC",
+        name="TS UI Category",
+    )
+    cost_center = create_cost_center(
+        business_unit=project_business_unit,
+        cost_center_code="CC-TS-CC",
+        name="TS UI Cost Center",
+    )
+    project = create_project(
+        business_unit=project_business_unit,
+        project_code="PRJ-TS-CC",
+        name="TS UI Cross Country Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=client_record,
+        internal_category=internal_category,
+        cost_center=cost_center,
+        start_date=_current_monday() - timedelta(days=7),
+    )
+    assign_project(
+        project=project,
+        employee=employee,
+        assignment_start_date=_current_monday() - timedelta(days=7),
+    )
+
+    client = Client()
+    initialize_ui_session(client, employee.email)
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": _current_monday().isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    detail_response = client.get(create_response.headers["Location"])
+
+    assert detail_response.status_code == 200
+    content = detail_response.content.decode()
+    assert "PRJ-TS-CC" in content
 
 
 @pytest.mark.django_db

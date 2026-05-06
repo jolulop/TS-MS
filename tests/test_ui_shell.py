@@ -122,6 +122,8 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     assert profile_response.status_code == 200
     assert "Session Context" in profile_content
     assert "Project Manager User" in profile_content
+    assert "Active Country" in profile_content
+    assert "Holding" in profile_content
     assert "PROJECT_MANAGER" in profile_content
     assert approval_response.status_code == 200
     assert "Pending Approval Items" in approval_response.content.decode()
@@ -154,8 +156,51 @@ def test_ts_admin_can_open_system_management_and_reports() -> None:
 
     dashboard_content = dashboard_response.content.decode()
     assert dashboard_response.status_code == 200
+    assert "Country: Holding" in dashboard_content
+    assert "fixed to Holding" in dashboard_content
     assert "System Management" in dashboard_content
     assert system_response.status_code == 200
     assert "Employees" in system_response.content.decode()
     assert reports_response.status_code == 200
-    assert "Reports Hub" in reports_response.content.decode()
+    assert "Available Reports" in reports_response.content.decode()
+
+
+@pytest.mark.django_db
+def test_ts_admin_master_sees_country_management_only() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-UI-5", name="UI BU 5")
+    employee = create_employee(
+        employee_code="EMP-UI-5",
+        full_name="Master Admin User",
+        email="ts-admin-master@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="TS_ADMIN_MASTER")
+
+    client = Client()
+    initialize_ui_session(client, employee.email)
+
+    dashboard_response = client.get("/")
+    system_response = client.get("/system/")
+    countries_response = client.get("/system/countries/")
+    employees_response = client.get("/system/employees/")
+
+    dashboard_content = dashboard_response.content.decode()
+    system_content = system_response.content.decode()
+
+    assert dashboard_response.status_code == 200
+    assert "System Management" in dashboard_content
+    assert "Countries" in dashboard_content
+    assert "Employees" not in dashboard_content
+    assert system_response.status_code == 200
+    assert "Countries" in system_content
+    assert "Employees" not in system_content
+    assert countries_response.status_code == 200
+    assert "Country Management" in countries_response.content.decode()
+    assert employees_response.status_code == 403
+    assert "Access Denied" in employees_response.content.decode()

@@ -1,12 +1,18 @@
 from django.urls import path
 
-from apps.core import approval_views, system_views, ts_views, views
+from apps.core import approval_views, reports_views, system_views, ts_views, views
 
 urlpatterns = [
     path("", views.home, name="home"),
     path("logout/", views.logout, name="ui-logout"),
     path("profile/", views.profile, name="profile"),
     path("system/", views.system_management, name="system-management"),
+    path("system/countries/", system_views.countries_collection, name="system-countries"),
+    path(
+        "system/countries/<int:country_id>/",
+        system_views.country_detail,
+        name="system-country-detail",
+    ),
     path("system/employees/", system_views.employees_collection, name="system-employees"),
     path(
         "system/employees/<int:employee_id>/",
@@ -89,5 +95,6 @@ urlpatterns = [
         approval_views.approval_detail,
         name="approval-detail",
     ),
-    path("reports/", views.reports, name="reports"),
+    path("reports/", reports_views.reports_hub, name="reports"),
+    path("reports/<slug:report_code>/", reports_views.report_viewer, name="report-viewer"),
 ]

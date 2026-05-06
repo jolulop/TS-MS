@@ -19,13 +19,20 @@ def test_seed_dev_data_creates_expected_sample_records() -> None:
     call_command("seed_dev_data")
 
     admin_employee = Employee.objects.get(canonical_email="jose.luis.lopez@timia.ai")
+    master_admin_employee = Employee.objects.get(canonical_email="country.master@timia.ai")
 
     assert BusinessUnit.objects.filter(bu_code="CONSULTING").exists()
     assert BusinessUnit.objects.filter(bu_code="DELIVERY").exists()
     assert admin_employee.full_name == "Jose Luis Lopez"
+    assert master_admin_employee.full_name == "Country Master Admin"
     assert EmployeeRole.objects.filter(
         employee=admin_employee,
         role__value_code="TS_ADMIN",
+        valid_to__isnull=True,
+    ).exists()
+    assert EmployeeRole.objects.filter(
+        employee=master_admin_employee,
+        role__value_code="TS_ADMIN_MASTER",
         valid_to__isnull=True,
     ).exists()
     assert EmployeeBusinessUnit.objects.filter(
@@ -50,12 +57,13 @@ def test_seed_dev_data_is_idempotent() -> None:
         Employee.objects.filter(
             employee_code__in=[
                 "EMP-ADMIN-001",
+                "EMP-MASTER-001",
                 "EMP-PO-001",
                 "EMP-PM-001",
                 "EMP-USER-001",
             ]
         ).count()
-        == 4
+        == 5
     )
     assert Client.objects.filter(client_code__in=["CLI-BLUE", "CLI-GREEN"]).count() == 2
     assert (

@@ -7,11 +7,13 @@ from django.http import HttpRequest, JsonResponse
 
 from apps.audit.services import write_audit_event
 from apps.auth.constants import (
+    ACTIVE_COUNTRY_STATUS,
     ACTIVE_EMPLOYEE_BU_STATUS,
     ACTIVE_EMPLOYEE_STATUS,
     ACTIVE_ROLE_ASSIGNMENT_STATUS,
     AUDIT_ACTION_DENY,
     AUDIT_ACTION_LOGIN_IDENTIFICATION,
+    ROLE_TS_ADMIN_MASTER,
     SESSION_EMAIL_KEY,
     SESSION_EMPLOYEE_ID_KEY,
 )
@@ -68,6 +70,16 @@ class CurrentUserService:
                 "The employee has no active internal role.",
                 403,
             )
+        if (
+            employee.country.status.domain.domain_code == "COUNTRY_STATUS"
+            and employee.country.status.value_code != ACTIVE_COUNTRY_STATUS
+            and ROLE_TS_ADMIN_MASTER not in role_codes
+        ):
+            raise AuthError(
+                "AUTH_COUNTRY_INACTIVE",
+                "The employee country is inactive for this login.",
+                403,
+            )
 
         scoped_business_unit_ids = {
             employee.primary_business_unit_id,
@@ -94,6 +106,9 @@ class CurrentUserService:
             full_name=employee.full_name,
             email=employee.email,
             canonical_email=employee.canonical_email,
+            country_id=employee.country_id,
+            country_name=employee.country.country_name,
+            country_status=employee.country.status.value_code,
             primary_business_unit_id=employee.primary_business_unit_id,
             primary_business_unit_code=employee.primary_business_unit.bu_code,
             role_codes=role_codes,
@@ -160,7 +175,14 @@ class SessionInitializationService:
             Employee.objects.filter(
                 Q(canonical_email=normalized_email) | Q(email__iexact=normalized_email)
             )
-            .select_related("status", "status__domain", "primary_business_unit")
+            .select_related(
+                "status",
+                "status__domain",
+                "country",
+                "country__status",
+                "country__status__domain",
+                "primary_business_unit",
+            )
             .order_by("id")
         )
 

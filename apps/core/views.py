@@ -43,6 +43,7 @@ def _page_context(
         context["business_unit_summary"] = ", ".join(
             unit.bu_code for unit in current_user.scoped_business_units
         )
+        context["country_summary"] = current_user.country_name
     return context
 
 
@@ -125,6 +126,18 @@ def _dashboard_cards(current_user: CurrentUser) -> list[dict]:
 def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
     if section == "system":
         cards = []
+        if current_user.is_ts_admin_master:
+            cards.append(
+                {
+                    "title": "Countries",
+                    "summary": (
+                        "Create countries and manage active or inactive lifecycle states "
+                        "for country administration."
+                    ),
+                    "status": "Ready now",
+                    "href": "/system/countries/",
+                }
+            )
         if current_user.is_ts_admin:
             cards.extend(
                 [
@@ -322,6 +335,7 @@ def profile(request: HttpRequest) -> HttpResponse:
     employee = Employee.objects.select_related(
         "assigned_calendar",
         "primary_business_unit",
+        "country",
     ).get(id=current_user.employee_id)
     context = _page_context(
         request,
@@ -336,6 +350,7 @@ def profile(request: HttpRequest) -> HttpResponse:
         ("Employee Code", current_user.employee_code),
         ("Full Name", current_user.full_name),
         ("Email", current_user.email),
+        ("Active Country", current_user.country_name),
         ("Roles", ", ".join(current_user.role_codes)),
         ("Primary Business Unit", current_user.primary_business_unit_code),
         (
@@ -357,7 +372,11 @@ def system_management(request: HttpRequest) -> HttpResponse:
     current_user = _require_user(request)
     if not isinstance(current_user, CurrentUser):
         return current_user
-    if not (current_user.is_ts_admin or current_user.has_role("PROJECT_OWNER")):
+    if not (
+        current_user.is_ts_admin
+        or current_user.is_ts_admin_master
+        or current_user.has_role("PROJECT_OWNER")
+    ):
         return _render_access_denied(
             request,
             message="You do not have permission to open System Management.",
