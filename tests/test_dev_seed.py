@@ -19,12 +19,12 @@ def test_seed_dev_data_creates_expected_sample_records() -> None:
     call_command("seed_dev_data")
 
     admin_employee = Employee.objects.get(canonical_email="jose.luis.lopez@timia.ai")
-    master_admin_employee = Employee.objects.get(canonical_email="country.master@timia.ai")
+    master_admin_employee = Employee.objects.get(canonical_email="office.master@timia.ai")
 
     assert BusinessUnit.objects.filter(bu_code="CONSULTING").exists()
     assert BusinessUnit.objects.filter(bu_code="DELIVERY").exists()
     assert admin_employee.full_name == "Jose Luis Lopez"
-    assert master_admin_employee.full_name == "Country Master Admin"
+    assert master_admin_employee.full_name == "Office Master Admin"
     assert EmployeeRole.objects.filter(
         employee=admin_employee,
         role__value_code="TS_ADMIN",

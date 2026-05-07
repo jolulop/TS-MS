@@ -7,11 +7,21 @@ urlpatterns = [
     path("logout/", views.logout, name="ui-logout"),
     path("profile/", views.profile, name="profile"),
     path("system/", views.system_management, name="system-management"),
-    path("system/countries/", system_views.countries_collection, name="system-countries"),
+    path("system/offices/", system_views.offices_collection, name="system-offices"),
     path(
-        "system/countries/<int:country_id>/",
-        system_views.country_detail,
-        name="system-country-detail",
+        "system/offices/<int:office_id>/",
+        system_views.office_detail,
+        name="system-office-detail",
+    ),
+    path(
+        "system/business-units/",
+        system_views.business_units_collection,
+        name="system-business-units",
+    ),
+    path(
+        "system/business-units/<int:business_unit_id>/",
+        system_views.business_unit_detail,
+        name="system-business-unit-detail",
     ),
     path("system/employees/", system_views.employees_collection, name="system-employees"),
     path(
@@ -83,7 +93,7 @@ urlpatterns = [
     ),
     path("ts/", ts_views.my_timesheets, name="ts-management"),
     path("ts/history/", ts_views.my_history, name="ts-history"),
-    path("ts/inquiry/", ts_views.project_time_inquiry_placeholder, name="ts-project-inquiry"),
+    path("ts/inquiry/", ts_views.project_time_inquiry, name="ts-project-inquiry"),
     path(
         "ts/timesheets/<int:timesheet_id>/",
         ts_views.timesheet_detail,

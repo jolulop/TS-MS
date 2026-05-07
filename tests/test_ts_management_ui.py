@@ -14,10 +14,10 @@ from tests.helpers import (
     create_calendar_period_rule,
     create_client,
     create_cost_center,
-    create_country,
     create_employee,
     create_general_charge_code,
     create_internal_category,
+    create_office,
     create_project,
     create_yearly_calendar,
     initialize_ui_session,
@@ -138,6 +138,8 @@ def _build_timesheet_ui_client(
         {
             "project": project,
             "general_charge_code": general_charge_code,
+            "project_owner_email": project_owner.email,
+            "project_manager_email": project_manager.email,
             "week_start": _current_monday(),
         },
     )
@@ -212,17 +214,17 @@ def test_timesheet_editor_saves_lines_and_submits_via_html() -> None:
 @pytest.mark.django_db
 def test_timesheet_editor_lists_assigned_project_from_other_country() -> None:
     seed_reference_data()
-    home_country = create_country(country_name="TS UI Project Country")
-    foreign_country = create_country(country_name="TS UI Worker Country")
+    home_country = create_office(office_name="TS UI Project Office")
+    foreign_country = create_office(office_name="TS UI Worker Office")
     project_business_unit = create_business_unit(
         bu_code="BU-TS-PROJ",
         name="TS UI Project BU",
-        country=home_country,
+        office=home_country,
     )
     worker_business_unit = create_business_unit(
         bu_code="BU-TS-WORKER",
         name="TS UI Worker BU",
-        country=foreign_country,
+        office=foreign_country,
     )
     calendar = create_yearly_calendar(
         business_unit=worker_business_unit,
@@ -236,7 +238,7 @@ def test_timesheet_editor_lists_assigned_project_from_other_country() -> None:
     )
     employee = create_employee(
         employee_code="EMP-TS-CC",
-        full_name="Cross Country UI User",
+        full_name="Cross Office UI User",
         email="timesheet-cross-country@example.com",
         primary_business_unit=worker_business_unit,
     )
@@ -250,7 +252,7 @@ def test_timesheet_editor_lists_assigned_project_from_other_country() -> None:
 
     project_owner = create_employee(
         employee_code="EMP-TS-CC-PO",
-        full_name="Cross Country Owner",
+        full_name="Cross Office Owner",
         email="timesheet-cross-country-owner@example.com",
         primary_business_unit=project_business_unit,
     )
@@ -263,7 +265,7 @@ def test_timesheet_editor_lists_assigned_project_from_other_country() -> None:
 
     project_manager = create_employee(
         employee_code="EMP-TS-CC-PM",
-        full_name="Cross Country Manager",
+        full_name="Cross Office Manager",
         email="timesheet-cross-country-manager@example.com",
         primary_business_unit=project_business_unit,
     )
@@ -292,7 +294,7 @@ def test_timesheet_editor_lists_assigned_project_from_other_country() -> None:
     project = create_project(
         business_unit=project_business_unit,
         project_code="PRJ-TS-CC",
-        name="TS UI Cross Country Project",
+        name="TS UI Cross Office Project",
         project_owner_employee=project_owner,
         project_manager_employee=project_manager,
         client=client_record,
@@ -385,6 +387,65 @@ def test_my_history_lists_timesheets_in_read_only_view() -> None:
     assert "My History" in content
     assert fixtures["week_start"].isoformat() in content
     assert f"/ts/timesheets/{timesheet.id}/" in content
+
+
+@pytest.mark.django_db
+def test_project_owner_can_open_live_project_time_inquiry() -> None:
+    employee_client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="inquiry-user@example.com",
+        employee_code="EMP-TS-INQ",
+    )
+    employee_client.post(
+        "/ts/",
+        data={"week_start_date": fixtures["week_start"].isoformat()},
+        follow=False,
+    )
+    timesheet = WeeklyTimesheet.objects.get(employee=employee)
+    employee_client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "lines",
+            "row_count": "8",
+            "line_0_work_date": fixtures["week_start"].isoformat(),
+            "line_0_hours": "6.00",
+            "line_0_project_id": str(fixtures["project"].id),
+            "line_0_general_charge_code_id": "",
+            "line_0_comment_text": "Inquiry project work",
+            "line_1_work_date": (fixtures["week_start"] + timedelta(days=1)).isoformat(),
+            "line_1_hours": "2.00",
+            "line_1_project_id": "",
+            "line_1_general_charge_code_id": str(fixtures["general_charge_code"].id),
+            "line_1_comment_text": "General support work",
+        },
+        follow=False,
+    )
+
+    owner_client = Client()
+    initialize_ui_session(owner_client, fixtures["project_owner_email"])
+    response = owner_client.get("/ts/inquiry/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Project Time Inquiry" in content
+    assert "Filter Panel" in content
+    assert "EMP-TS-INQ" in content
+    assert fixtures["project"].project_code in content
+    assert "General support work" not in content
+    assert 'href="/ts/inquiry/"' in content
+    assert "Back to My Timesheets" in content
+
+
+@pytest.mark.django_db
+def test_regular_user_cannot_open_project_time_inquiry() -> None:
+    client, _, _ = _build_timesheet_ui_client(
+        employee_email="inquiry-denied@example.com",
+        employee_code="EMP-TS-DENIED",
+    )
+
+    response = client.get("/ts/inquiry/")
+
+    assert response.status_code == 403
+    assert "Access Denied" in response.content.decode()
 
 
 @pytest.mark.django_db

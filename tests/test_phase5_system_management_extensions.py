@@ -11,9 +11,9 @@ from tests.helpers import (
     create_business_unit,
     create_client,
     create_cost_center,
-    create_country,
     create_employee,
     create_internal_category,
+    create_office,
     create_project,
     create_yearly_calendar,
     seed_reference_data,
@@ -73,11 +73,11 @@ def _build_admin_context():
     assign_role(employee=project_manager, role_code="USER")
     assign_role(employee=project_manager, role_code="PROJECT_MANAGER")
 
-    foreign_country = create_country(country_name="Assignment Worker Country")
+    foreign_country = create_office(office_name="Assignment Worker Office")
     foreign_business_unit = create_business_unit(
         bu_code="BU-WORKER-FOREIGN",
         name="Worker Foreign BU",
-        country=foreign_country,
+        office=foreign_country,
     )
     worker = create_employee(
         employee_code="EMP-WORKER-EXT",

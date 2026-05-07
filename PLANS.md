@@ -2,6 +2,15 @@
 
 ## Active Plans
 
+- `2026-05-07`: `docs/plans/2026-05-07-office-rename.md`
+  - status: completed
+  - focus: rename the Country entity to Office across schema, API payloads, routes, UI labels, seed data, and tests without changing business behavior
+- `2026-05-07`: `docs/plans/2026-05-07-business-unit-management-ui.md`
+  - status: completed
+  - focus: add scoped Business Unit list/detail/configuration management plus safe Business Unit creation to System Management
+- `2026-05-07`: `docs/plans/2026-05-07-project-time-inquiry-ui.md`
+  - status: completed
+  - focus: replace the TS Management project-time inquiry placeholder with the live scoped inquiry screen for project owners and project managers
 - `2026-05-05`: `docs/plans/2026-05-05-country-management-foundation.md`
   - status: completed
   - focus: country master data, country-bound session context, immutable country assignment, and cross-country project staffing rules

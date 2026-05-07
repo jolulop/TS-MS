@@ -8,8 +8,8 @@ from tests.helpers import (
     assign_employee_to_business_unit,
     assign_role,
     create_business_unit,
-    create_country,
     create_employee,
+    create_office,
     seed_reference_data,
 )
 
@@ -41,8 +41,8 @@ def test_initialize_session_creates_internal_session_from_validated_email() -> N
     assert response.status_code == 201
     payload = response.json()["session"]
     assert payload["employee"]["employee_code"] == "EMP-001"
-    assert payload["employee"]["country"]["country_name"] == "Holding"
-    assert payload["employee"]["country"]["status"] == "ACTIVE"
+    assert payload["employee"]["office"]["office_name"] == "Holding"
+    assert payload["employee"]["office"]["status"] == "ACTIVE"
     assert payload["roles"] == ["USER"]
     assert payload["business_units"][0]["bu_code"] == "BU-1"
     assert AuditLog.objects.filter(entity_name="internal_session").count() == 1
@@ -51,7 +51,7 @@ def test_initialize_session_creates_internal_session_from_validated_email() -> N
 
     assert session_response.status_code == 200
     assert session_response.json()["session"]["employee"]["email"] == "alice@example.com"
-    assert session_response.json()["session"]["employee"]["country"]["country_name"] == "Holding"
+    assert session_response.json()["session"]["employee"]["office"]["office_name"] == "Holding"
 
 
 @pytest.mark.django_db
@@ -101,15 +101,15 @@ def test_initialize_session_denies_employee_without_active_role() -> None:
 @pytest.mark.django_db
 def test_initialize_session_denies_non_admin_user_from_inactive_country() -> None:
     seed_reference_data()
-    inactive_country = create_country(country_name="Inactive Test Country", active=False)
+    inactive_country = create_office(office_name="Inactive Test Office", active=False)
     business_unit = create_business_unit(
         bu_code="BU-INACTIVE-1",
-        name="Inactive Country BU",
-        country=inactive_country,
+        name="Inactive Office BU",
+        office=inactive_country,
     )
     employee = create_employee(
         employee_code="EMP-004",
-        full_name="Inactive Country User",
+        full_name="Inactive Office User",
         email="inactive-user@example.com",
         primary_business_unit=business_unit,
     )
@@ -134,15 +134,15 @@ def test_initialize_session_denies_non_admin_user_from_inactive_country() -> Non
 @pytest.mark.django_db
 def test_initialize_session_allows_ts_admin_master_from_inactive_country() -> None:
     seed_reference_data()
-    inactive_country = create_country(country_name="Inactive Admin Country", active=False)
+    inactive_country = create_office(office_name="Inactive Admin Office", active=False)
     business_unit = create_business_unit(
         bu_code="BU-INACTIVE-2",
-        name="Inactive Country Admin BU",
-        country=inactive_country,
+        name="Inactive Office Admin BU",
+        office=inactive_country,
     )
     employee = create_employee(
         employee_code="EMP-005",
-        full_name="Inactive Country Master Admin",
+        full_name="Inactive Office Master Admin",
         email="inactive-master@example.com",
         primary_business_unit=business_unit,
     )
@@ -162,8 +162,8 @@ def test_initialize_session_allows_ts_admin_master_from_inactive_country() -> No
 
     assert response.status_code == 201
     payload = response.json()["session"]
-    assert payload["employee"]["country"]["country_name"] == "Inactive Admin Country"
-    assert payload["employee"]["country"]["status"] == "INACTIVE"
+    assert payload["employee"]["office"]["office_name"] == "Inactive Admin Office"
+    assert payload["employee"]["office"]["status"] == "INACTIVE"
     assert payload["roles"] == ["TS_ADMIN_MASTER"]
 
 

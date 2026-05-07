@@ -6,6 +6,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
+from apps.core.reports_views import render_report_view
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.timesheets.services import TimesheetService
 
@@ -413,7 +414,7 @@ def timesheet_detail(request: HttpRequest, timesheet_id: int) -> HttpResponse:
 
 
 @require_GET
-def project_time_inquiry_placeholder(request: HttpRequest) -> HttpResponse:
+def project_time_inquiry(request: HttpRequest) -> HttpResponse:
     current_user = _require_user(request)
     if not isinstance(current_user, CurrentUser):
         return current_user
@@ -423,24 +424,17 @@ def project_time_inquiry_placeholder(request: HttpRequest) -> HttpResponse:
             message="You do not have permission to open project time inquiry.",
         )
 
-    context = _ts_context(
+    return render_report_view(
         request,
         current_user,
+        "project-time",
         title="Project Time Inquiry",
         eyebrow="SCR-210",
         intro=(
-            "Project-scoped inquiry remains deferred while Milestone 3 focuses "
-            "on self-service timesheet screens."
+            "Project-scoped inquiry for owned or managed projects, using the same "
+            "row-level scope rules as the live project-time report."
         ),
+        report_path="/ts/inquiry/",
+        back_href="/ts/",
+        back_label="Back to My Timesheets",
     )
-    context["section_cards"] = [
-        {
-            "title": "Inquiry UI Deferred",
-            "summary": (
-                "Project-owner and project-manager inquiry screens will be added "
-                "after the core self-service timesheet pages."
-            ),
-            "status": "Planned",
-        }
-    ]
-    return render(request, "core/section_overview.html", context)

@@ -9,9 +9,9 @@ from tests.helpers import (
     assign_role,
     create_business_unit,
     create_client,
-    create_country,
     create_employee,
-    get_country,
+    create_office,
+    get_office,
     ref_value,
     seed_reference_data,
 )
@@ -215,17 +215,17 @@ def test_ts_admin_cannot_view_or_create_out_of_scope_client() -> None:
 @pytest.mark.django_db
 def test_ts_admin_client_list_is_limited_to_active_country() -> None:
     seed_reference_data()
-    admin_country = get_country()
-    other_country = create_country(country_name="List Other Country")
+    admin_country = get_office()
+    other_country = create_office(office_name="List Other Office")
     admin_bu = create_business_unit(
         bu_code="BU-ADMIN-COUNTRY",
-        name="Admin Country BU",
-        country=admin_country,
+        name="Admin Office BU",
+        office=admin_country,
     )
     other_bu = create_business_unit(
         bu_code="BU-OTHER-COUNTRY",
-        name="Other Country BU",
-        country=other_country,
+        name="Other Office BU",
+        office=other_country,
     )
     admin_employee = create_employee(
         employee_code="EMP-1005",
@@ -245,12 +245,12 @@ def test_ts_admin_client_list_is_limited_to_active_country() -> None:
     create_client(
         business_unit=admin_bu,
         client_code="CLIENT-HOME",
-        name="Home Country Client",
+        name="Home Office Client",
     )
     create_client(
         business_unit=other_bu,
         client_code="CLIENT-FOREIGN",
-        name="Foreign Country Client",
+        name="Foreign Office Client",
     )
 
     client = Client()
@@ -285,22 +285,22 @@ def test_ts_admin_client_write_rejects_country_change_and_inactive_country() -> 
         client_code="CLIENT-IMMUTABLE",
         name="Immutable Client",
     )
-    other_country = create_country(country_name="Immutable Target Country")
+    other_country = create_office(office_name="Immutable Target Office")
 
     client = Client()
     initialize_session(client, "admin@example.com")
 
     immutable_response = client.patch(
         f"/api/v1/admin/clients/{created_client.id}/",
-        data=json.dumps({"country_id": other_country.id}),
+        data=json.dumps({"office_id": other_country.id}),
         content_type="application/json",
     )
 
     assert immutable_response.status_code == 400
     assert immutable_response.json()["error"]["code"] == "CLIENT_COUNTRY_IMMUTABLE"
 
-    business_unit.country.status = ref_value("COUNTRY_STATUS", "INACTIVE")
-    business_unit.country.save(update_fields=["status", "updated_at"])
+    business_unit.office.status = ref_value("COUNTRY_STATUS", "INACTIVE")
+    business_unit.office.save(update_fields=["status", "updated_at"])
 
     inactive_response = client.post(
         "/api/v1/admin/clients/",

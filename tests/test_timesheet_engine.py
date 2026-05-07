@@ -22,10 +22,10 @@ from tests.helpers import (
     create_calendar_period_rule,
     create_client,
     create_cost_center,
-    create_country,
     create_employee,
     create_general_charge_code,
     create_internal_category,
+    create_office,
     create_project,
     create_yearly_calendar,
     seed_reference_data,
@@ -176,17 +176,17 @@ def create_ts_admin_for_business_unit(
 
 
 def setup_cross_country_project_approval_context() -> dict:
-    home_country = create_country(country_name="Project Country")
-    foreign_country = create_country(country_name="Worker Country")
+    home_country = create_office(office_name="Project Office")
+    foreign_country = create_office(office_name="Worker Office")
     project_business_unit = create_business_unit(
         bu_code="BU-PROJECT-CC",
-        name="Project Country BU",
-        country=home_country,
+        name="Project Office BU",
+        office=home_country,
     )
     worker_business_unit = create_business_unit(
         bu_code="BU-WORKER-CC",
-        name="Worker Country BU",
-        country=foreign_country,
+        name="Worker Office BU",
+        office=foreign_country,
     )
     create_business_unit_configuration(
         business_unit=worker_business_unit,
@@ -195,7 +195,7 @@ def setup_cross_country_project_approval_context() -> dict:
 
     worker = create_employee(
         employee_code="EMP-CC-WORKER",
-        full_name="Cross Country Worker",
+        full_name="Cross Office Worker",
         email="cross-country-worker@example.com",
         primary_business_unit=worker_business_unit,
     )
@@ -208,7 +208,7 @@ def setup_cross_country_project_approval_context() -> dict:
 
     project_owner = create_employee(
         employee_code="EMP-CC-OWNER",
-        full_name="Cross Country Owner",
+        full_name="Cross Office Owner",
         email="cross-country-owner@example.com",
         primary_business_unit=project_business_unit,
     )
@@ -221,7 +221,7 @@ def setup_cross_country_project_approval_context() -> dict:
 
     project_manager = create_employee(
         employee_code="EMP-CC-PM",
-        full_name="Cross Country PM",
+        full_name="Cross Office PM",
         email="cross-country-pm@example.com",
         primary_business_unit=project_business_unit,
     )
@@ -247,22 +247,22 @@ def setup_cross_country_project_approval_context() -> dict:
     client_record = create_client(
         business_unit=project_business_unit,
         client_code="CLI-CC",
-        name="Cross Country Client",
+        name="Cross Office Client",
     )
     category = create_internal_category(
         business_unit=project_business_unit,
         category_code="CAT-CC",
-        name="Cross Country Category",
+        name="Cross Office Category",
     )
     cost_center = create_cost_center(
         business_unit=project_business_unit,
         cost_center_code="CC-CC",
-        name="Cross Country Cost Center",
+        name="Cross Office Cost Center",
     )
     project = create_project(
         business_unit=project_business_unit,
         project_code="PRJ-CC",
-        name="Cross Country Project",
+        name="Cross Office Project",
         project_owner_employee=project_owner,
         project_manager_employee=project_manager,
         client=client_record,

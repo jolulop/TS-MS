@@ -9,8 +9,8 @@ from tests.helpers import (
     assign_employee_to_business_unit,
     assign_role,
     create_business_unit,
-    create_country,
     create_employee,
+    create_office,
     seed_reference_data,
 )
 
@@ -180,17 +180,17 @@ def test_ts_admin_cannot_create_employee_with_out_of_scope_business_unit() -> No
 @pytest.mark.django_db
 def test_ts_admin_cannot_create_employee_with_business_units_from_multiple_countries() -> None:
     seed_reference_data()
-    holding_country = create_country(country_name="Test Holding Country")
-    other_country = create_country(country_name="Test Other Country")
+    holding_country = create_office(office_name="Test Holding Office")
+    other_country = create_office(office_name="Test Other Office")
     primary_bu = create_business_unit(
         bu_code="BU-ADMIN",
         name="Admin BU",
-        country=holding_country,
+        office=holding_country,
     )
     foreign_bu = create_business_unit(
         bu_code="BU-OTHER-COUNTRY",
-        name="Other Country BU",
-        country=other_country,
+        name="Other Office BU",
+        office=other_country,
     )
     admin_employee = create_employee(
         employee_code="EMP-703",
@@ -215,7 +215,7 @@ def test_ts_admin_cannot_create_employee_with_business_units_from_multiple_count
         data=json.dumps(
             {
                 "employee_code": "EMP-704",
-                "full_name": "Cross Country Scope",
+                "full_name": "Cross Office Scope",
                 "email": "cross-country@example.com",
                 "primary_business_unit_id": primary_bu.id,
                 "business_unit_ids": [primary_bu.id, foreign_bu.id],

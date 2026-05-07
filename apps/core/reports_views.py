@@ -894,12 +894,18 @@ def reports_hub(request: HttpRequest) -> HttpResponse:
     return render(request, "core/reports_hub.html", context)
 
 
-@require_GET
-def report_viewer(request: HttpRequest, report_code: str) -> HttpResponse:
-    current_user = _require_user(request)
-    if not isinstance(current_user, CurrentUser):
-        return current_user
-
+def render_report_view(
+    request: HttpRequest,
+    current_user: CurrentUser,
+    report_code: str,
+    *,
+    title: str | None = None,
+    eyebrow: str = "SCR-231",
+    intro: str | None = None,
+    report_path: str | None = None,
+    back_href: str = "/reports/",
+    back_label: str = "Back to Reports Hub",
+) -> HttpResponse:
     definition = REPORT_DEFINITIONS.get(report_code)
     if definition is None:
         return _render_access_denied(
@@ -916,19 +922,31 @@ def report_viewer(request: HttpRequest, report_code: str) -> HttpResponse:
     filters = [field for field in payload["filters"] if field is not None]
     context = _reports_context(
         request,
-        title=definition.title,
-        eyebrow="SCR-231",
-        intro=definition.summary,
+        title=title or definition.title,
+        eyebrow=eyebrow,
+        intro=intro or definition.summary,
     )
     context.update(
         {
             "report_code": report_code,
+            "report_path": report_path or _report_url(report_code),
             "report_definition": definition,
             "filter_fields": filters,
             "table_headers": payload["headers"],
             "table_rows": payload["rows"],
             "totals": payload["totals"],
             "empty_message": payload["empty_message"],
+            "back_href": back_href,
+            "back_label": back_label,
         }
     )
     return render(request, "core/report_viewer.html", context)
+
+
+@require_GET
+def report_viewer(request: HttpRequest, report_code: str) -> HttpResponse:
+    current_user = _require_user(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    return render_report_view(request, current_user, report_code)

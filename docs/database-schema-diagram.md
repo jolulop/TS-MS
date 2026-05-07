@@ -27,7 +27,7 @@ erDiagram
 
     COUNTRY {
         bigint id PK
-        string country_name
+        string office_name
         bigint status_id FK
     }
 
@@ -35,14 +35,14 @@ erDiagram
         bigint id PK
         string bu_code
         string name
-        bigint country_id FK
+        bigint office_id FK
         bigint status_id FK
     }
 
     YEARLY_CALENDAR {
         bigint id PK
         bigint business_unit_id FK
-        bigint country_id FK
+        bigint office_id FK
         int calendar_year
         string calendar_name
         bigint status_id FK
@@ -54,7 +54,7 @@ erDiagram
         string full_name
         string email
         string canonical_email
-        bigint country_id FK
+        bigint office_id FK
         bigint status_id FK
         bigint primary_business_unit_id FK
         bigint manager_employee_id FK
@@ -84,7 +84,7 @@ erDiagram
     CALENDAR_PERIOD_RULE {
         bigint id PK
         bigint yearly_calendar_id FK
-        bigint country_id FK
+        bigint office_id FK
         date effective_from
         date effective_to
         decimal monday_max_hours
@@ -104,7 +104,7 @@ erDiagram
     CLIENT {
         bigint id PK
         bigint business_unit_id FK
-        bigint country_id FK
+        bigint office_id FK
         bigint parent_client_id FK
         string client_code
         string name
@@ -114,7 +114,7 @@ erDiagram
     INTERNAL_CATEGORY {
         bigint id PK
         bigint business_unit_id FK
-        bigint country_id FK
+        bigint office_id FK
         string category_code
         string name
         bigint status_id FK
@@ -123,7 +123,7 @@ erDiagram
     COST_CENTER {
         bigint id PK
         bigint business_unit_id FK
-        bigint country_id FK
+        bigint office_id FK
         string cost_center_code
         string name
         bigint status_id FK
@@ -132,7 +132,7 @@ erDiagram
     GENERAL_CHARGE_CODE {
         bigint id PK
         bigint business_unit_id FK
-        bigint country_id FK
+        bigint office_id FK
         string code
         string name
         bigint charge_type_id FK
@@ -147,7 +147,7 @@ erDiagram
     PROJECT {
         bigint id PK
         bigint business_unit_id FK
-        bigint country_id FK
+        bigint office_id FK
         string project_code
         string name
         bigint project_owner_employee_id FK
@@ -405,13 +405,13 @@ erDiagram
 ## Main Modules
 
 - `reference_data`: shared domains and values used for roles, statuses, action types, day types, and approval modes.
-- `master_data`: country, business units, employees, calendars, clients, classifications, charge codes, projects, assignments, and configurable rules.
+- `master_data`: office, business units, employees, calendars, clients, classifications, charge codes, projects, assignments, and configurable rules.
 - `timesheets`: weekly timesheets, lines, submission cycles, approval items, approval actions, and custom attribute values.
 - `audit`: application audit trail.
 - `integrations`: tracked import/export jobs and row-level errors.
 
-## Country-Specific Highlights
+## Office-Specific Highlights
 
 - `COUNTRY` is now a first-class master table.
-- `BUSINESS_UNIT`, `YEARLY_CALENDAR`, `EMPLOYEE`, `CALENDAR_PERIOD_RULE`, `CLIENT`, `INTERNAL_CATEGORY`, `COST_CENTER`, `GENERAL_CHARGE_CODE`, and `PROJECT` all carry a mandatory `country_id`.
-- `PROJECT_ASSIGNMENT`, `WEEKLY_TIMESHEET`, and `TIMESHEET_LINE` do not store `country_id` directly; they derive country context through linked employee, project, and business-unit relationships.
+- `BUSINESS_UNIT`, `YEARLY_CALENDAR`, `EMPLOYEE`, `CALENDAR_PERIOD_RULE`, `CLIENT`, `INTERNAL_CATEGORY`, `COST_CENTER`, `GENERAL_CHARGE_CODE`, and `PROJECT` all carry a mandatory `office_id`.
+- `PROJECT_ASSIGNMENT`, `WEEKLY_TIMESHEET`, and `TIMESHEET_LINE` do not store `office_id` directly; they derive office context through linked employee, project, and business-unit relationships.

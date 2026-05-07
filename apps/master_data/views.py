@@ -4,6 +4,7 @@ from django.views.decorators.http import require_http_methods
 from apps.auth.errors import AuthError
 from apps.auth.services import CurrentUserService, error_response, parse_json_request
 from apps.master_data.services import (
+    BusinessUnitManagementService,
     CalendarPeriodRuleManagementService,
     ClientManagementService,
     CostCenterManagementService,
@@ -13,6 +14,48 @@ from apps.master_data.services import (
     ProjectAssignmentManagementService,
     ProjectManagementService,
 )
+
+
+@require_http_methods(["GET", "POST"])
+def business_units_collection(request: HttpRequest) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            business_units = BusinessUnitManagementService.list_business_units(
+                current_user,
+                status_code=request.GET.get("status"),
+            )
+            return JsonResponse({"business_units": business_units})
+
+        payload = parse_json_request(request)
+        business_unit = BusinessUnitManagementService.create_business_unit(current_user, payload)
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"business_unit": business_unit}, status=201)
+
+
+@require_http_methods(["GET", "PATCH"])
+def business_unit_detail(request: HttpRequest, business_unit_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            business_unit = BusinessUnitManagementService.get_business_unit(
+                current_user,
+                business_unit_id,
+            )
+            return JsonResponse({"business_unit": business_unit})
+
+        payload = parse_json_request(request)
+        business_unit = BusinessUnitManagementService.update_business_unit(
+            current_user,
+            business_unit_id,
+            payload,
+        )
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"business_unit": business_unit})
 
 
 @require_http_methods(["GET", "POST"])

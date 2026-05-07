@@ -32,7 +32,64 @@
       </section>
     {% endif %}
 
-    <div class="split-grid">
+    {% if form_title %}
+      <div class="split-grid">
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>Current Records</h2>
+          </div>
+          {% if table_rows %}
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    {% for header in table_headers %}
+                      <th>{{ header }}</th>
+                    {% endfor %}
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in table_rows %}
+                    <tr>
+                      {% for cell in row.cells %}
+                        <td>
+                          {% if forloop.first %}
+                            <a href="{{ row.href }}">{{ cell }}</a>
+                          {% else %}
+                            {{ cell }}
+                          {% endif %}
+                        </td>
+                      {% endfor %}
+                      <td><a href="{{ row.href }}">Open / Edit</a></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="empty-state">{{ empty_message }}</div>
+          {% endif %}
+        </section>
+
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>{{ form_title }}</h2>
+            <p>{{ form_intro }}</p>
+          </div>
+          {% if form_error %}
+            <div class="banner error">{{ form_error }}</div>
+          {% endif %}
+          <form class="form-stack" method="post" action="">
+            {% csrf_token %}
+            {% include "core/partials/form_fields.html" with fields=form_fields %}
+            <div>
+              <button class="button" type="submit">{{ submit_label }}</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    {% else %}
       <section class="surface-card">
         <div class="section-header">
           <h2>Current Records</h2>
@@ -70,23 +127,6 @@
           <div class="empty-state">{{ empty_message }}</div>
         {% endif %}
       </section>
-
-      <section class="surface-card">
-        <div class="section-header">
-          <h2>{{ form_title }}</h2>
-          <p>{{ form_intro }}</p>
-        </div>
-        {% if form_error %}
-          <div class="banner error">{{ form_error }}</div>
-        {% endif %}
-        <form class="form-stack" method="post" action="">
-          {% csrf_token %}
-          {% include "core/partials/form_fields.html" with fields=form_fields %}
-          <div>
-            <button class="button" type="submit">{{ submit_label }}</button>
-          </div>
-        </form>
-      </section>
-    </div>
+    {% endif %}
   </div>
 {% endblock %}

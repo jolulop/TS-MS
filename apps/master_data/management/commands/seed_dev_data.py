@@ -10,12 +10,12 @@ from apps.master_data.models import (
     CalendarPeriodRule,
     Client,
     CostCenter,
-    Country,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
     GeneralChargeCode,
     InternalCategory,
+    Office,
     Project,
     ProjectAssignment,
     YearlyCalendar,
@@ -31,22 +31,22 @@ def _ref_value(domain_code: str, value_code: str) -> RefValue:
     return RefValue.objects.get(domain__domain_code=domain_code, value_code=value_code)
 
 
-def _upsert_country(*, country_id: int, country_name: str, active: bool) -> Country:
-    country, _ = Country.objects.update_or_create(
-        id=country_id,
+def _upsert_country(*, office_id: int, office_name: str, active: bool) -> Office:
+    office, _ = Office.objects.update_or_create(
+        id=office_id,
         defaults={
-            "country_name": country_name,
+            "office_name": office_name,
             "status": _ref_value("COUNTRY_STATUS", "ACTIVE" if active else "INACTIVE"),
             "created_by": SYSTEM_ACTOR,
             "updated_by": SYSTEM_ACTOR,
         },
     )
-    return country
+    return office
 
 
 def _upsert_business_unit(
     *,
-    country: Country,
+    office: Office,
     bu_code: str,
     name: str,
     description: str,
@@ -56,7 +56,7 @@ def _upsert_business_unit(
         defaults={
             "name": name,
             "description": description,
-            "country": country,
+            "office": office,
             "status": _ref_value("BUSINESS_UNIT_STATUS", "ACTIVE"),
             "created_by": SYSTEM_ACTOR,
             "updated_by": SYSTEM_ACTOR,
@@ -89,7 +89,7 @@ def _upsert_calendar(business_unit: BusinessUnit, *, calendar_name: str) -> Year
         calendar_year=CURRENT_YEAR,
         calendar_name=calendar_name,
         defaults={
-            "country": business_unit.country,
+            "office": business_unit.office,
             "status": _ref_value("CALENDAR_STATUS", "ACTIVE"),
             "created_by": SYSTEM_ACTOR,
             "updated_by": SYSTEM_ACTOR,
@@ -100,7 +100,7 @@ def _upsert_calendar(business_unit: BusinessUnit, *, calendar_name: str) -> Year
         effective_from=date(CURRENT_YEAR, 1, 1),
         effective_to=date(CURRENT_YEAR, 12, 31),
         defaults={
-            "country": business_unit.country,
+            "office": business_unit.office,
             "monday_max_hours": "8.00",
             "tuesday_max_hours": "8.00",
             "wednesday_max_hours": "8.00",
@@ -129,7 +129,7 @@ def _upsert_employee(
             "full_name": full_name,
             "email": email,
             "canonical_email": email.strip().lower(),
-            "country": primary_business_unit.country,
+            "office": primary_business_unit.office,
             "status": _ref_value("EMPLOYEE_STATUS", "ACTIVE"),
             "primary_business_unit": primary_business_unit,
             "manager_employee": manager_employee,
@@ -182,7 +182,7 @@ def _upsert_client(*, business_unit: BusinessUnit, client_code: str, name: str) 
         business_unit=business_unit,
         client_code=client_code,
         defaults={
-            "country": business_unit.country,
+            "office": business_unit.office,
             "name": name,
             "parent_client": None,
             "status": _ref_value("CLIENT_STATUS", "ACTIVE"),
@@ -204,7 +204,7 @@ def _upsert_internal_category(
         business_unit=business_unit,
         category_code=category_code,
         defaults={
-            "country": business_unit.country,
+            "office": business_unit.office,
             "name": name,
             "description": description,
             "status": _ref_value("INTERNAL_CATEGORY_STATUS", "ACTIVE"),
@@ -226,7 +226,7 @@ def _upsert_cost_center(
         business_unit=business_unit,
         cost_center_code=cost_center_code,
         defaults={
-            "country": business_unit.country,
+            "office": business_unit.office,
             "name": name,
             "description": description,
             "status": _ref_value("COST_CENTER_STATUS", "ACTIVE"),
@@ -251,7 +251,7 @@ def _upsert_general_charge_code(
         business_unit=business_unit,
         code=code,
         defaults={
-            "country": business_unit.country,
+            "office": business_unit.office,
             "name": name,
             "charge_type": _ref_value("GENERAL_CHARGE_CODE_TYPE", "STANDARD"),
             "billable_flag": billable_flag,
@@ -283,7 +283,7 @@ def _upsert_project(
         business_unit=business_unit,
         project_code=project_code,
         defaults={
-            "country": business_unit.country,
+            "office": business_unit.office,
             "name": name,
             "description": "Development sample project for local UI exploration.",
             "project_owner_employee": project_owner_employee,
@@ -324,21 +324,21 @@ class Command(BaseCommand):
     def handle(self, *args, **options) -> None:
         call_command("seed_reference_data")
 
-        holding_country = _upsert_country(country_id=1, country_name="Holding", active=True)
-        _upsert_country(country_id=2, country_name="España", active=True)
-        _upsert_country(country_id=3, country_name="Colombia", active=True)
-        _upsert_country(country_id=4, country_name="Perú", active=True)
-        _upsert_country(country_id=5, country_name="Argentina", active=True)
-        _upsert_country(country_id=6, country_name="México", active=False)
+        holding_country = _upsert_country(office_id=1, office_name="Holding", active=True)
+        _upsert_country(office_id=2, office_name="España", active=True)
+        _upsert_country(office_id=3, office_name="Colombia", active=True)
+        _upsert_country(office_id=4, office_name="Perú", active=True)
+        _upsert_country(office_id=5, office_name="Argentina", active=True)
+        _upsert_country(office_id=6, office_name="México", active=False)
 
         consulting_bu = _upsert_business_unit(
-            country=holding_country,
+            office=holding_country,
             bu_code="CONSULTING",
             name="Consulting",
             description="Primary local sample Business Unit.",
         )
         delivery_bu = _upsert_business_unit(
-            country=holding_country,
+            office=holding_country,
             bu_code="DELIVERY",
             name="Delivery",
             description="Secondary local sample Business Unit.",
@@ -364,8 +364,8 @@ class Command(BaseCommand):
         )
         ts_admin_master = _upsert_employee(
             employee_code="EMP-MASTER-001",
-            full_name="Country Master Admin",
-            email="country.master@timia.ai",
+            full_name="Office Master Admin",
+            email="office.master@timia.ai",
             primary_business_unit=consulting_bu,
             assigned_calendar=consulting_calendar,
             manager_employee=ts_admin,

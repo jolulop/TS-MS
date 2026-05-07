@@ -5,11 +5,13 @@ from django.test import Client
 
 from apps.audit.models import AuditLog
 from apps.master_data.models import (
+    BusinessUnit,
+    BusinessUnitConfiguration,
     CalendarPeriodRule,
-    Country,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
+    Office,
     Project,
     ProjectAssignment,
 )
@@ -30,15 +32,16 @@ from tests.helpers import (
     assign_employee_to_business_unit,
     assign_role,
     create_business_unit,
+    create_business_unit_configuration,
     create_calendar_period_rule,
     create_client,
     create_cost_center,
-    create_country,
     create_employee,
     create_internal_category,
+    create_office,
     create_project,
     create_yearly_calendar,
-    get_country,
+    get_office,
     initialize_ui_session,
     ref_value,
     seed_reference_data,
@@ -151,6 +154,7 @@ def test_system_management_hub_shows_real_admin_screen_links() -> None:
     assert response.status_code == 200
     content = response.content.decode()
     assert "Ready now" in content
+    assert "/system/business-units/" in content
     assert "/system/employees/" in content
     assert "/system/clients/" in content
     assert "/system/general-charge-codes/" in content
@@ -186,10 +190,105 @@ def test_non_admin_cannot_open_employee_management_screen() -> None:
 
 
 @pytest.mark.django_db
+def test_business_unit_management_list_and_detail_render_and_update_through_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    managed_business_unit = business_units[0]
+    create_business_unit_configuration(business_unit=managed_business_unit)
+
+    list_response = client.get("/system/business-units/")
+
+    assert list_response.status_code == 200
+    list_content = list_response.content.decode()
+    assert "Business Unit Management" in list_content
+    assert managed_business_unit.bu_code in list_content
+    assert "Create Business Unit" in list_content
+
+    general_response = client.post(
+        f"/system/business-units/{managed_business_unit.id}/",
+        data={
+            "form_name": "general",
+            "bu_code": "BU-SYS-1-UPD",
+            "name": "System BU 1 Updated",
+            "description": "Updated description",
+            "status_code": "INACTIVE",
+        },
+        follow=False,
+    )
+
+    assert general_response.status_code == 302
+    managed_business_unit.refresh_from_db()
+    assert managed_business_unit.bu_code == "BU-SYS-1-UPD"
+    assert managed_business_unit.name == "System BU 1 Updated"
+    assert managed_business_unit.description == "Updated description"
+    assert managed_business_unit.status.value_code == "INACTIVE"
+
+    configuration_response = client.post(
+        f"/system/business-units/{managed_business_unit.id}/",
+        data={
+            "form_name": "configuration",
+            "approval_mode_code": "PROJECT",
+            "allow_employee_withdraw_flag": "on",
+            "timesheet_cutoff_date": "2026-05-31",
+            "count_non_billable_in_daily_limit_flag": "on",
+            "archive_after_years": "7",
+            "enable_timer_flag": "on",
+            "enable_leave_integration_flag": "on",
+            "enable_copy_previous_week_flag": "on",
+        },
+        follow=False,
+    )
+
+    assert configuration_response.status_code == 302
+    configuration = BusinessUnitConfiguration.objects.get(business_unit=managed_business_unit)
+    assert configuration.approval_mode.value_code == "PROJECT"
+    assert configuration.allow_employee_withdraw_flag is True
+    assert configuration.timesheet_cutoff_date == date(2026, 5, 31)
+    assert configuration.count_non_billable_in_daily_limit_flag is True
+    assert configuration.archive_after_years == 7
+    assert configuration.enable_timer_flag is True
+    assert configuration.enable_leave_integration_flag is True
+    assert configuration.enable_copy_previous_week_flag is True
+
+    detail_response = client.get(f"/system/business-units/{managed_business_unit.id}/")
+    detail_content = detail_response.content.decode()
+    assert detail_response.status_code == 200
+    assert "Configuration" in detail_content
+    assert "Back to Business Units" in detail_content
+    assert "System BU 1 Updated" in detail_content
+    assert "Defines how submitted time is routed for approval." in detail_content
+
+
+@pytest.mark.django_db
+def test_business_unit_management_can_create_new_business_unit_through_html() -> None:
+    client, employee, business_units = _build_ts_admin_client()
+
+    response = client.post(
+        "/system/business-units/",
+        data={
+            "bu_code": "BU-SYS-NEW",
+            "name": "System BU New",
+            "description": "Created from HTML",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    created_business_unit = BusinessUnit.objects.get(bu_code="BU-SYS-NEW")
+    assert response.headers["Location"] == f"/system/business-units/{created_business_unit.id}/"
+    assert EmployeeBusinessUnit.objects.filter(
+        employee=employee,
+        business_unit=created_business_unit,
+        valid_to__isnull=True,
+    ).exists()
+    assert business_units[0].office_id == created_business_unit.office_id
+
+
+@pytest.mark.django_db
 def test_ts_admin_cannot_open_country_management_screen() -> None:
     client, _, _ = _build_ts_admin_client()
 
-    response = client.get("/system/countries/")
+    response = client.get("/system/offices/")
 
     assert response.status_code == 403
     assert "Access Denied" in response.content.decode()
@@ -365,7 +464,7 @@ def test_country_bound_forms_show_read_only_country_context() -> None:
     ):
         assert response.status_code == 200
         content = response.content.decode()
-        assert 'name="country_name_display"' in content
+        assert 'name="office_name_display"' in content
         assert 'value="Holding"' in content
         assert "readonly" in content
 
@@ -373,7 +472,7 @@ def test_country_bound_forms_show_read_only_country_context() -> None:
 @pytest.mark.django_db
 def test_html_country_bound_writes_are_blocked_when_active_country_becomes_inactive() -> None:
     client, _, business_units = _build_ts_admin_client()
-    holding_country = get_country()
+    holding_country = get_office()
     holding_country.status = ref_value("COUNTRY_STATUS", "INACTIVE")
     holding_country.save(update_fields=["status", "updated_at"])
 
@@ -601,11 +700,11 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
     project_owner, project_manager, project_client, category, cost_center = (
         _build_project_management_context(business_units[0])
     )
-    foreign_country = create_country(country_name="Assignment UI Country")
+    foreign_country = create_office(office_name="Assignment UI Office")
     foreign_business_unit = create_business_unit(
         bu_code="BU-ASN-FOREIGN",
         name="Assignment Foreign BU",
-        country=foreign_country,
+        office=foreign_country,
     )
     assigned_employee = create_employee(
         employee_code="EMP-ASSIGN-1",
@@ -788,21 +887,21 @@ def test_country_management_create_and_update_via_html() -> None:
     client, _, _ = _build_ts_admin_master_client()
 
     create_response = client.post(
-        "/system/countries/",
+        "/system/offices/",
         data={
-            "country_name": "Chile",
+            "office_name": "Chile",
             "status_code": "ACTIVE",
         },
         follow=False,
     )
 
     assert create_response.status_code == 302
-    country = Country.objects.get(country_name="Chile")
+    country = Office.objects.get(office_name="Chile")
 
     update_response = client.post(
-        f"/system/countries/{country.id}/",
+        f"/system/offices/{country.id}/",
         data={
-            "country_name": "Chile Updated",
+            "office_name": "Chile Updated",
             "status_code": "INACTIVE",
         },
         follow=False,
@@ -810,21 +909,21 @@ def test_country_management_create_and_update_via_html() -> None:
 
     assert update_response.status_code == 302
     country.refresh_from_db()
-    assert country.country_name == "Chile Updated"
+    assert country.office_name == "Chile Updated"
     assert country.status.value_code == "INACTIVE"
-    assert AuditLog.objects.filter(entity_name="country", entity_id=country.id).count() == 3
+    assert AuditLog.objects.filter(entity_name="office", entity_id=country.id).count() == 3
 
 
 @pytest.mark.django_db
 def test_country_management_all_filter_shows_active_and_inactive_records() -> None:
     client, _, _ = _build_ts_admin_master_client()
-    active_country = create_country(country_name="Uruguay", active=True)
-    inactive_country = create_country(country_name="Brazil", active=False)
+    active_country = create_office(office_name="Uruguay", active=True)
+    inactive_country = create_office(office_name="Brazil", active=False)
 
-    response = client.get("/system/countries/?status=ALL")
+    response = client.get("/system/offices/?status=ALL")
 
     assert response.status_code == 200
     content = response.content.decode()
-    assert 'href="/system/countries/?status=ALL"' in content
-    assert f"/system/countries/{active_country.id}/" in content
-    assert f"/system/countries/{inactive_country.id}/" in content
+    assert 'href="/system/offices/?status=ALL"' in content
+    assert f"/system/offices/{active_country.id}/" in content
+    assert f"/system/offices/{inactive_country.id}/" in content

@@ -111,6 +111,7 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     dashboard_response = client.get("/")
     profile_response = client.get("/profile/")
     approval_response = client.get("/approvals/")
+    inquiry_response = client.get("/ts/inquiry/")
 
     dashboard_content = dashboard_response.content.decode()
     profile_content = profile_response.content.decode()
@@ -122,11 +123,13 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     assert profile_response.status_code == 200
     assert "Session Context" in profile_content
     assert "Project Manager User" in profile_content
-    assert "Active Country" in profile_content
+    assert "Active Office" in profile_content
     assert "Holding" in profile_content
     assert "PROJECT_MANAGER" in profile_content
     assert approval_response.status_code == 200
     assert "Pending Approval Items" in approval_response.content.decode()
+    assert inquiry_response.status_code == 200
+    assert "Project Time Inquiry" in inquiry_response.content.decode()
 
 
 @pytest.mark.django_db
@@ -156,10 +159,11 @@ def test_ts_admin_can_open_system_management_and_reports() -> None:
 
     dashboard_content = dashboard_response.content.decode()
     assert dashboard_response.status_code == 200
-    assert "Country: Holding" in dashboard_content
+    assert "Office: Holding" in dashboard_content
     assert "fixed to Holding" in dashboard_content
     assert "System Management" in dashboard_content
     assert system_response.status_code == 200
+    assert "Business Units" in system_response.content.decode()
     assert "Employees" in system_response.content.decode()
     assert reports_response.status_code == 200
     assert "Available Reports" in reports_response.content.decode()
@@ -187,7 +191,7 @@ def test_ts_admin_master_sees_country_management_only() -> None:
 
     dashboard_response = client.get("/")
     system_response = client.get("/system/")
-    countries_response = client.get("/system/countries/")
+    countries_response = client.get("/system/offices/")
     employees_response = client.get("/system/employees/")
 
     dashboard_content = dashboard_response.content.decode()
@@ -195,12 +199,12 @@ def test_ts_admin_master_sees_country_management_only() -> None:
 
     assert dashboard_response.status_code == 200
     assert "System Management" in dashboard_content
-    assert "Countries" in dashboard_content
+    assert "Offices" in dashboard_content
     assert "Employees" not in dashboard_content
     assert system_response.status_code == 200
-    assert "Countries" in system_content
+    assert "Offices" in system_content
     assert "Employees" not in system_content
     assert countries_response.status_code == 200
-    assert "Country Management" in countries_response.content.decode()
+    assert "Office Management" in countries_response.content.decode()
     assert employees_response.status_code == 403
     assert "Access Denied" in employees_response.content.decode()

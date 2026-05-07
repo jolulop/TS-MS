@@ -16,10 +16,10 @@ from tests.helpers import (
     create_calendar_period_rule,
     create_client,
     create_cost_center,
-    create_country,
     create_employee,
     create_general_charge_code,
     create_internal_category,
+    create_office,
     create_project,
     create_yearly_calendar,
     initialize_ui_session,
@@ -283,11 +283,11 @@ def test_cross_country_project_reports_include_foreign_employee_time() -> None:
     context = _setup_reports_context()
     project = Project.objects.get(project_code="PRJ-RPT")
 
-    foreign_country = create_country(country_name="Reports Worker Country")
+    foreign_country = create_office(office_name="Reports Worker Office")
     foreign_business_unit = create_business_unit(
         bu_code="BU-RPT-FGN",
         name="Reports Foreign BU",
-        country=foreign_country,
+        office=foreign_country,
     )
     create_business_unit_configuration(
         business_unit=foreign_business_unit,

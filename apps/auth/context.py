@@ -15,9 +15,9 @@ class CurrentUser:
     full_name: str
     email: str
     canonical_email: str
-    country_id: int
-    country_name: str
-    country_status: str
+    office_id: int
+    office_name: str
+    office_status: str
     primary_business_unit_id: int
     primary_business_unit_code: str
     role_codes: tuple[str, ...]

@@ -71,8 +71,8 @@ class CurrentUserService:
                 403,
             )
         if (
-            employee.country.status.domain.domain_code == "COUNTRY_STATUS"
-            and employee.country.status.value_code != ACTIVE_COUNTRY_STATUS
+            employee.office.status.domain.domain_code == "COUNTRY_STATUS"
+            and employee.office.status.value_code != ACTIVE_COUNTRY_STATUS
             and ROLE_TS_ADMIN_MASTER not in role_codes
         ):
             raise AuthError(
@@ -106,9 +106,9 @@ class CurrentUserService:
             full_name=employee.full_name,
             email=employee.email,
             canonical_email=employee.canonical_email,
-            country_id=employee.country_id,
-            country_name=employee.country.country_name,
-            country_status=employee.country.status.value_code,
+            office_id=employee.office_id,
+            office_name=employee.office.office_name,
+            office_status=employee.office.status.value_code,
             primary_business_unit_id=employee.primary_business_unit_id,
             primary_business_unit_code=employee.primary_business_unit.bu_code,
             role_codes=role_codes,
@@ -178,9 +178,9 @@ class SessionInitializationService:
             .select_related(
                 "status",
                 "status__domain",
-                "country",
-                "country__status",
-                "country__status__domain",
+                "office",
+                "office__status",
+                "office__status__domain",
                 "primary_business_unit",
             )
             .order_by("id")

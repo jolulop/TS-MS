@@ -12,13 +12,14 @@ from apps.master_data.models import Client as ClientRecord
 from apps.master_data.models import CostCenter as CostCenterRecord
 from apps.master_data.models import InternalCategory as InternalCategoryRecord
 from apps.master_data.services import (
+    BusinessUnitManagementService,
     CalendarPeriodRuleManagementService,
     ClientManagementService,
     CostCenterManagementService,
-    CountryManagementService,
     EmployeeManagementService,
     GeneralChargeCodeManagementService,
     InternalCategoryManagementService,
+    OfficeManagementService,
     ProjectAssignmentManagementService,
     ProjectManagementService,
 )
@@ -61,7 +62,7 @@ def _require_ts_admin_master(request: HttpRequest) -> CurrentUser | HttpResponse
     if not current_user.is_ts_admin_master:
         return _render_access_denied(
             request,
-            message="You do not have permission to open this Country Management screen.",
+            message="You do not have permission to open this Office Management screen.",
         )
     return current_user
 
@@ -72,10 +73,11 @@ def _system_section_links(current_user: CurrentUser, current_path: str) -> list[
 
     sections = [("overview", "Overview", "/system/")]
     if current_user.is_ts_admin_master:
-        sections.append(("countries", "Countries", "/system/countries/"))
+        sections.append(("offices", "Offices", "/system/offices/"))
     if current_user.is_ts_admin:
         sections.extend(
             [
+                ("business-units", "Business Units", "/system/business-units/"),
                 ("employees", "Employees", "/system/employees/"),
                 ("clients", "Clients", "/system/clients/"),
                 ("internal-categories", "Internal Categories", "/system/internal-categories/"),
@@ -198,7 +200,7 @@ def _scoped_business_unit_options(
         options.append(_option("", "Select a Business Unit", selected_values=selected_values))
     business_units = BusinessUnit.objects.filter(
         id__in=current_user.scoped_business_unit_ids,
-        country_id=current_user.country_id,
+        office_id=current_user.office_id,
     ).order_by("bu_code")
     options.extend(
         _option(
@@ -221,7 +223,7 @@ def _parent_client_options(
     options = [_option("", "No parent client", selected_values=selected_values)]
     clients = ClientRecord.objects.filter(
         business_unit_id__in=current_user.scoped_business_unit_ids,
-        country_id=current_user.country_id,
+        office_id=current_user.office_id,
     ).select_related("business_unit")
     if exclude_client_id is not None:
         clients = clients.exclude(id=exclude_client_id)
@@ -262,12 +264,12 @@ def _field(
     }
 
 
-def _country_display_field(country_name: str) -> dict:
+def _office_display_field(office_name: str) -> dict:
     return _field(
-        name="country_name_display",
-        label="Country",
+        name="office_name_display",
+        label="Office",
         kind="text",
-        value=country_name,
+        value=office_name,
         readonly=True,
     )
 
@@ -321,7 +323,7 @@ def _scoped_client_options(
         options.append(_option("", "Select a Client", selected_values=selected_values))
     clients = ClientRecord.objects.filter(
         business_unit_id__in=current_user.scoped_business_unit_ids,
-        country_id=current_user.country_id,
+        office_id=current_user.office_id,
     ).select_related("business_unit")
     if business_unit_id is not None:
         clients = clients.filter(business_unit_id=business_unit_id)
@@ -350,7 +352,7 @@ def _scoped_internal_category_options(
         options.append(_option("", "Select an Internal Category", selected_values=selected_values))
     categories = InternalCategoryRecord.objects.filter(
         business_unit_id__in=current_user.scoped_business_unit_ids,
-        country_id=current_user.country_id,
+        office_id=current_user.office_id,
     ).select_related("business_unit")
     if business_unit_id is not None:
         categories = categories.filter(business_unit_id=business_unit_id)
@@ -379,7 +381,7 @@ def _scoped_cost_center_options(
         options.append(_option("", "Select a Cost Center", selected_values=selected_values))
     cost_centers = CostCenterRecord.objects.filter(
         business_unit_id__in=current_user.scoped_business_unit_ids,
-        country_id=current_user.country_id,
+        office_id=current_user.office_id,
     ).select_related("business_unit")
     if business_unit_id is not None:
         cost_centers = cost_centers.filter(business_unit_id=business_unit_id)
@@ -431,7 +433,7 @@ def _scoped_employee_options(
             .order_by("primary_business_unit__bu_code", "employee_code")
         )
     if restrict_to_current_country:
-        employees = employees.filter(country_id=current_user.country_id)
+        employees = employees.filter(office_id=current_user.office_id)
     if business_unit_id is not None:
         employees = employees.filter(
             business_unit_assignments__business_unit_id=business_unit_id,
@@ -479,7 +481,7 @@ def _scoped_project_options(
         Project.objects.select_related("business_unit", "status")
         .filter(
             business_unit_id__in=current_user.scoped_business_unit_ids,
-            country_id=current_user.country_id,
+            office_id=current_user.office_id,
         )
         .order_by("business_unit__bu_code", "project_code")
     )
@@ -508,7 +510,7 @@ def _scoped_yearly_calendar_options(
         YearlyCalendar.objects.select_related("business_unit")
         .filter(
             business_unit_id__in=current_user.scoped_business_unit_ids,
-            country_id=current_user.country_id,
+            office_id=current_user.office_id,
         )
         .order_by("business_unit__bu_code", "calendar_year", "calendar_name")
     )
@@ -537,7 +539,7 @@ def _employee_create_fields(
         else [str(current_user.primary_business_unit_id)]
     )
     return [
-        _country_display_field(current_user.country_name),
+        _office_display_field(current_user.office_name),
         _field(
             name="employee_code",
             label="Employee Code",
@@ -611,7 +613,7 @@ def _employee_create_fields(
 
 def _employee_core_fields(employee: dict, *, post_data: QueryDict | None = None) -> list[dict]:
     return [
-        _country_display_field(employee["country"]["country_name"]),
+        _office_display_field(employee["office"]["office_name"]),
         _field(
             name="full_name",
             label="Full Name",
@@ -711,8 +713,8 @@ def _client_form_fields(
         selected_parent = str(entity["parent_client"]["id"])
 
     return [
-        _country_display_field(
-            entity["country"]["country_name"] if entity else current_user.country_name
+        _office_display_field(
+            entity["office"]["office_name"] if entity else current_user.office_name
         ),
         _field(
             name="business_unit_id",
@@ -794,8 +796,8 @@ def _simple_master_fields(
         description_value = submitted_data.get("description", description_value)
 
     return [
-        _country_display_field(
-            entity["country"]["country_name"] if entity else current_user.country_name
+        _office_display_field(
+            entity["office"]["office_name"] if entity else current_user.office_name
         ),
         _field(
             name="business_unit_id",
@@ -873,8 +875,8 @@ def _general_charge_code_fields(
         valid_to_value = submitted_data.get("valid_to", valid_to_value)
 
     return [
-        _country_display_field(
-            entity["country"]["country_name"] if entity else current_user.country_name
+        _office_display_field(
+            entity["office"]["office_name"] if entity else current_user.office_name
         ),
         _field(
             name="business_unit_id",
@@ -1004,8 +1006,8 @@ def _project_form_fields(
         int(selected_business_unit) if str(selected_business_unit).isdigit() else None
     )
     return [
-        _country_display_field(
-            entity["country"]["country_name"] if entity else current_user.country_name
+        _office_display_field(
+            entity["office"]["office_name"] if entity else current_user.office_name
         ),
         _field(
             name="business_unit_id",
@@ -1268,8 +1270,8 @@ def _calendar_period_rule_fields(
 ) -> list[dict]:
     submitted_data = post_data or QueryDict("")
     return [
-        _country_display_field(
-            entity["country"]["country_name"] if entity else current_user.country_name
+        _office_display_field(
+            entity["office"]["office_name"] if entity else current_user.office_name
         ),
         _field(
             name="yearly_calendar_id",
@@ -1395,10 +1397,10 @@ def _render_collection_page(
     table_headers: tuple[str, ...],
     table_rows: list[dict],
     empty_message: str,
-    form_title: str,
-    form_intro: str,
-    form_fields: list[dict],
-    submit_label: str,
+    form_title: str | None = None,
+    form_intro: str = "",
+    form_fields: list[dict] | None = None,
+    submit_label: str = "",
     form_error: str = "",
     filter_links: list[dict] | None = None,
     filter_title: str = "Filters",
@@ -1415,9 +1417,9 @@ def _render_collection_page(
             "table_headers": table_headers,
             "table_rows": table_rows,
             "empty_message": empty_message,
-            "form_title": form_title,
+            "form_title": form_title or "",
             "form_intro": form_intro,
-            "form_fields": form_fields,
+            "form_fields": form_fields or [],
             "submit_label": submit_label,
             "form_error": form_error,
             "filter_links": filter_links or [],
@@ -1710,16 +1712,16 @@ def _calendar_period_rule_detail_rows(period_rule: dict) -> list[tuple[str, str]
     ]
 
 
-def _country_form_fields(
+def _office_form_fields(
     *, post_data: QueryDict | None = None, entity: dict | None = None
 ) -> list[dict]:
     submitted_data = post_data or QueryDict("")
     return [
         _field(
-            name="country_name",
-            label="Country Name",
+            name="office_name",
+            label="Office Name",
             kind="text",
-            value=submitted_data.get("country_name", entity["country_name"] if entity else "")
+            value=submitted_data.get("office_name", entity["office_name"] if entity else "")
             if post_data is not None or entity is not None
             else "",
             required=True,
@@ -1735,42 +1737,272 @@ def _country_form_fields(
                 else "ACTIVE",
             ),
             required=True,
-            help_text="Only Timesheet Master Administrators can activate or deactivate countries.",
+            help_text="Only Timesheet Master Administrators can activate or deactivate offices.",
         ),
     ]
 
 
-def _country_rows(countries: list[dict]) -> list[dict]:
+def _business_unit_general_fields(
+    current_user: CurrentUser,
+    *,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    return [
+        _office_display_field(
+            entity["office"]["office_name"] if entity else current_user.office_name
+        ),
+        _field(
+            name="bu_code",
+            label="Business Unit Code",
+            kind="text",
+            value=submitted_data.get("bu_code", entity["bu_code"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+            help_text="Short internal code used across projects, calendars, reports, and scope.",
+        ),
+        _field(
+            name="name",
+            label="Business Unit Name",
+            kind="text",
+            value=submitted_data.get("name", entity["name"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+            help_text="Human-readable Business Unit name shown in the UI.",
+        ),
+        _field(
+            name="description",
+            label="Description",
+            kind="textarea",
+            value=submitted_data.get("description", entity["description"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            help_text="Optional context to describe what this Business Unit is used for.",
+        ),
+        _field(
+            name="status_code",
+            label="Status",
+            kind="select",
+            options=_ref_options(
+                "BUSINESS_UNIT_STATUS",
+                selected=submitted_data.get(
+                    "status_code", entity["status"] if entity else "ACTIVE"
+                )
+                if post_data is not None or entity is not None
+                else "ACTIVE",
+            ),
+            required=True,
+            help_text=(
+                "Inactive Business Units stay visible for history but should not "
+                "be used for new work."
+            ),
+        ),
+    ]
+
+
+def _business_unit_configuration_fields(
+    entity: dict,
+    *,
+    post_data: QueryDict | None = None,
+) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    configuration = entity["configuration"]
+    return [
+        _field(
+            name="approval_mode_code",
+            label="Approval Mode",
+            kind="select",
+            options=_ref_options(
+                "APPROVAL_MODE",
+                selected=submitted_data.get(
+                    "approval_mode_code",
+                    configuration["approval_mode"],
+                )
+                if post_data is not None
+                else configuration["approval_mode"],
+            ),
+            required=True,
+            help_text=(
+                "Defines how submitted time is routed for approval. The current "
+                "working option is project-based approval."
+            ),
+        ),
+        _field(
+            name="allow_employee_withdraw_flag",
+            label="Allow Employee Withdraw",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "allow_employee_withdraw_flag")
+            if post_data is not None
+            else bool(configuration["allow_employee_withdraw_flag"]),
+            help_text=(
+                "If enabled, employees may withdraw a submitted timesheet before "
+                "final approval."
+            ),
+        ),
+        _field(
+            name="timesheet_cutoff_date",
+            label="Timesheet Cutoff Date",
+            kind="date",
+            value=submitted_data.get(
+                "timesheet_cutoff_date",
+                configuration["timesheet_cutoff_date"] or "",
+            )
+            if post_data is not None
+            else configuration["timesheet_cutoff_date"] or "",
+            help_text=(
+                "Optional cut-off date after which normal employee edits or "
+                "submissions should stop for this Business Unit."
+            ),
+        ),
+        _field(
+            name="count_non_billable_in_daily_limit_flag",
+            label="Count Non-billable In Daily Limit",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "count_non_billable_in_daily_limit_flag")
+            if post_data is not None
+            else bool(configuration["count_non_billable_in_daily_limit_flag"]),
+            help_text=(
+                "If enabled, non-billable hours count toward the daily calendar "
+                "hour limit the same way billable hours do."
+            ),
+        ),
+        _field(
+            name="archive_after_years",
+            label="Archive After Years",
+            kind="number",
+            value=submitted_data.get(
+                "archive_after_years",
+                str(configuration["archive_after_years"]),
+            )
+            if post_data is not None
+            else str(configuration["archive_after_years"]),
+            required=True,
+            help_text=(
+                "Retention period, in years, before approved historical "
+                "timesheets become archive candidates. Must be greater than 0."
+            ),
+        ),
+        _field(
+            name="enable_timer_flag",
+            label="Enable Timer",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "enable_timer_flag")
+            if post_data is not None
+            else bool(configuration["enable_timer_flag"]),
+            help_text=(
+                "Reserved switch for future timer-based time capture within this "
+                "Business Unit."
+            ),
+        ),
+        _field(
+            name="enable_leave_integration_flag",
+            label="Enable Leave Integration",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "enable_leave_integration_flag")
+            if post_data is not None
+            else bool(configuration["enable_leave_integration_flag"]),
+            help_text=(
+                "Reserved switch for future integration that imports leave or "
+                "absence data into timesheet behavior."
+            ),
+        ),
+        _field(
+            name="enable_copy_previous_week_flag",
+            label="Enable Copy Previous Week",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "enable_copy_previous_week_flag")
+            if post_data is not None
+            else bool(configuration["enable_copy_previous_week_flag"]),
+            help_text=(
+                "Reserved switch for a future shortcut that preloads a new week "
+                "using the previous week as a starting point."
+            ),
+        ),
+    ]
+
+
+def _business_unit_rows(business_units: list[dict]) -> list[dict]:
     return [
         {
-            "href": f"/system/countries/{country['id']}/",
-            "cells": [country["country_name"], country["status"]],
+            "href": f"/system/business-units/{business_unit['id']}/",
+            "cells": [
+                business_unit["bu_code"],
+                business_unit["name"],
+                business_unit["status"],
+                business_unit["description"] or "None",
+                str(business_unit["employee_count"]),
+                str(business_unit["project_count"]),
+            ],
         }
-        for country in countries
+        for business_unit in business_units
     ]
 
 
-def _country_detail_rows(country: dict) -> list[tuple[str, str]]:
+def _business_unit_detail_rows(business_unit: dict) -> list[tuple[str, str]]:
     return [
-        ("Country Name", country["country_name"]),
-        ("Status", country["status"]),
+        ("Office", business_unit["office"]["office_name"]),
+        ("Business Unit Code", business_unit["bu_code"]),
+        ("Business Unit Name", business_unit["name"]),
+        ("Description", business_unit["description"] or "None"),
+        ("Status", business_unit["status"]),
+        ("Employee Count", str(business_unit["employee_count"])),
+        ("Project Count", str(business_unit["project_count"])),
     ]
 
 
-COUNTRY_CONFIG = MasterUiConfig(
-    section_key="countries",
-    list_title="Country Management",
+def _office_rows(offices: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/offices/{office['id']}/",
+            "cells": [office["office_name"], office["status"]],
+        }
+        for office in offices
+    ]
+
+
+def _office_detail_rows(office: dict) -> list[tuple[str, str]]:
+    return [
+        ("Office Name", office["office_name"]),
+        ("Status", office["status"]),
+    ]
+
+
+BUSINESS_UNIT_CONFIG = MasterUiConfig(
+    section_key="business-units",
+    list_title="Business Unit Management",
+    list_eyebrow="SCR-102",
+    list_intro="Scoped Business Unit list for Timesheet Administrators in the active office.",
+    detail_title="Business Unit Detail",
+    detail_eyebrow="SCR-103",
+    detail_intro=(
+        "Maintain Business Unit identity and BU-level configuration inside the shared shell."
+    ),
+    singular_label="Business Unit",
+    plural_label="Business Units",
+    collection_path="/system/business-units/",
+    detail_path_prefix="/system/business-units/",
+    table_headers=("BU Code", "Name", "Status", "Description", "Employees", "Projects"),
+    empty_message="No Business Units are available in your assigned scope yet.",
+)
+
+
+OFFICE_CONFIG = MasterUiConfig(
+    section_key="offices",
+    list_title="Office Management",
     list_eyebrow="SCR-100",
-    list_intro="Master administration list for country lifecycle and identity management.",
-    detail_title="Country Detail",
+    list_intro="Master administration list for office lifecycle and identity management.",
+    detail_title="Office Detail",
     detail_eyebrow="SCR-101",
-    detail_intro="Update country identity and active or inactive lifecycle state.",
-    singular_label="Country",
-    plural_label="Countries",
-    collection_path="/system/countries/",
-    detail_path_prefix="/system/countries/",
-    table_headers=("Country", "Status"),
-    empty_message="No countries are available yet.",
+    detail_intro="Update office identity and active or inactive lifecycle state.",
+    singular_label="Office",
+    plural_label="Offices",
+    collection_path="/system/offices/",
+    detail_path_prefix="/system/offices/",
+    table_headers=("Office", "Status"),
+    empty_message="No offices are available yet.",
 )
 
 
@@ -1894,8 +2126,8 @@ CALENDAR_PERIOD_RULE_CONFIG = MasterUiConfig(
 
 
 @require_http_methods(["GET", "POST"])
-def countries_collection(request: HttpRequest) -> HttpResponse:
-    current_user = _require_ts_admin_master(request)
+def business_units_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
     if not isinstance(current_user, CurrentUser):
         return current_user
 
@@ -1903,48 +2135,165 @@ def countries_collection(request: HttpRequest) -> HttpResponse:
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
         try:
-            country = CountryManagementService.create_country(
+            business_unit = BusinessUnitManagementService.create_business_unit(
                 current_user,
                 {
-                    "country_name": request.POST.get("country_name", ""),
+                    "bu_code": request.POST.get("bu_code", ""),
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
                     "status_code": request.POST.get("status_code", "ACTIVE"),
                 },
             )
         except AuthError as error:
             form_error = error.message
         else:
-            return redirect(f"/system/countries/{country['id']}/")
+            return redirect(f"/system/business-units/{business_unit['id']}/")
 
     selected_status_code, filter_links = _status_filter_links(
         request,
-        domain_code="COUNTRY_STATUS",
+        domain_code="BUSINESS_UNIT_STATUS",
         default_code="ACTIVE",
     )
-    countries = CountryManagementService.list_countries(
+    business_units = BusinessUnitManagementService.list_business_units(
         current_user,
         status_code=_service_status_code(selected_status_code),
     )
     return _render_collection_page(
         request,
         current_user,
-        title=COUNTRY_CONFIG.list_title,
-        eyebrow=COUNTRY_CONFIG.list_eyebrow,
-        intro=COUNTRY_CONFIG.list_intro,
-        table_headers=COUNTRY_CONFIG.table_headers,
-        table_rows=_country_rows(countries),
-        empty_message=COUNTRY_CONFIG.empty_message,
-        form_title="Create Country",
-        form_intro="Create a new country and set its initial lifecycle state.",
-        form_fields=_country_form_fields(post_data=post_data),
-        submit_label="Create Country",
+        title=BUSINESS_UNIT_CONFIG.list_title,
+        eyebrow=BUSINESS_UNIT_CONFIG.list_eyebrow,
+        intro=BUSINESS_UNIT_CONFIG.list_intro,
+        table_headers=BUSINESS_UNIT_CONFIG.table_headers,
+        table_rows=_business_unit_rows(business_units),
+        empty_message=BUSINESS_UNIT_CONFIG.empty_message,
+        form_title="Create Business Unit",
+        form_intro=(
+            "Create a new Business Unit in your active office. A default configuration "
+            "will be created automatically, and your admin scope will be extended to include it."
+        ),
+        form_fields=_business_unit_general_fields(current_user, post_data=post_data),
+        submit_label="Create Business Unit",
         form_error=form_error,
         filter_links=filter_links,
-        filter_title="Country Status",
+        filter_title="Business Unit Status",
     )
 
 
 @require_http_methods(["GET", "POST"])
-def country_detail(request: HttpRequest, country_id: int) -> HttpResponse:
+def business_unit_detail(request: HttpRequest, business_unit_id: int) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    active_form = "general"
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        active_form = request.POST.get("form_name", "general")
+        payload = {}
+        if active_form == "general":
+            payload = {
+                "bu_code": request.POST.get("bu_code", ""),
+                "name": request.POST.get("name", ""),
+                "description": request.POST.get("description", ""),
+                "status_code": request.POST.get("status_code", ""),
+            }
+        elif active_form == "configuration":
+            payload = {
+                "approval_mode_code": request.POST.get("approval_mode_code", ""),
+                "allow_employee_withdraw_flag": _bool_from_post(
+                    request.POST, "allow_employee_withdraw_flag"
+                ),
+                "timesheet_cutoff_date": request.POST.get("timesheet_cutoff_date", ""),
+                "count_non_billable_in_daily_limit_flag": _bool_from_post(
+                    request.POST,
+                    "count_non_billable_in_daily_limit_flag",
+                ),
+                "archive_after_years": request.POST.get("archive_after_years", ""),
+                "enable_timer_flag": _bool_from_post(request.POST, "enable_timer_flag"),
+                "enable_leave_integration_flag": _bool_from_post(
+                    request.POST,
+                    "enable_leave_integration_flag",
+                ),
+                "enable_copy_previous_week_flag": _bool_from_post(
+                    request.POST,
+                    "enable_copy_previous_week_flag",
+                ),
+            }
+        else:
+            return _render_access_denied(
+                request,
+                message="Unknown Business Unit form submission.",
+                status=400,
+            )
+        try:
+            BusinessUnitManagementService.update_business_unit(
+                current_user,
+                business_unit_id,
+                payload,
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/business-units/{business_unit_id}/")
+
+    try:
+        business_unit = BusinessUnitManagementService.get_business_unit(
+            current_user,
+            business_unit_id,
+        )
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=BUSINESS_UNIT_CONFIG.detail_title,
+            eyebrow=BUSINESS_UNIT_CONFIG.detail_eyebrow,
+            intro=BUSINESS_UNIT_CONFIG.detail_intro,
+            error=error,
+        )
+
+    form_sections = [
+        {
+            "form_name": "general",
+            "title": "General",
+            "intro": "Update Business Unit identity, description, and lifecycle status.",
+            "submit_label": "Save Business Unit",
+            "form_error": form_error if active_form == "general" else "",
+            "fields": _business_unit_general_fields(
+                current_user,
+                post_data=post_data if active_form == "general" else None,
+                entity=business_unit,
+            ),
+        },
+        {
+            "form_name": "configuration",
+            "title": "Configuration",
+            "intro": "Update BU-level approval and operational configuration values.",
+            "submit_label": "Save Configuration",
+            "form_error": form_error if active_form == "configuration" else "",
+            "fields": _business_unit_configuration_fields(
+                business_unit,
+                post_data=post_data if active_form == "configuration" else None,
+            ),
+        },
+    ]
+    return _render_detail_page(
+        request,
+        current_user,
+        title=business_unit["name"],
+        eyebrow=BUSINESS_UNIT_CONFIG.detail_eyebrow,
+        intro=BUSINESS_UNIT_CONFIG.detail_intro,
+        detail_rows=_business_unit_detail_rows(business_unit),
+        form_sections=form_sections,
+        back_href=BUSINESS_UNIT_CONFIG.collection_path,
+        back_label="Back to Business Units",
+        entity_status=business_unit["status"],
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def offices_collection(request: HttpRequest) -> HttpResponse:
     current_user = _require_ts_admin_master(request)
     if not isinstance(current_user, CurrentUser):
         return current_user
@@ -1953,38 +2302,88 @@ def country_detail(request: HttpRequest, country_id: int) -> HttpResponse:
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
         try:
-            CountryManagementService.update_country(
+            office = OfficeManagementService.create_office(
                 current_user,
-                country_id,
                 {
-                    "country_name": request.POST.get("country_name", ""),
+                    "office_name": request.POST.get("office_name", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/offices/{office['id']}/")
+
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="COUNTRY_STATUS",
+        default_code="ACTIVE",
+    )
+    offices = OfficeManagementService.list_offices(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
+    return _render_collection_page(
+        request,
+        current_user,
+        title=OFFICE_CONFIG.list_title,
+        eyebrow=OFFICE_CONFIG.list_eyebrow,
+        intro=OFFICE_CONFIG.list_intro,
+        table_headers=OFFICE_CONFIG.table_headers,
+        table_rows=_office_rows(offices),
+        empty_message=OFFICE_CONFIG.empty_message,
+        form_title="Create Office",
+        form_intro="Create a new office and set its initial lifecycle state.",
+        form_fields=_office_form_fields(post_data=post_data),
+        submit_label="Create Office",
+        form_error=form_error,
+        filter_links=filter_links,
+        filter_title="Office Status",
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
+    current_user = _require_ts_admin_master(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            OfficeManagementService.update_office(
+                current_user,
+                office_id,
+                {
+                    "office_name": request.POST.get("office_name", ""),
                     "status_code": request.POST.get("status_code", ""),
                 },
             )
         except AuthError as error:
             form_error = error.message
         else:
-            return redirect(f"/system/countries/{country_id}/")
+            return redirect(f"/system/offices/{office_id}/")
 
     try:
-        country = CountryManagementService.get_country(current_user, country_id)
+        office = OfficeManagementService.get_office(current_user, office_id)
     except AuthError as error:
         return _render_auth_error(
             request,
             current_user,
-            title=COUNTRY_CONFIG.detail_title,
-            eyebrow=COUNTRY_CONFIG.detail_eyebrow,
-            intro=COUNTRY_CONFIG.detail_intro,
+            title=OFFICE_CONFIG.detail_title,
+            eyebrow=OFFICE_CONFIG.detail_eyebrow,
+            intro=OFFICE_CONFIG.detail_intro,
             error=error,
         )
 
     return _render_master_detail(
         request,
         current_user,
-        config=COUNTRY_CONFIG,
-        entity=country,
-        detail_rows=_country_detail_rows(country),
-        form_fields=_country_form_fields(post_data=post_data, entity=country),
+        config=OFFICE_CONFIG,
+        entity=office,
+        detail_rows=_office_detail_rows(office),
+        form_fields=_office_form_fields(post_data=post_data, entity=office),
         form_error=form_error,
     )
 

@@ -4,8 +4,8 @@ from django.db.models import Q
 from apps.common.models import AuditFieldsModel
 
 
-class Country(AuditFieldsModel):
-    country_name = models.CharField(max_length=200, unique=True)
+class Office(AuditFieldsModel):
+    office_name = models.CharField(max_length=200, unique=True)
     status = models.ForeignKey(
         "reference_data.RefValue",
         on_delete=models.PROTECT,
@@ -13,19 +13,19 @@ class Country(AuditFieldsModel):
     )
 
     class Meta:
-        db_table = "country"
-        ordering = ["country_name"]
+        db_table = "office"
+        ordering = ["office_name"]
 
     def __str__(self) -> str:
-        return self.country_name
+        return self.office_name
 
 
 class BusinessUnit(AuditFieldsModel):
     bu_code = models.CharField(max_length=50, unique=True)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    country = models.ForeignKey(
-        Country,
+    office = models.ForeignKey(
+        Office,
         on_delete=models.PROTECT,
         related_name="business_units",
     )
@@ -49,8 +49,8 @@ class YearlyCalendar(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="yearly_calendars",
     )
-    country = models.ForeignKey(
-        Country,
+    office = models.ForeignKey(
+        Office,
         on_delete=models.PROTECT,
         related_name="yearly_calendars",
     )
@@ -81,8 +81,8 @@ class Employee(AuditFieldsModel):
     full_name = models.CharField(max_length=200)
     email = models.EmailField(max_length=320)
     canonical_email = models.CharField(max_length=320, unique=True)
-    country = models.ForeignKey(
-        Country,
+    office = models.ForeignKey(
+        Office,
         on_delete=models.PROTECT,
         related_name="employees",
     )
@@ -200,8 +200,8 @@ class CalendarPeriodRule(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="period_rules",
     )
-    country = models.ForeignKey(
-        Country,
+    office = models.ForeignKey(
+        Office,
         on_delete=models.PROTECT,
         related_name="calendar_period_rules",
     )
@@ -235,8 +235,8 @@ class Client(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="clients",
     )
-    country = models.ForeignKey(
-        Country,
+    office = models.ForeignKey(
+        Office,
         on_delete=models.PROTECT,
         related_name="clients",
     )
@@ -272,8 +272,8 @@ class InternalCategory(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="internal_categories",
     )
-    country = models.ForeignKey(
-        Country,
+    office = models.ForeignKey(
+        Office,
         on_delete=models.PROTECT,
         related_name="internal_categories",
     )
@@ -303,8 +303,8 @@ class CostCenter(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="cost_centers",
     )
-    country = models.ForeignKey(
-        Country,
+    office = models.ForeignKey(
+        Office,
         on_delete=models.PROTECT,
         related_name="cost_centers",
     )
@@ -334,8 +334,8 @@ class GeneralChargeCode(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="general_charge_codes",
     )
-    country = models.ForeignKey(
-        Country,
+    office = models.ForeignKey(
+        Office,
         on_delete=models.PROTECT,
         related_name="general_charge_codes",
     )
@@ -412,8 +412,8 @@ class Project(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="projects",
     )
-    country = models.ForeignKey(
-        Country,
+    office = models.ForeignKey(
+        Office,
         on_delete=models.PROTECT,
         related_name="projects",
     )

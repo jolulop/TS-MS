@@ -43,7 +43,7 @@
           </div>
           <div class="detail-header">
             <button class="button" type="submit">Run Report</button>
-            <a class="button secondary" href="/reports/{{ report_code }}/">Reset Filters</a>
+            <a class="button secondary" href="{{ report_path }}">Reset Filters</a>
           </div>
         </form>
       </section>
@@ -67,7 +67,7 @@
     <section class="surface-card">
       <div class="section-header">
         <h2>Results Grid</h2>
-        <p><a href="/reports/">Back to Reports Hub</a></p>
+        <p><a href="{{ back_href }}">{{ back_label }}</a></p>
       </div>
       {% if table_rows %}
         <div class="table-wrap">

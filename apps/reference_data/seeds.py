@@ -15,8 +15,8 @@ REFERENCE_DATA = {
         ],
     },
     "COUNTRY_STATUS": {
-        "name": "Country Status",
-        "description": "Country lifecycle status values.",
+        "name": "Office Status",
+        "description": "Office lifecycle status values.",
         "values": [
             {"code": "ACTIVE", "label": "Active", "sort_order": 10},
             {"code": "INACTIVE", "label": "Inactive", "sort_order": 20},
