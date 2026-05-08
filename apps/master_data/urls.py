@@ -36,6 +36,16 @@ urlpatterns = [
         name="admin-cost-center-detail",
     ),
     path(
+        "admin/pricing-models/",
+        views.pricing_models_collection,
+        name="admin-pricing-model-collection",
+    ),
+    path(
+        "admin/pricing-models/<int:pricing_model_id>/",
+        views.pricing_model_detail,
+        name="admin-pricing-model-detail",
+    ),
+    path(
         "admin/general-charge-codes/",
         views.general_charge_codes_collection,
         name="admin-general-charge-code-collection",

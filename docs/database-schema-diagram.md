@@ -127,6 +127,13 @@ erDiagram
         bigint status_id FK
     }
 
+    PRICING_MODEL {
+        bigint id PK
+        bigint office_id FK
+        string name
+        string description
+    }
+
     GENERAL_CHARGE_CODE {
         bigint id PK
         bigint business_unit_id FK
@@ -153,6 +160,7 @@ erDiagram
         bigint client_id FK
         bigint internal_category_id FK
         bigint cost_center_id FK
+        bigint pricing_model_id FK
         date start_date
         date end_date
         date close_date
@@ -344,6 +352,7 @@ erDiagram
     OFFICE ||--o{ CLIENT : owns
     OFFICE ||--o{ INTERNAL_CATEGORY : owns
     OFFICE ||--o{ COST_CENTER : owns
+    OFFICE ||--o{ PRICING_MODEL : owns
     OFFICE ||--o{ GENERAL_CHARGE_CODE : owns
     OFFICE ||--o{ PROJECT : owns
 
@@ -381,6 +390,7 @@ erDiagram
     CLIENT ||--o{ PROJECT : bills
     INTERNAL_CATEGORY ||--o{ PROJECT : classifies
     COST_CENTER ||--o{ PROJECT : funds
+    PRICING_MODEL ||--o{ PROJECT : prices
     GENERAL_CHARGE_CODE ||--o{ CALENDAR_SPECIAL_DAY : defaults
     GENERAL_CHARGE_CODE ||--o{ CUSTOM_ATTRIBUTE_RULE : targets
     GENERAL_CHARGE_CODE ||--o{ TIMESHEET_LINE : charged_on

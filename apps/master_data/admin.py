@@ -7,6 +7,7 @@ from apps.master_data.models import (
     EmployeeRole,
     Office,
     OfficeConfiguration,
+    PricingModel,
 )
 
 
@@ -69,3 +70,11 @@ class EmployeeRoleAdmin(admin.ModelAdmin):
     list_filter = ("role", "business_unit", "status")
     search_fields = ("employee__employee_code", "role__value_code", "business_unit__bu_code")
     ordering = ("employee__employee_code", "role__value_code", "valid_from")
+
+
+@admin.register(PricingModel)
+class PricingModelAdmin(admin.ModelAdmin):
+    list_display = ("name", "office")
+    list_filter = ("office",)
+    search_fields = ("name", "office__office_name")
+    ordering = ("office__office_name", "name")

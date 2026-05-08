@@ -36,6 +36,9 @@ from apps.master_data.models import (
 from apps.master_data.models import (
     InternalCategory as InternalCategoryRecord,
 )
+from apps.master_data.models import (
+    PricingModel as PricingModelRecord,
+)
 from apps.reference_data.models import RefValue
 
 
@@ -467,6 +470,18 @@ def _serialize_cost_center(cost_center: CostCenterRecord) -> dict:
     }
 
 
+def _serialize_pricing_model(pricing_model: PricingModelRecord) -> dict:
+    return {
+        "id": pricing_model.id,
+        "name": pricing_model.name,
+        "description": pricing_model.description,
+        "office": {
+            "id": pricing_model.office_id,
+            "office_name": pricing_model.office.office_name,
+        },
+    }
+
+
 def _serialize_general_charge_code(general_charge_code: GeneralChargeCodeRecord) -> dict:
     return {
         "id": general_charge_code.id,
@@ -580,6 +595,11 @@ def _serialize_project(project: Project) -> dict:
             "id": project.cost_center_id,
             "cost_center_code": project.cost_center.cost_center_code,
             "name": project.cost_center.name,
+        },
+        "pricing_model": {
+            "id": project.pricing_model_id,
+            "name": project.pricing_model.name,
+            "description": project.pricing_model.description,
         },
     }
 
@@ -2992,6 +3012,194 @@ class CostCenterManagementService:
         return CostCenterRecord.objects.select_related("office", "status").get(id=cost_center_id)
 
 
+class PricingModelManagementService:
+    @staticmethod
+    def list_pricing_models(current_user: CurrentUser) -> list[dict]:
+        _ensure_ts_admin(current_user)
+        pricing_models = PricingModelRecord.objects.select_related("office").filter(
+            office_id=current_user.office_id
+        ).order_by("name")
+        return [_serialize_pricing_model(pricing_model) for pricing_model in pricing_models]
+
+    @staticmethod
+    def get_pricing_model(current_user: CurrentUser, pricing_model_id: int) -> dict:
+        _ensure_ts_admin(current_user)
+        pricing_model = PricingModelManagementService._get_scoped_pricing_model(
+            current_user,
+            pricing_model_id,
+        )
+        return _serialize_pricing_model(pricing_model)
+
+    @staticmethod
+    @transaction.atomic
+    def create_pricing_model(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        current_office = _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+
+        name = str(payload.get("name", "")).strip()
+        description = str(payload.get("description", "")).strip()
+        if not name:
+            raise AuthError("PRICING_MODEL_NAME_REQUIRED", "Pricing model name is required.", 400)
+
+        _validate_optional_office_payload(
+            payload,
+            code_prefix="PRICING_MODEL",
+            expected_office_id=current_office.id,
+            mismatch_message="Pricing model office must match your active office.",
+        )
+
+        pricing_model = PricingModelRecord.objects.create(
+            office=current_office,
+            name=name,
+            description=description,
+            created_by=current_user.email,
+            updated_by=current_user.email,
+        )
+
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="pricing_model",
+            entity_id=pricing_model.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            reason_text="Pricing model created by Timesheet Administrator.",
+        )
+        return _serialize_pricing_model(
+            PricingModelManagementService._refresh_pricing_model(pricing_model.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def update_pricing_model(
+        current_user: CurrentUser,
+        pricing_model_id: int,
+        payload: dict,
+    ) -> dict:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        pricing_model = PricingModelManagementService._get_scoped_pricing_model(
+            current_user,
+            pricing_model_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            pricing_model.office,
+            out_of_scope_message="Pricing model is outside your active office.",
+        )
+        _validate_optional_office_payload(
+            payload,
+            code_prefix="PRICING_MODEL",
+            expected_office_id=pricing_model.office_id,
+            immutable_office_id=pricing_model.office_id,
+            mismatch_message="Pricing model office must match the pricing model office.",
+            immutable_message="Pricing model office cannot be changed.",
+        )
+
+        changed_fields: list[tuple[str, str, str]] = []
+
+        if "name" in payload:
+            new_name = str(payload.get("name", "")).strip()
+            if not new_name:
+                raise AuthError(
+                    "PRICING_MODEL_NAME_REQUIRED",
+                    "Pricing model name is required.",
+                    400,
+                )
+            if new_name != pricing_model.name:
+                changed_fields.append(("name", pricing_model.name, new_name))
+                pricing_model.name = new_name
+
+        if "description" in payload:
+            new_description = str(payload.get("description", "")).strip()
+            if new_description != pricing_model.description:
+                changed_fields.append(("description", pricing_model.description, new_description))
+                pricing_model.description = new_description
+
+        if changed_fields:
+            pricing_model.updated_by = current_user.email
+            pricing_model.save(update_fields=["name", "description", "updated_by", "updated_at"])
+
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="pricing_model",
+                entity_id=pricing_model.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="Pricing model updated by Timesheet Administrator.",
+            )
+
+        return _serialize_pricing_model(
+            PricingModelManagementService._refresh_pricing_model(pricing_model.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def delete_pricing_model(current_user: CurrentUser, pricing_model_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        pricing_model = PricingModelManagementService._get_scoped_pricing_model(
+            current_user,
+            pricing_model_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            pricing_model.office,
+            out_of_scope_message="Pricing model is outside your active office.",
+        )
+
+        try:
+            pricing_model_name = pricing_model.name
+            pricing_model_record_id = pricing_model.id
+            pricing_model.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "PRICING_MODEL_DELETE_BLOCKED",
+                "Pricing model cannot be deleted because it is still referenced by "
+                "Projects or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="pricing_model",
+            entity_id=pricing_model_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            old_value=pricing_model_name,
+            reason_text="Pricing model deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
+    def _get_scoped_pricing_model(
+        current_user: CurrentUser,
+        pricing_model_id: int,
+    ) -> PricingModelRecord:
+        try:
+            pricing_model = PricingModelRecord.objects.select_related("office").get(
+                id=pricing_model_id
+            )
+        except PricingModelRecord.DoesNotExist as exc:
+            raise AuthError("PRICING_MODEL_NOT_FOUND", "Pricing model not found.", 404) from exc
+
+        _ensure_office_in_scope(
+            current_user,
+            pricing_model.office_id,
+            message="Pricing model is outside your active office.",
+        )
+        return pricing_model
+
+    @staticmethod
+    def _refresh_pricing_model(pricing_model_id: int) -> PricingModelRecord:
+        return PricingModelRecord.objects.select_related("office").get(id=pricing_model_id)
+
+
 class GeneralChargeCodeManagementService:
     @staticmethod
     def list_general_charge_codes(
@@ -3731,6 +3939,7 @@ class ProjectManagementService:
                 "client",
                 "internal_category",
                 "cost_center",
+                "pricing_model",
                 "status",
             )
             .filter(
@@ -3803,6 +4012,11 @@ class ProjectManagementService:
             business_unit_id=business_unit.id,
             cost_center_id=payload.get("cost_center_id"),
         )
+        pricing_model = ProjectManagementService._resolve_project_pricing_model(
+            current_user,
+            business_unit_id=business_unit.id,
+            pricing_model_id=payload.get("pricing_model_id"),
+        )
         start_date = _parse_iso_date(
             payload.get("start_date"),
             code="PROJECT_START_DATE_REQUIRED",
@@ -3841,6 +4055,7 @@ class ProjectManagementService:
                 client=client,
                 internal_category=internal_category,
                 cost_center=cost_center,
+                pricing_model=pricing_model,
                 start_date=start_date,
                 end_date=end_date,
                 close_date=close_date,
@@ -3998,6 +4213,17 @@ class ProjectManagementService:
                     )
                 )
                 project.cost_center = new_cost_center
+        if "pricing_model_id" in payload:
+            new_pricing_model = ProjectManagementService._resolve_project_pricing_model(
+                current_user,
+                business_unit_id=project.business_unit_id,
+                pricing_model_id=payload.get("pricing_model_id"),
+            )
+            if new_pricing_model.id != project.pricing_model_id:
+                changed_fields.append(
+                    ("pricing_model", project.pricing_model.name, new_pricing_model.name)
+                )
+                project.pricing_model = new_pricing_model
         proposed_start_date = project.start_date
         proposed_end_date = project.end_date
         proposed_close_date = project.close_date
@@ -4218,6 +4444,30 @@ class ProjectManagementService:
         return cost_center
 
     @staticmethod
+    def _resolve_project_pricing_model(
+        current_user: CurrentUser,
+        *,
+        business_unit_id: int,
+        pricing_model_id: object,
+    ) -> PricingModelRecord:
+        pricing_model = PricingModelManagementService._get_scoped_pricing_model(
+            current_user,
+            _parse_required_int(
+                pricing_model_id,
+                code="PROJECT_PRICING_MODEL_REQUIRED",
+                message="pricing_model_id is required.",
+            ),
+        )
+        business_unit = _get_scoped_business_unit(current_user, business_unit_id)
+        if pricing_model.office_id != business_unit.office_id:
+            raise AuthError(
+                "PROJECT_PRICING_MODEL_OFFICE_MISMATCH",
+                "Project pricing model must belong to the same Office.",
+                400,
+            )
+        return pricing_model
+
+    @staticmethod
     def _get_scoped_project(current_user: CurrentUser, project_id: int) -> Project:
         try:
             project = Project.objects.select_related(
@@ -4228,6 +4478,7 @@ class ProjectManagementService:
                 "client",
                 "internal_category",
                 "cost_center",
+                "pricing_model",
                 "status",
             ).get(id=project_id)
         except Project.DoesNotExist as exc:
@@ -4250,6 +4501,7 @@ class ProjectManagementService:
             "client",
             "internal_category",
             "cost_center",
+            "pricing_model",
             "status",
         ).get(id=project_id)
 

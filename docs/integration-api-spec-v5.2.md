@@ -25,6 +25,17 @@ Insert into the existing System Management collection endpoints:
 
 ## New Endpoints
 
+### Pricing Models
+
+- `GET /api/v1/admin/pricing-models/`
+- `POST /api/v1/admin/pricing-models/`
+- `GET /api/v1/admin/pricing-models/{pricingModelId}/`
+- `PATCH /api/v1/admin/pricing-models/{pricingModelId}/`
+
+Request fields:
+- `name`
+- `description`
+
 ### Projects
 
 - `GET /api/v1/admin/projects/`
@@ -42,6 +53,7 @@ Request fields:
 - `client_id`
 - `internal_category_id`
 - `cost_center_id`
+- `pricing_model_id`
 - `start_date`
 - `end_date`
 - `close_date`
@@ -52,11 +64,13 @@ Stable error codes to insert:
 - `PROJECT_BUSINESS_UNIT_REQUIRED`
 - `PROJECT_CODE_REQUIRED`
 - `PROJECT_NAME_REQUIRED`
+- `PROJECT_PRICING_MODEL_REQUIRED`
 - `PROJECT_CODE_NOT_UNIQUE`
 - `PROJECT_BUSINESS_UNIT_IMMUTABLE`
 - `PROJECT_CLIENT_OFFICE_MISMATCH`
 - `PROJECT_INTERNAL_CATEGORY_BU_MISMATCH`
 - `PROJECT_COST_CENTER_OFFICE_MISMATCH`
+- `PROJECT_PRICING_MODEL_OFFICE_MISMATCH`
 - `PROJECT_OWNER_ROLE_INVALID`
 - `PROJECT_MANAGER_ROLE_INVALID`
 - `PROJECT_DATE_RANGE_INVALID`

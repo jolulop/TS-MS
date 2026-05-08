@@ -341,6 +341,20 @@ class CostCenter(AuditFieldsModel):
         ]
 
 
+class PricingModel(AuditFieldsModel):
+    office = models.ForeignKey(
+        Office,
+        on_delete=models.PROTECT,
+        related_name="pricing_models",
+    )
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "pricing_model"
+        ordering = ["name"]
+
+
 class GeneralChargeCode(AuditFieldsModel):
     business_unit = models.ForeignKey(
         BusinessUnit,
@@ -455,6 +469,11 @@ class Project(AuditFieldsModel):
     )
     cost_center = models.ForeignKey(
         CostCenter,
+        on_delete=models.PROTECT,
+        related_name="projects",
+    )
+    pricing_model = models.ForeignKey(
+        PricingModel,
         on_delete=models.PROTECT,
         related_name="projects",
     )

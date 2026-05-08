@@ -38,6 +38,16 @@ Insert after the current list-behavior section:
 - Add a status filter bar with `All`, `Active`, and `Inactive`.
 - Keep delete out of scope; lifecycle changes are handled by setting status to `INACTIVE`.
 
+### SCR-155 Pricing Model Management
+
+Insert after the current list-behavior section:
+
+- Pricing Models are managed at Office level.
+- Collection supports create inside the active Office.
+- Detail supports update and guarded delete.
+- Fields are limited to `name` and `description`.
+- Delete is blocked when a Project still references the Pricing Model.
+
 ### SCR-170 General Charge Code Management
 
 Insert after the current list-behavior section:
@@ -92,6 +102,7 @@ Insert as a new System Management screen after the classification-master section
     - Client
     - Internal Category
     - Cost Center
+    - Pricing Model
     - Start Date
     - End Date
     - Close Date
@@ -105,7 +116,9 @@ Insert as a new System Management screen after the classification-master section
   - project manager must hold `PROJECT_MANAGER`
   - client must belong to the same Office
   - cost center must belong to the same Office
+  - pricing model must belong to the same Office
   - internal category must belong to the same Business Unit
+  - pricing model is mandatory
   - `end_date >= start_date`
   - `close_date >= start_date`
 
@@ -140,6 +153,7 @@ Insert into the System Management navigation/menu section:
 - `Projects`
 - `Project Assignments`
 - `Calendar Period Rules`
+- `Pricing Models`
 
 ## Interaction Notes
 

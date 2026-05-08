@@ -28,6 +28,9 @@ from apps.master_data.models import (
 from apps.master_data.models import (
     InternalCategory as InternalCategoryRecord,
 )
+from apps.master_data.models import (
+    PricingModel as PricingModelRecord,
+)
 from tests.helpers import (
     assign_calendar,
     assign_employee_to_business_unit,
@@ -40,6 +43,7 @@ from tests.helpers import (
     create_employee,
     create_internal_category,
     create_office,
+    create_pricing_model,
     create_project,
     create_yearly_calendar,
     get_office,
@@ -99,7 +103,14 @@ def _build_ts_admin_master_client() -> tuple[Client, Employee, list]:
 
 def _build_project_management_context(
     business_unit,
-) -> tuple[Employee, Employee, ClientRecord, InternalCategoryRecord, CostCenterRecord]:
+) -> tuple[
+    Employee,
+    Employee,
+    ClientRecord,
+    InternalCategoryRecord,
+    CostCenterRecord,
+    PricingModelRecord,
+]:
     project_owner = create_employee(
         employee_code="EMP-PO-1",
         full_name="Project Owner",
@@ -143,7 +154,12 @@ def _build_project_management_context(
         cost_center_code="CC-PROJ",
         name="Project Cost Center",
     )
-    return project_owner, project_manager, client, category, cost_center
+    pricing_model = create_pricing_model(
+        business_unit=business_unit,
+        name="Time and Materials",
+        description="Project pricing model for management UI tests.",
+    )
+    return project_owner, project_manager, client, category, cost_center, pricing_model
 
 
 @pytest.mark.django_db
@@ -158,6 +174,7 @@ def test_system_management_hub_shows_real_admin_screen_links() -> None:
     assert "/system/business-units/" in content
     assert "/system/employees/" in content
     assert "/system/clients/" in content
+    assert "/system/pricing-models/" in content
     assert "/system/general-charge-codes/" in content
     assert "/system/projects/" in content
     assert "/system/project-assignments/" in content
@@ -710,7 +727,7 @@ def test_internal_category_management_can_delete_unused_category_via_html() -> N
 @pytest.mark.django_db
 def test_internal_category_management_delete_is_blocked_when_category_has_projects() -> None:
     client, _, business_units = _build_ts_admin_client()
-    project_owner, project_manager, project_client, category, cost_center = (
+    project_owner, project_manager, project_client, category, cost_center, _ = (
         _build_project_management_context(business_units[0])
     )
     create_project(
@@ -762,7 +779,7 @@ def test_cost_center_management_can_delete_unused_cost_center_via_html() -> None
 @pytest.mark.django_db
 def test_cost_center_management_delete_is_blocked_when_cost_center_has_projects() -> None:
     client, _, business_units = _build_ts_admin_client()
-    project_owner, project_manager, project_client, category, cost_center = (
+    project_owner, project_manager, project_client, category, cost_center, _ = (
         _build_project_management_context(business_units[0])
     )
     create_project(
@@ -788,6 +805,81 @@ def test_cost_center_management_delete_is_blocked_when_cost_center_has_projects(
     assert "Delete Cost Center" in content
     assert "Cost center cannot be deleted because it is still referenced" in content
     assert CostCenterRecord.objects.filter(id=cost_center.id).exists()
+
+
+@pytest.mark.django_db
+def test_pricing_model_management_create_update_and_delete_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+
+    create_response = client.post(
+        "/system/pricing-models/",
+        data={
+            "name": "Fixed Fee",
+            "description": "Fixed price engagements.",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    pricing_model = PricingModelRecord.objects.get(name="Fixed Fee")
+    assert pricing_model.office_id == business_units[0].office_id
+
+    update_response = client.post(
+        f"/system/pricing-models/{pricing_model.id}/",
+        data={
+            "form_name": "edit",
+            "name": "Fixed Fee Updated",
+            "description": "Updated pricing model description.",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    pricing_model.refresh_from_db()
+    assert pricing_model.name == "Fixed Fee Updated"
+    assert pricing_model.description == "Updated pricing model description."
+
+    delete_response = client.post(
+        f"/system/pricing-models/{pricing_model.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert delete_response.status_code == 302
+    assert delete_response.headers["Location"] == "/system/pricing-models/"
+    assert not PricingModelRecord.objects.filter(id=pricing_model.id).exists()
+
+
+@pytest.mark.django_db
+def test_pricing_model_management_delete_is_blocked_when_pricing_model_has_projects() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    project_owner, project_manager, project_client, category, cost_center, pricing_model = (
+        _build_project_management_context(business_units[0])
+    )
+    create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-BLOCK-PM",
+        name="Blocked Pricing Model Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 5, 1),
+    )
+
+    response = client.post(
+        f"/system/pricing-models/{pricing_model.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete Pricing Model" in content
+    assert "Pricing model cannot be deleted because it is still referenced" in content
+    assert PricingModelRecord.objects.filter(id=pricing_model.id).exists()
 
 
 @pytest.mark.django_db
@@ -995,7 +1087,7 @@ def test_system_management_collection_filter_can_show_active_or_inactive_records
 @pytest.mark.django_db
 def test_project_management_create_and_update_via_html() -> None:
     client, _, business_units = _build_ts_admin_client()
-    project_owner, project_manager, project_client, category, cost_center = (
+    project_owner, project_manager, project_client, category, cost_center, pricing_model = (
         _build_project_management_context(business_units[0])
     )
 
@@ -1011,6 +1103,7 @@ def test_project_management_create_and_update_via_html() -> None:
             "client_id": str(project_client.id),
             "internal_category_id": str(category.id),
             "cost_center_id": str(cost_center.id),
+            "pricing_model_id": str(pricing_model.id),
             "start_date": date(2026, 4, 1).isoformat(),
             "end_date": date(2026, 12, 31).isoformat(),
             "billable_flag": "on",
@@ -1023,6 +1116,7 @@ def test_project_management_create_and_update_via_html() -> None:
     project = Project.objects.get(project_code="PRJ-NEW")
     assert project.project_owner_employee_id == project_owner.id
     assert project.project_manager_employee_id == project_manager.id
+    assert project.pricing_model_id == pricing_model.id
     assert project.billable_flag is True
 
     update_response = client.post(
@@ -1036,6 +1130,7 @@ def test_project_management_create_and_update_via_html() -> None:
             "client_id": str(project_client.id),
             "internal_category_id": str(category.id),
             "cost_center_id": str(cost_center.id),
+            "pricing_model_id": str(pricing_model.id),
             "start_date": date(2026, 4, 1).isoformat(),
             "end_date": "",
             "close_date": date(2026, 10, 31).isoformat(),
@@ -1055,9 +1150,14 @@ def test_project_management_create_and_update_via_html() -> None:
 @pytest.mark.django_db
 def test_project_management_can_use_same_office_client_from_another_business_unit() -> None:
     client, _, business_units = _build_ts_admin_client()
-    project_owner, project_manager, _, category, cost_center = _build_project_management_context(
-        business_units[0]
-    )
+    (
+        project_owner,
+        project_manager,
+        _,
+        category,
+        cost_center,
+        pricing_model,
+    ) = _build_project_management_context(business_units[0])
     office_level_client = create_client(
         business_unit=business_units[1],
         client_code="CLI-OFFICE-WIDE",
@@ -1076,6 +1176,7 @@ def test_project_management_can_use_same_office_client_from_another_business_uni
             "client_id": str(office_level_client.id),
             "internal_category_id": str(category.id),
             "cost_center_id": str(cost_center.id),
+            "pricing_model_id": str(pricing_model.id),
             "start_date": date(2026, 5, 1).isoformat(),
             "billable_flag": "on",
             "status_code": "ACTIVE",
@@ -1091,9 +1192,14 @@ def test_project_management_can_use_same_office_client_from_another_business_uni
 @pytest.mark.django_db
 def test_project_management_can_use_same_office_cost_center_from_another_business_unit() -> None:
     client, _, business_units = _build_ts_admin_client()
-    project_owner, project_manager, project_client, category, _ = _build_project_management_context(
-        business_units[0]
-    )
+    (
+        project_owner,
+        project_manager,
+        project_client,
+        category,
+        _,
+        pricing_model,
+    ) = _build_project_management_context(business_units[0])
     office_level_cost_center = create_cost_center(
         business_unit=business_units[1],
         cost_center_code="CC-OFFICE-WIDE",
@@ -1112,6 +1218,7 @@ def test_project_management_can_use_same_office_cost_center_from_another_busines
             "client_id": str(project_client.id),
             "internal_category_id": str(category.id),
             "cost_center_id": str(office_level_cost_center.id),
+            "pricing_model_id": str(pricing_model.id),
             "start_date": date(2026, 5, 1).isoformat(),
             "billable_flag": "on",
             "status_code": "ACTIVE",
@@ -1127,7 +1234,7 @@ def test_project_management_can_use_same_office_cost_center_from_another_busines
 @pytest.mark.django_db
 def test_project_assignment_management_create_and_update_via_html() -> None:
     client, _, business_units = _build_ts_admin_client()
-    project_owner, project_manager, project_client, category, cost_center = (
+    project_owner, project_manager, project_client, category, cost_center, _ = (
         _build_project_management_context(business_units[0])
     )
     foreign_country = create_office(office_name="Assignment UI Office")

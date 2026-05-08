@@ -27,6 +27,9 @@ from apps.master_data.models import (
 from apps.master_data.models import (
     InternalCategory as InternalCategoryRecord,
 )
+from apps.master_data.models import (
+    PricingModel as PricingModelRecord,
+)
 from apps.reference_data.models import RefValue
 
 SYSTEM_ACTOR = "system@test.local"
@@ -236,6 +239,25 @@ def create_cost_center(
     )
 
 
+def create_pricing_model(
+    *,
+    business_unit: BusinessUnit | None = None,
+    office: Office | None = None,
+    name: str,
+    description: str = "",
+) -> PricingModelRecord:
+    pricing_model_office = office or (
+        business_unit.office if business_unit is not None else get_office()
+    )
+    return PricingModelRecord.objects.create(
+        office=pricing_model_office,
+        name=name,
+        description=description,
+        created_by=SYSTEM_ACTOR,
+        updated_by=SYSTEM_ACTOR,
+    )
+
+
 def create_general_charge_code(
     *,
     business_unit: BusinessUnit,
@@ -328,12 +350,18 @@ def create_project(
     client: ClientRecord,
     internal_category: InternalCategoryRecord,
     cost_center: CostCenterRecord,
+    pricing_model: PricingModelRecord | None = None,
     start_date: date,
     end_date: date | None = None,
     close_date: date | None = None,
     billable_flag: bool = False,
     active: bool = True,
 ) -> Project:
+    resolved_pricing_model = pricing_model or create_pricing_model(
+        business_unit=business_unit,
+        name=f"Pricing Model {project_code}",
+        description="Default pricing model for test project helpers.",
+    )
     return Project.objects.create(
         business_unit=business_unit,
         office=business_unit.office,
@@ -345,6 +373,7 @@ def create_project(
         client=client,
         internal_category=internal_category,
         cost_center=cost_center,
+        pricing_model=resolved_pricing_model,
         start_date=start_date,
         end_date=end_date,
         close_date=close_date,

@@ -11,6 +11,7 @@ from apps.master_data.models import BusinessUnit, Employee, Project, YearlyCalen
 from apps.master_data.models import Client as ClientRecord
 from apps.master_data.models import CostCenter as CostCenterRecord
 from apps.master_data.models import InternalCategory as InternalCategoryRecord
+from apps.master_data.models import PricingModel as PricingModelRecord
 from apps.master_data.services import (
     BusinessUnitManagementService,
     CalendarPeriodRuleManagementService,
@@ -20,6 +21,7 @@ from apps.master_data.services import (
     GeneralChargeCodeManagementService,
     InternalCategoryManagementService,
     OfficeManagementService,
+    PricingModelManagementService,
     ProjectAssignmentManagementService,
     ProjectManagementService,
 )
@@ -82,6 +84,7 @@ def _system_section_links(current_user: CurrentUser, current_path: str) -> list[
                 ("clients", "Clients", "/system/clients/"),
                 ("internal-categories", "Internal Categories", "/system/internal-categories/"),
                 ("cost-centers", "Cost Centers", "/system/cost-centers/"),
+                ("pricing-models", "Pricing Models", "/system/pricing-models/"),
                 (
                     "general-charge-codes",
                     "General Charge Codes",
@@ -388,6 +391,31 @@ def _scoped_cost_center_options(
             selected_values=selected_values,
         )
         for cost_center in cost_centers
+    )
+    return options
+
+
+def _scoped_pricing_model_options(
+    current_user: CurrentUser,
+    *,
+    business_unit_id: int | None = None,
+    selected: object = None,
+    include_blank: bool = False,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select a Pricing Model", selected_values=selected_values))
+    pricing_models = PricingModelRecord.objects.filter(
+        office_id=current_user.office_id,
+    ).order_by("name")
+    options.extend(
+        _option(
+            pricing_model.id,
+            pricing_model.name,
+            selected_values=selected_values,
+        )
+        for pricing_model in pricing_models
     )
     return options
 
@@ -891,6 +919,37 @@ def _cost_center_fields(
     ]
 
 
+def _pricing_model_fields(
+    current_user: CurrentUser,
+    *,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    return [
+        _office_display_field(
+            entity["office"]["office_name"] if entity else current_user.office_name
+        ),
+        _field(
+            name="name",
+            label="Pricing Model Name",
+            kind="text",
+            value=submitted_data.get("name", entity["name"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="description",
+            label="Description",
+            kind="textarea",
+            value=submitted_data.get("description", entity["description"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+        ),
+    ]
+
+
 def _general_charge_code_fields(
     current_user: CurrentUser,
     *,
@@ -1166,6 +1225,23 @@ def _project_form_fields(
                 business_unit_id=scoped_business_unit_id,
                 selected=submitted_data.get(
                     "cost_center_id", entity["cost_center"]["id"] if entity else ""
+                )
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+            ),
+            required=True,
+        ),
+        _field(
+            name="pricing_model_id",
+            label="Pricing Model",
+            kind="select",
+            options=_scoped_pricing_model_options(
+                current_user,
+                business_unit_id=scoped_business_unit_id,
+                selected=submitted_data.get(
+                    "pricing_model_id",
+                    entity["pricing_model"]["id"] if entity else "",
                 )
                 if post_data is not None or entity is not None
                 else "",
@@ -1610,6 +1686,26 @@ def _cost_center_detail_rows(cost_center: dict) -> list[tuple[str, str]]:
     ]
 
 
+def _pricing_model_rows(pricing_models: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/pricing-models/{pricing_model['id']}/",
+            "cells": [
+                pricing_model["name"],
+                pricing_model["description"] or "None",
+            ],
+        }
+        for pricing_model in pricing_models
+    ]
+
+
+def _pricing_model_detail_rows(pricing_model: dict) -> list[tuple[str, str]]:
+    return [
+        ("Pricing Model Name", pricing_model["name"]),
+        ("Description", pricing_model["description"] or "None"),
+    ]
+
+
 def _general_charge_code_rows(general_charge_codes: list[dict]) -> list[dict]:
     return [
         {
@@ -1680,6 +1776,7 @@ def _project_detail_rows(project: dict) -> list[tuple[str, str]]:
         ("Client", project["client"]["client_code"]),
         ("Internal Category", project["internal_category"]["category_code"]),
         ("Cost Center", project["cost_center"]["cost_center_code"]),
+        ("Pricing Model", project["pricing_model"]["name"]),
         ("Start Date", project["start_date"]),
         ("End Date", project["end_date"] or "Open-ended"),
         ("Close Date", project["close_date"] or "Open"),
@@ -2215,6 +2312,22 @@ COST_CENTER_CONFIG = MasterUiConfig(
     empty_message="No cost centers are available in your active Office yet.",
 )
 
+PRICING_MODEL_CONFIG = MasterUiConfig(
+    section_key="pricing-models",
+    list_title="Pricing Model Management",
+    list_eyebrow="SCR-155",
+    list_intro="Office-scoped pricing model list with create, update, and delete flows.",
+    detail_title="Pricing Model Detail",
+    detail_eyebrow="SCR-156",
+    detail_intro="Update office-level pricing models used by downstream project setup.",
+    singular_label="Pricing Model",
+    plural_label="Pricing Models",
+    collection_path="/system/pricing-models/",
+    detail_path_prefix="/system/pricing-models/",
+    table_headers=("Pricing Model Name", "Description"),
+    empty_message="No pricing models are available in your active Office yet.",
+)
+
 GENERAL_CHARGE_CODE_CONFIG = MasterUiConfig(
     section_key="general-charge-codes",
     list_title="General Charge Code Management",
@@ -2240,7 +2353,7 @@ PROJECT_CONFIG = MasterUiConfig(
     list_intro="Scoped project list with create form for Timesheet Administrators.",
     detail_title="Project Detail",
     detail_eyebrow="SCR-181",
-    detail_intro="Update project ownership, classification, dates, and lifecycle fields.",
+    detail_intro="Update project ownership, pricing, classification, dates, and lifecycle fields.",
     singular_label="Project",
     plural_label="Projects",
     collection_path="/system/projects/",
@@ -3381,6 +3494,136 @@ def cost_center_detail(request: HttpRequest, cost_center_id: int) -> HttpRespons
 
 
 @require_http_methods(["GET", "POST"])
+def pricing_models_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            pricing_model = PricingModelManagementService.create_pricing_model(
+                current_user,
+                {
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/pricing-models/{pricing_model['id']}/")
+
+    pricing_models = PricingModelManagementService.list_pricing_models(current_user)
+    return _render_collection_page(
+        request,
+        current_user,
+        title=PRICING_MODEL_CONFIG.list_title,
+        eyebrow=PRICING_MODEL_CONFIG.list_eyebrow,
+        intro=PRICING_MODEL_CONFIG.list_intro,
+        table_headers=PRICING_MODEL_CONFIG.table_headers,
+        table_rows=_pricing_model_rows(pricing_models),
+        empty_message=PRICING_MODEL_CONFIG.empty_message,
+        form_title="Create Pricing Model",
+        form_intro="Create a new pricing model in your active Office.",
+        form_fields=_pricing_model_fields(current_user, post_data=post_data),
+        submit_label="Create Pricing Model",
+        form_error=form_error,
+        filter_links=[],
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def pricing_model_detail(request: HttpRequest, pricing_model_id: int) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    active_form = "edit"
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
+        try:
+            if active_form == "delete":
+                PricingModelManagementService.delete_pricing_model(current_user, pricing_model_id)
+            elif active_form == "edit":
+                PricingModelManagementService.update_pricing_model(
+                    current_user,
+                    pricing_model_id,
+                    {
+                        "name": request.POST.get("name", ""),
+                        "description": request.POST.get("description", ""),
+                    },
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown pricing model form submission.",
+                    400,
+                )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            if active_form == "delete":
+                return redirect(PRICING_MODEL_CONFIG.collection_path)
+            return redirect(f"/system/pricing-models/{pricing_model_id}/")
+
+    try:
+        pricing_model = PricingModelManagementService.get_pricing_model(
+            current_user,
+            pricing_model_id,
+        )
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=PRICING_MODEL_CONFIG.detail_title,
+            eyebrow=PRICING_MODEL_CONFIG.detail_eyebrow,
+            intro=PRICING_MODEL_CONFIG.detail_intro,
+            error=error,
+        )
+
+    return _render_detail_page(
+        request,
+        current_user,
+        title=pricing_model["name"],
+        eyebrow=PRICING_MODEL_CONFIG.detail_eyebrow,
+        intro=PRICING_MODEL_CONFIG.detail_intro,
+        detail_rows=_pricing_model_detail_rows(pricing_model),
+        form_sections=[
+            {
+                "form_name": "edit",
+                "title": "Edit Pricing Model",
+                "intro": "Update the selected pricing model without leaving the shared shell.",
+                "submit_label": "Save Pricing Model",
+                "form_error": form_error if active_form == "edit" else "",
+                "fields": _pricing_model_fields(
+                    current_user,
+                    post_data=post_data if active_form == "edit" else None,
+                    entity=pricing_model,
+                ),
+            },
+            {
+                "form_name": "delete",
+                "title": "Delete Pricing Model",
+                "intro": (
+                    "Delete this Pricing Model only if it has no protected references. "
+                    "If Projects or other records still depend on it, deletion will be blocked."
+                ),
+                "submit_label": "Delete Pricing Model",
+                "form_error": form_error if active_form == "delete" else "",
+                "fields": [],
+            },
+        ],
+        back_href=PRICING_MODEL_CONFIG.collection_path,
+        back_label=f"Back to {PRICING_MODEL_CONFIG.plural_label}",
+        entity_status="Managed",
+    )
+
+
+@require_http_methods(["GET", "POST"])
 def general_charge_codes_collection(request: HttpRequest) -> HttpResponse:
     current_user = _require_ts_admin(request)
     if not isinstance(current_user, CurrentUser):
@@ -3532,6 +3775,7 @@ def projects_collection(request: HttpRequest) -> HttpResponse:
                     "client_id": request.POST.get("client_id", ""),
                     "internal_category_id": request.POST.get("internal_category_id", ""),
                     "cost_center_id": request.POST.get("cost_center_id", ""),
+                    "pricing_model_id": request.POST.get("pricing_model_id", ""),
                     "start_date": request.POST.get("start_date", ""),
                     "end_date": request.POST.get("end_date", ""),
                     "close_date": request.POST.get("close_date", ""),
@@ -3593,6 +3837,7 @@ def project_detail(request: HttpRequest, project_id: int) -> HttpResponse:
                     "client_id": request.POST.get("client_id", ""),
                     "internal_category_id": request.POST.get("internal_category_id", ""),
                     "cost_center_id": request.POST.get("cost_center_id", ""),
+                    "pricing_model_id": request.POST.get("pricing_model_id", ""),
                     "start_date": request.POST.get("start_date", ""),
                     "end_date": request.POST.get("end_date", ""),
                     "close_date": request.POST.get("close_date", ""),

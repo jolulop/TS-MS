@@ -16,6 +16,7 @@ from apps.master_data.models import (
     InternalCategory,
     Office,
     OfficeConfiguration,
+    PricingModel,
     Project,
     ProjectAssignment,
     YearlyCalendar,
@@ -235,6 +236,24 @@ def _upsert_cost_center(
     return cost_center
 
 
+def _upsert_pricing_model(
+    *,
+    office: Office,
+    name: str,
+    description: str,
+) -> PricingModel:
+    pricing_model, _ = PricingModel.objects.update_or_create(
+        office=office,
+        name=name,
+        defaults={
+            "description": description,
+            "created_by": SYSTEM_ACTOR,
+            "updated_by": SYSTEM_ACTOR,
+        },
+    )
+    return pricing_model
+
+
 def _upsert_general_charge_code(
     *,
     business_unit: BusinessUnit,
@@ -276,6 +295,7 @@ def _upsert_project(
     client: Client,
     internal_category: InternalCategory,
     cost_center: CostCenter,
+    pricing_model: PricingModel,
 ) -> Project:
     project, _ = Project.objects.update_or_create(
         business_unit=business_unit,
@@ -289,6 +309,7 @@ def _upsert_project(
             "client": client,
             "internal_category": internal_category,
             "cost_center": cost_center,
+            "pricing_model": pricing_model,
             "start_date": SEED_VALID_FROM,
             "end_date": None,
             "close_date": None,
@@ -460,6 +481,11 @@ class Command(BaseCommand):
             name="Delivery Operations",
             description="Secondary BU cost center.",
         )
+        pricing_model_standard = _upsert_pricing_model(
+            office=holding_country,
+            name="Time and Materials",
+            description="Default sample pricing model for seeded projects.",
+        )
 
         _upsert_general_charge_code(
             business_unit=consulting_bu,
@@ -498,6 +524,7 @@ class Command(BaseCommand):
             client=client_blue,
             internal_category=category_delivery,
             cost_center=cost_center_consulting,
+            pricing_model=pricing_model_standard,
         )
         _upsert_project_assignment(project=project, employee=standard_user)
         _upsert_project_assignment(project=project, employee=project_manager)

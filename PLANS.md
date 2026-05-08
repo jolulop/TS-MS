@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-08`: `docs/plans/2026-05-08-pricing-models.md`
+  - status: completed
+  - focus: add office-level Pricing Model master data, make project pricing model mandatory, and wire CRUD/UI/API/test support end to end
 - `2026-05-08`: `docs/plans/2026-05-08-office-level-cost-centers.md`
   - status: completed
   - focus: move Cost Centers from Business Unit scope to Office scope across schema, admin flows, project validation, and tests

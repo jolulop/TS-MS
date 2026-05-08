@@ -11,6 +11,7 @@ from apps.master_data.services import (
     EmployeeManagementService,
     GeneralChargeCodeManagementService,
     InternalCategoryManagementService,
+    PricingModelManagementService,
     ProjectAssignmentManagementService,
     ProjectManagementService,
 )
@@ -169,6 +170,45 @@ def cost_center_detail(request: HttpRequest, cost_center_id: int) -> JsonRespons
         return error_response(exc.code, exc.message, exc.status)
 
     return JsonResponse({"cost_center": cost_center})
+
+
+@require_http_methods(["GET", "POST"])
+def pricing_models_collection(request: HttpRequest) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            pricing_models = PricingModelManagementService.list_pricing_models(current_user)
+            return JsonResponse({"pricing_models": pricing_models})
+
+        payload = parse_json_request(request)
+        pricing_model = PricingModelManagementService.create_pricing_model(current_user, payload)
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"pricing_model": pricing_model}, status=201)
+
+
+@require_http_methods(["GET", "PATCH"])
+def pricing_model_detail(request: HttpRequest, pricing_model_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            pricing_model = PricingModelManagementService.get_pricing_model(
+                current_user,
+                pricing_model_id,
+            )
+            return JsonResponse({"pricing_model": pricing_model})
+
+        payload = parse_json_request(request)
+        pricing_model = PricingModelManagementService.update_pricing_model(
+            current_user,
+            pricing_model_id,
+            payload,
+        )
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"pricing_model": pricing_model})
 
 
 @require_http_methods(["GET", "POST"])

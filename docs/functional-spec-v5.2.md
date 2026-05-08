@@ -39,7 +39,9 @@ Insert into the project setup rules:
   - project manager holds `PROJECT_MANAGER`
   - client belongs to the same Office as the project
   - cost center belongs to the same Office as the project
+  - pricing model belongs to the same Office as the project
   - internal category belongs to the same Business Unit as the project
+  - pricing model is mandatory
 - Project setup remains Business Unit scoped for `TS_ADMIN`.
 
 ## Project Assignment Rules Insertions

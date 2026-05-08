@@ -14,6 +14,7 @@ from tests.helpers import (
     create_employee,
     create_internal_category,
     create_office,
+    create_pricing_model,
     create_project,
     create_yearly_calendar,
     seed_reference_data,
@@ -107,6 +108,11 @@ def _build_admin_context():
         cost_center_code="CC-EXT",
         name="Extension Cost Center",
     )
+    pricing_model = create_pricing_model(
+        business_unit=business_unit,
+        name="Fixed Fee",
+        description="Extension pricing model",
+    )
     return (
         business_unit,
         admin_employee,
@@ -116,6 +122,7 @@ def _build_admin_context():
         project_client,
         category,
         cost_center,
+        pricing_model,
     )
 
 
@@ -131,6 +138,7 @@ def test_ts_admin_can_create_update_and_filter_projects_via_api() -> None:
         project_client,
         category,
         cost_center,
+        pricing_model,
     ) = _build_admin_context()
     client = Client()
     initialize_session(client, admin_employee.email)
@@ -148,6 +156,7 @@ def test_ts_admin_can_create_update_and_filter_projects_via_api() -> None:
                 "client_id": project_client.id,
                 "internal_category_id": category.id,
                 "cost_center_id": cost_center.id,
+                "pricing_model_id": pricing_model.id,
                 "start_date": "2026-04-01",
                 "status_code": "ACTIVE",
                 "billable_flag": True,
@@ -160,6 +169,7 @@ def test_ts_admin_can_create_update_and_filter_projects_via_api() -> None:
     created_project = create_response.json()["project"]
     assert created_project["project_code"] == "PRJ-EXT"
     assert created_project["status"] == "ACTIVE"
+    assert created_project["pricing_model"]["id"] == pricing_model.id
 
     update_response = client.patch(
         f"/api/v1/admin/projects/{created_project['id']}/",
@@ -193,6 +203,61 @@ def test_ts_admin_can_create_update_and_filter_projects_via_api() -> None:
 
 
 @pytest.mark.django_db
+def test_ts_admin_can_create_and_update_pricing_models_via_api() -> None:
+    seed_reference_data()
+    (
+        _business_unit,
+        admin_employee,
+        _project_owner,
+        _project_manager,
+        _worker,
+        _project_client,
+        _category,
+        _cost_center,
+        _pricing_model,
+    ) = _build_admin_context()
+    client = Client()
+    initialize_session(client, admin_employee.email)
+
+    create_response = client.post(
+        "/api/v1/admin/pricing-models/",
+        data=json.dumps(
+            {
+                "name": "Retainer",
+                "description": "Monthly retainer pricing.",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 201
+    created_pricing_model = create_response.json()["pricing_model"]
+    assert created_pricing_model["name"] == "Retainer"
+
+    update_response = client.patch(
+        f"/api/v1/admin/pricing-models/{created_pricing_model['id']}/",
+        data=json.dumps(
+            {
+                "name": "Retainer Updated",
+                "description": "Updated monthly retainer pricing.",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["pricing_model"]["name"] == "Retainer Updated"
+
+    list_response = client.get("/api/v1/admin/pricing-models/")
+
+    assert list_response.status_code == 200
+    assert {item["name"] for item in list_response.json()["pricing_models"]} >= {
+        "Fixed Fee",
+        "Retainer Updated",
+    }
+
+
+@pytest.mark.django_db
 def test_ts_admin_can_create_and_update_project_assignment_via_api() -> None:
     seed_reference_data()
     (
@@ -204,6 +269,7 @@ def test_ts_admin_can_create_and_update_project_assignment_via_api() -> None:
         project_client,
         category,
         cost_center,
+        pricing_model,
     ) = _build_admin_context()
     project = create_project(
         business_unit=business_unit,
@@ -214,6 +280,7 @@ def test_ts_admin_can_create_and_update_project_assignment_via_api() -> None:
         client=project_client,
         internal_category=category,
         cost_center=cost_center,
+        pricing_model=pricing_model,
         start_date=date(2026, 4, 1),
     )
     client = Client()
@@ -270,6 +337,7 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
         _project_client,
         _category,
         _cost_center,
+        _pricing_model,
     ) = _build_admin_context()
     yearly_calendar = create_yearly_calendar(
         business_unit=business_unit,

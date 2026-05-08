@@ -191,6 +191,14 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         "href": "/system/cost-centers/",
                     },
                     {
+                        "title": "Pricing Models",
+                        "summary": (
+                            "Maintain office-level pricing models used during project setup."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/pricing-models/",
+                    },
+                    {
                         "title": "General Charge Codes",
                         "summary": (
                             "Maintain general charge code validity, flags, and lifecycle fields."
