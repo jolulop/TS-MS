@@ -103,7 +103,9 @@ Insert as a new System Management screen after the classification-master section
 - Validation:
   - project owner must hold `PROJECT_OWNER`
   - project manager must hold `PROJECT_MANAGER`
-  - client, internal category, and cost center must belong to the same Business Unit
+  - client must belong to the same Office
+  - cost center must belong to the same Office
+  - internal category must belong to the same Business Unit
   - `end_date >= start_date`
   - `close_date >= start_date`
 

@@ -2,6 +2,24 @@
 
 ## Active Plans
 
+- `2026-05-08`: `docs/plans/2026-05-08-office-level-cost-centers.md`
+  - status: completed
+  - focus: move Cost Centers from Business Unit scope to Office scope across schema, admin flows, project validation, and tests
+- `2026-05-08`: `docs/plans/2026-05-08-client-delete-action.md`
+  - status: completed
+  - focus: add a guarded Client delete action to the System Management detail screen
+- `2026-05-08`: `docs/plans/2026-05-08-office-level-clients.md`
+  - status: completed
+  - focus: move Clients from Business Unit scope to Office scope across schema, admin flows, project validation, and tests
+- `2026-05-08`: `docs/plans/2026-05-08-system-management-delete-actions.md`
+  - status: completed
+  - focus: add guarded delete actions for Employee and Business Unit detail screens so transient test data can be cleaned up safely from System Management
+- `2026-05-08`: `docs/plans/2026-05-08-office-bootstrap-admin.md`
+  - status: completed
+  - focus: extend Office creation to bootstrap an initial Business Unit and Office admin employee so the new Office can be managed immediately after login
+- `2026-05-07`: `docs/plans/2026-05-07-office-level-configuration.md`
+  - status: completed
+  - focus: move operational timesheet configuration from Business Unit scope to inherited Office scope across schema, runtime services, admin UI, and tests
 - `2026-05-07`: `docs/plans/2026-05-07-office-rename.md`
   - status: completed
   - focus: rename the Country entity to Office across schema, API payloads, routes, UI labels, seed data, and tests without changing business behavior

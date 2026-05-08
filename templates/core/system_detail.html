@@ -49,14 +49,32 @@
             {% if section.form_error %}
               <div class="banner error">{{ section.form_error }}</div>
             {% endif %}
-            <form class="form-stack" method="post" action="">
-              {% csrf_token %}
-              <input type="hidden" name="form_name" value="{{ section.form_name }}">
-              {% include "core/partials/form_fields.html" with fields=section.fields %}
-              <div>
-                <button class="button" type="submit">{{ section.submit_label }}</button>
+            {% if section.read_only %}
+              <div class="form-stack">
+                {% if section.detail_rows %}
+                  <dl class="meta-grid">
+                    {% for label, value in section.detail_rows %}
+                      <div class="meta-row">
+                        <dt>{{ label }}</dt>
+                        <dd>{{ value }}</dd>
+                      </div>
+                    {% endfor %}
+                  </dl>
+                {% elif section.empty_message %}
+                  <div class="empty-state">{{ section.empty_message }}</div>
+                {% endif %}
+                {% include "core/partials/form_fields.html" with fields=section.fields %}
               </div>
-            </form>
+            {% else %}
+              <form class="form-stack" method="post" action="">
+                {% csrf_token %}
+                <input type="hidden" name="form_name" value="{{ section.form_name }}">
+                {% include "core/partials/form_fields.html" with fields=section.fields %}
+                <div>
+                  <button class="button" type="submit">{{ section.submit_label }}</button>
+                </div>
+              </form>
+            {% endif %}
           </section>
         {% endfor %}
       </div>

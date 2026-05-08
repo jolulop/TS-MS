@@ -3,7 +3,9 @@ from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
+from django.db.models.deletion import ProtectedError
 
+from apps.audit.models import AuditLog
 from apps.audit.services import write_audit_event
 from apps.auth.constants import ACTIVE_COUNTRY_STATUS
 from apps.auth.context import CurrentUser
@@ -12,12 +14,12 @@ from apps.auth.policies import AuthorizationPolicyService
 from apps.auth.services import canonicalize_email
 from apps.master_data.models import (
     BusinessUnit,
-    BusinessUnitConfiguration,
     CalendarPeriodRule,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
     Office,
+    OfficeConfiguration,
     Project,
     ProjectAssignment,
     YearlyCalendar,
@@ -420,11 +422,6 @@ def _serialize_client(client: ClientRecord) -> dict:
             "id": client.office_id,
             "office_name": client.office.office_name,
         },
-        "business_unit": {
-            "id": client.business_unit_id,
-            "bu_code": client.business_unit.bu_code,
-            "name": client.business_unit.name,
-        },
         "parent_client": (
             {
                 "id": client.parent_client_id,
@@ -466,11 +463,6 @@ def _serialize_cost_center(cost_center: CostCenterRecord) -> dict:
         "office": {
             "id": cost_center.office_id,
             "office_name": cost_center.office.office_name,
-        },
-        "business_unit": {
-            "id": cost_center.business_unit_id,
-            "bu_code": cost_center.business_unit.bu_code,
-            "name": cost_center.business_unit.name,
         },
     }
 
@@ -628,15 +620,35 @@ def _serialize_project_assignment(assignment: ProjectAssignment) -> dict:
 
 
 def _serialize_office(office: Office) -> dict:
-    return {
+    payload = {
         "id": office.id,
         "name": office.office_name,
         "office_name": office.office_name,
         "status": office.status.value_code,
     }
+    configuration = getattr(office, "_configuration_cache", None)
+    if configuration is None:
+        configuration = getattr(office, "configuration", None)
+    payload["configuration"] = _serialize_office_configuration(configuration)
+    payload["administrators"] = [
+        {
+            "id": employee.id,
+            "employee_code": employee.employee_code,
+            "full_name": employee.full_name,
+            "email": employee.email,
+            "status": employee.status.value_code,
+            "primary_business_unit": {
+                "id": employee.primary_business_unit_id,
+                "bu_code": employee.primary_business_unit.bu_code,
+                "name": employee.primary_business_unit.name,
+            },
+        }
+        for employee in getattr(office, "_administrators_cache", [])
+    ]
+    return payload
 
 
-def _default_business_unit_configuration_data() -> dict:
+def _default_office_configuration_data() -> dict:
     return {
         "approval_mode": "PROJECT",
         "allow_employee_withdraw_flag": False,
@@ -649,11 +661,11 @@ def _default_business_unit_configuration_data() -> dict:
     }
 
 
-def _serialize_business_unit_configuration(
-    configuration: BusinessUnitConfiguration | None,
+def _serialize_office_configuration(
+    configuration: OfficeConfiguration | None,
 ) -> dict:
     if configuration is None:
-        return _default_business_unit_configuration_data()
+        return _default_office_configuration_data()
     return {
         "approval_mode": configuration.approval_mode.value_code,
         "allow_employee_withdraw_flag": configuration.allow_employee_withdraw_flag,
@@ -689,8 +701,9 @@ def _serialize_business_unit(
         "project_count": getattr(business_unit, "project_count", 0),
     }
     if include_configuration:
-        payload["configuration"] = _serialize_business_unit_configuration(
-            getattr(business_unit, "_configuration_cache", None)
+        office = business_unit.office
+        payload["configuration"] = _serialize_office_configuration(
+            getattr(office, "_configuration_cache", getattr(office, "configuration", None))
         )
     return payload
 
@@ -735,6 +748,13 @@ class BusinessUnitManagementService:
         _ensure_ts_admin(current_user)
         current_office = _ensure_current_office_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
+        if BusinessUnitManagementService.CONFIG_FIELD_NAMES.intersection(payload):
+            raise AuthError(
+                "BUSINESS_UNIT_CONFIGURATION_INHERITED",
+                "Business Unit configuration is inherited from the parent "
+                "Office and cannot be set here.",
+                400,
+            )
 
         bu_code = str(payload.get("bu_code", "")).strip()
         name = str(payload.get("name", "")).strip()
@@ -777,19 +797,6 @@ class BusinessUnitManagementService:
                 400,
             ) from exc
 
-        BusinessUnitConfiguration.objects.create(
-            business_unit=business_unit,
-            approval_mode=_ref_value("APPROVAL_MODE", "PROJECT"),
-            allow_employee_withdraw_flag=False,
-            timesheet_cutoff_date=None,
-            count_non_billable_in_daily_limit_flag=False,
-            archive_after_years=5,
-            enable_timer_flag=False,
-            enable_leave_integration_flag=False,
-            enable_copy_previous_week_flag=False,
-            created_by=current_user.email,
-            updated_by=current_user.email,
-        )
         BusinessUnitManagementService._add_creator_scope_assignment(
             current_user,
             business_unit,
@@ -806,17 +813,16 @@ class BusinessUnitManagementService:
             reason_text="Business Unit created by Timesheet Administrator.",
         )
         created_business_unit = (
-            BusinessUnit.objects.select_related("office", "status")
+            BusinessUnit.objects.select_related(
+                "office",
+                "office__configuration__approval_mode",
+                "status",
+            )
             .annotate(
                 employee_count=Count("primary_employees", distinct=True),
                 project_count=Count("projects", distinct=True),
             )
             .get(id=business_unit.id)
-        )
-        created_business_unit._configuration_cache = (
-            BusinessUnitConfiguration.objects.select_related("approval_mode").get(
-                business_unit_id=business_unit.id
-            )
         )
         return _serialize_business_unit(created_business_unit, include_configuration=True)
 
@@ -827,9 +833,6 @@ class BusinessUnitManagementService:
             current_user,
             business_unit_id,
         )
-        business_unit._configuration_cache = BusinessUnitConfiguration.objects.select_related(
-            "approval_mode"
-        ).filter(business_unit_id=business_unit.id).first()
         return _serialize_business_unit(business_unit, include_configuration=True)
 
     @staticmethod
@@ -928,14 +931,111 @@ class BusinessUnitManagementService:
             )
 
         if BusinessUnitManagementService.CONFIG_FIELD_NAMES.intersection(payload):
-            BusinessUnitManagementService._update_configuration(
-                current_user,
-                business_unit,
-                payload,
-                actor_employee=actor_employee,
+            raise AuthError(
+                "BUSINESS_UNIT_CONFIGURATION_INHERITED",
+                "Business Unit configuration is inherited from the parent "
+                "Office and cannot be changed here.",
+                400,
             )
 
         return BusinessUnitManagementService.get_business_unit(current_user, business_unit.id)
+
+    @staticmethod
+    @transaction.atomic
+    def delete_business_unit(current_user: CurrentUser, business_unit_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        business_unit = _get_scoped_business_unit(current_user, business_unit_id)
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            business_unit.office,
+            out_of_scope_message="Business Unit is outside your active office.",
+        )
+
+        BusinessUnitManagementService._delete_scope_assignments_for_deleted_business_unit(
+            current_user,
+            business_unit,
+            actor_employee=actor_employee,
+        )
+        BusinessUnitManagementService._delete_role_assignments_for_deleted_business_unit(
+            current_user,
+            business_unit,
+            actor_employee=actor_employee,
+        )
+        AuditLog.objects.filter(business_unit=business_unit).update(business_unit=None)
+
+        try:
+            business_unit_code = business_unit.bu_code
+            business_unit_record_id = business_unit.id
+            business_unit.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "BUSINESS_UNIT_DELETE_BLOCKED",
+                "Business Unit cannot be deleted because it is still referenced by "
+                "employees, projects, calendars, timesheets, audit history, or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="business_unit",
+            entity_id=business_unit_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            old_value=business_unit_code,
+            reason_text="Business Unit deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
+    def _delete_scope_assignments_for_deleted_business_unit(
+        current_user: CurrentUser,
+        business_unit: BusinessUnit,
+        *,
+        actor_employee: Employee | None,
+    ) -> None:
+        removable_assignments = list(
+            EmployeeBusinessUnit.objects.select_related("employee", "business_unit")
+            .filter(business_unit=business_unit)
+            .exclude(employee__primary_business_unit=business_unit)
+        )
+        for assignment in removable_assignments:
+            write_audit_event(
+                action_code="DELETE",
+                entity_name="employee_business_unit",
+                entity_id=assignment.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=assignment.employee.primary_business_unit,
+                old_value=assignment.business_unit.bu_code,
+                reason_text="Business Unit scope assignment deleted with Business Unit deletion.",
+            )
+            assignment.delete()
+
+    @staticmethod
+    def _delete_role_assignments_for_deleted_business_unit(
+        current_user: CurrentUser,
+        business_unit: BusinessUnit,
+        *,
+        actor_employee: Employee | None,
+    ) -> None:
+        removable_assignments = list(
+            EmployeeRole.objects.select_related("employee", "role")
+            .filter(business_unit=business_unit)
+            .exclude(employee__primary_business_unit=business_unit)
+        )
+        for assignment in removable_assignments:
+            write_audit_event(
+                action_code="DELETE",
+                entity_name="employee_role",
+                entity_id=assignment.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=assignment.employee.primary_business_unit,
+                old_value=assignment.role.value_code,
+                reason_text="Business Unit-scoped role deleted with Business Unit deletion.",
+            )
+            assignment.delete()
 
     @staticmethod
     def _get_scoped_business_unit_with_counts(
@@ -945,7 +1045,11 @@ class BusinessUnitManagementService:
         _ensure_business_units_in_scope(current_user, {business_unit_id})
         try:
             business_unit = (
-                BusinessUnit.objects.select_related("office", "status")
+                BusinessUnit.objects.select_related(
+                    "office",
+                    "office__configuration__approval_mode",
+                    "status",
+                )
                 .annotate(
                     employee_count=Count("primary_employees", distinct=True),
                     project_count=Count("projects", distinct=True),
@@ -1020,18 +1124,258 @@ class BusinessUnitManagementService:
             reason_text="Business Unit scope updated after Business Unit creation.",
         )
 
+
+class OfficeManagementService:
+    CONFIG_FIELD_NAMES = BusinessUnitManagementService.CONFIG_FIELD_NAMES
+
     @staticmethod
-    def _update_configuration(
+    def list_offices(current_user: CurrentUser, *, status_code: str | None = None) -> list[dict]:
+        _ensure_ts_admin_master(current_user)
+        offices = _apply_status_filter(
+            Office.objects.select_related("status", "configuration", "configuration__approval_mode")
+            .order_by("office_name"),
+            status_code,
+        )
+        return [_serialize_office(office) for office in offices]
+
+    @staticmethod
+    def get_office(current_user: CurrentUser, office_id: int) -> dict:
+        _ensure_ts_admin_master(current_user)
+        office = OfficeManagementService._refresh_office(office_id)
+        office._administrators_cache = list(
+            Employee.objects.select_related("primary_business_unit", "status")
+            .filter(
+                office_id=office.id,
+                role_assignments__role__domain__domain_code="ROLE_CODE",
+                role_assignments__role__value_code="TS_ADMIN",
+                role_assignments__status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
+                role_assignments__status__value_code="ACTIVE",
+                role_assignments__valid_to__isnull=True,
+            )
+            .order_by("employee_code")
+            .distinct()
+        )
+        return _serialize_office(office)
+
+    @staticmethod
+    @transaction.atomic
+    def create_office(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin_master(current_user)
+        actor_employee = _actor_employee(current_user)
+        office_name = str(payload.get("office_name", "")).strip()
+        if not office_name:
+            raise AuthError("COUNTRY_NAME_REQUIRED", "Office name is required.", 400)
+        status_code = str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE"
+        bootstrap_business_unit_code = str(payload.get("bootstrap_bu_code", "")).strip()
+        bootstrap_business_unit_name = str(payload.get("bootstrap_bu_name", "")).strip()
+        bootstrap_business_unit_description = str(
+            payload.get("bootstrap_bu_description", "")
+        ).strip()
+        bootstrap_admin_employee_code = str(
+            payload.get("bootstrap_admin_employee_code", "")
+        ).strip()
+        bootstrap_admin_full_name = str(payload.get("bootstrap_admin_full_name", "")).strip()
+        bootstrap_admin_email = str(payload.get("bootstrap_admin_email", "")).strip()
+        if not bootstrap_business_unit_code:
+            raise AuthError(
+                "BUSINESS_UNIT_CODE_REQUIRED",
+                "Initial Business Unit code is required.",
+                400,
+            )
+        if not bootstrap_business_unit_name:
+            raise AuthError(
+                "BUSINESS_UNIT_NAME_REQUIRED",
+                "Initial Business Unit name is required.",
+                400,
+            )
+        if not bootstrap_admin_employee_code:
+            raise AuthError(
+                "EMPLOYEE_CODE_REQUIRED",
+                "Initial admin employee code is required.",
+                400,
+            )
+        if not bootstrap_admin_full_name:
+            raise AuthError(
+                "EMPLOYEE_NAME_REQUIRED",
+                "Initial admin full name is required.",
+                400,
+            )
+        if not bootstrap_admin_email:
+            raise AuthError(
+                "EMPLOYEE_EMAIL_REQUIRED",
+                "Initial admin email is required.",
+                400,
+            )
+        try:
+            office = Office.objects.create(
+                office_name=office_name,
+                status=_ref_value("COUNTRY_STATUS", status_code),
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+        except IntegrityError as exc:
+            raise AuthError(
+                "COUNTRY_NAME_NOT_UNIQUE",
+                "Office name must be unique.",
+                400,
+            ) from exc
+
+        OfficeManagementService._upsert_configuration(
+            current_user,
+            office,
+            payload,
+            actor_employee=actor_employee,
+            create_if_missing=True,
+        )
+        bootstrap_business_unit = OfficeManagementService._create_bootstrap_business_unit(
+            current_user,
+            office,
+            bu_code=bootstrap_business_unit_code,
+            name=bootstrap_business_unit_name,
+            description=bootstrap_business_unit_description,
+            actor_employee=actor_employee,
+        )
+        OfficeManagementService._create_bootstrap_admin_employee(
+            current_user,
+            office,
+            business_unit=bootstrap_business_unit,
+            employee_code=bootstrap_admin_employee_code,
+            full_name=bootstrap_admin_full_name,
+            email=bootstrap_admin_email,
+            actor_employee=actor_employee,
+        )
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="office",
+            entity_id=office.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            reason_text="Office created by Timesheet Master Administrator.",
+        )
+        return _serialize_office(OfficeManagementService._refresh_office(office.id))
+
+    @staticmethod
+    @transaction.atomic
+    def update_office(current_user: CurrentUser, office_id: int, payload: dict) -> dict:
+        _ensure_ts_admin_master(current_user)
+        actor_employee = _actor_employee(current_user)
+        office = OfficeManagementService._refresh_office(office_id)
+        changed_fields: list[tuple[str, str, str]] = []
+
+        if "office_name" in payload:
+            new_office_name = str(payload.get("office_name", "")).strip()
+            if not new_office_name:
+                raise AuthError("COUNTRY_NAME_REQUIRED", "Office name is required.", 400)
+            if new_office_name != office.office_name:
+                changed_fields.append(("office_name", office.office_name, new_office_name))
+                office.office_name = new_office_name
+
+        if "status_code" in payload:
+            new_status = _ref_value("COUNTRY_STATUS", str(payload.get("status_code", "")).strip())
+            if new_status.id != office.status_id:
+                changed_fields.append(("status", office.status.value_code, new_status.value_code))
+                office.status = new_status
+
+        if changed_fields:
+            try:
+                office.updated_by = current_user.email
+                office.save()
+            except IntegrityError as exc:
+                raise AuthError(
+                    "COUNTRY_NAME_NOT_UNIQUE",
+                    "Office name must be unique.",
+                    400,
+                ) from exc
+
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="office",
+                entity_id=office.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="Office updated by Timesheet Master Administrator.",
+            )
+
+        if changed_fields or OfficeManagementService.CONFIG_FIELD_NAMES.intersection(payload):
+            OfficeManagementService._upsert_configuration(
+                current_user,
+                office,
+                payload,
+                actor_employee=actor_employee,
+                create_if_missing=True,
+            )
+
+        return _serialize_office(OfficeManagementService._refresh_office(office.id))
+
+    @staticmethod
+    @transaction.atomic
+    def delete_office(current_user: CurrentUser, office_id: int) -> None:
+        _ensure_ts_admin_master(current_user)
+        actor_employee = _actor_employee(current_user)
+        office = OfficeManagementService._refresh_office(office_id)
+        configuration = OfficeConfiguration.objects.filter(office=office).first()
+
+        if configuration is not None:
+            write_audit_event(
+                action_code="DELETE",
+                entity_name="office_configuration",
+                entity_id=configuration.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                reason_text="Office configuration deleted with Office deletion.",
+            )
+            configuration.delete()
+
+        try:
+            office_name = office.office_name
+            office_record_id = office.id
+            office.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "COUNTRY_DELETE_BLOCKED",
+                "Office cannot be deleted because it is still referenced by "
+                "Business Units or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="office",
+            entity_id=office_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            old_value=office_name,
+            reason_text="Office deleted by Timesheet Master Administrator.",
+        )
+
+    @staticmethod
+    def _refresh_office(office_id: int) -> Office:
+        try:
+            return Office.objects.select_related(
+                "status",
+                "configuration",
+                "configuration__approval_mode",
+            ).get(id=office_id)
+        except Office.DoesNotExist as exc:
+            raise AuthError("COUNTRY_NOT_FOUND", "Office not found.", 404) from exc
+
+    @staticmethod
+    def _upsert_configuration(
         current_user: CurrentUser,
-        business_unit: BusinessUnit,
+        office: Office,
         payload: dict,
         *,
         actor_employee: Employee | None,
+        create_if_missing: bool,
     ) -> None:
-        configuration = BusinessUnitConfiguration.objects.select_related("approval_mode").filter(
-            business_unit=business_unit
+        configuration = OfficeConfiguration.objects.select_related("approval_mode").filter(
+            office=office
         ).first()
-        defaults = _default_business_unit_configuration_data()
+        defaults = _default_office_configuration_data()
 
         approval_mode_code = str(
             payload.get(
@@ -1043,7 +1387,7 @@ class BusinessUnitManagementService:
         ).strip()
         if not approval_mode_code:
             raise AuthError(
-                "BUSINESS_UNIT_APPROVAL_MODE_REQUIRED",
+                "OFFICE_APPROVAL_MODE_REQUIRED",
                 "approval_mode_code is required.",
                 400,
             )
@@ -1055,12 +1399,12 @@ class BusinessUnitManagementService:
                 if configuration
                 else defaults["archive_after_years"],
             ),
-            code="BUSINESS_UNIT_ARCHIVE_YEARS_REQUIRED",
+            code="OFFICE_ARCHIVE_YEARS_REQUIRED",
             message="archive_after_years is required.",
         )
         if archive_after_years <= 0:
             raise AuthError(
-                "BUSINESS_UNIT_ARCHIVE_YEARS_INVALID",
+                "OFFICE_ARCHIVE_YEARS_INVALID",
                 "archive_after_years must be greater than 0.",
                 400,
             )
@@ -1070,7 +1414,7 @@ class BusinessUnitManagementService:
                 "timesheet_cutoff_date",
                 configuration.timesheet_cutoff_date if configuration else None,
             ),
-            code="BUSINESS_UNIT_CUTOFF_DATE_INVALID",
+            code="OFFICE_CUTOFF_DATE_INVALID",
             message="timesheet_cutoff_date must be a valid ISO date.",
         )
 
@@ -1116,8 +1460,10 @@ class BusinessUnitManagementService:
         approval_mode = _ref_value("APPROVAL_MODE", approval_mode_code)
 
         if configuration is None:
-            configuration = BusinessUnitConfiguration.objects.create(
-                business_unit=business_unit,
+            if not create_if_missing:
+                return
+            configuration = OfficeConfiguration.objects.create(
+                office=office,
                 approval_mode=approval_mode,
                 allow_employee_withdraw_flag=allow_employee_withdraw_flag,
                 timesheet_cutoff_date=timesheet_cutoff_date,
@@ -1131,12 +1477,13 @@ class BusinessUnitManagementService:
             )
             write_audit_event(
                 action_code="CREATE",
-                entity_name="business_unit_configuration",
+                entity_name="office_configuration",
                 entity_id=configuration.id,
                 actor_employee=actor_employee,
                 actor_email=current_user.email,
-                business_unit=business_unit,
-                reason_text="Business Unit configuration created by Timesheet Administrator.",
+                field_name="office_configuration",
+                new_value="created",
+                reason_text="Office configuration created by Timesheet Master Administrator.",
             )
             return
 
@@ -1217,120 +1564,111 @@ class BusinessUnitManagementService:
             for field_name, old_value, new_value in changed_fields:
                 write_audit_event(
                     action_code="UPDATE",
-                    entity_name="business_unit_configuration",
+                    entity_name="office_configuration",
                     entity_id=configuration.id,
                     actor_employee=actor_employee,
                     actor_email=current_user.email,
-                    business_unit=business_unit,
                     field_name=field_name,
                     old_value=old_value,
                     new_value=new_value,
-                    reason_text="Business Unit configuration updated by Timesheet Administrator.",
+                    reason_text="Office configuration updated by Timesheet Master Administrator.",
                 )
 
-
-class OfficeManagementService:
     @staticmethod
-    def list_offices(current_user: CurrentUser, *, status_code: str | None = None) -> list[dict]:
-        _ensure_ts_admin_master(current_user)
-        offices = _apply_status_filter(
-            Office.objects.select_related("status").order_by("office_name"),
-            status_code,
-        )
-        return [_serialize_office(office) for office in offices]
-
-    @staticmethod
-    def get_office(current_user: CurrentUser, office_id: int) -> dict:
-        _ensure_ts_admin_master(current_user)
-        return _serialize_office(OfficeManagementService._refresh_office(office_id))
-
-    @staticmethod
-    @transaction.atomic
-    def create_office(current_user: CurrentUser, payload: dict) -> dict:
-        _ensure_ts_admin_master(current_user)
-        actor_employee = _actor_employee(current_user)
-        office_name = str(payload.get("office_name", "")).strip()
-        if not office_name:
-            raise AuthError("COUNTRY_NAME_REQUIRED", "Office name is required.", 400)
-        status_code = str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE"
+    def _create_bootstrap_business_unit(
+        current_user: CurrentUser,
+        office: Office,
+        *,
+        bu_code: str,
+        name: str,
+        description: str,
+        actor_employee: Employee | None,
+    ) -> BusinessUnit:
         try:
-            office = Office.objects.create(
-                office_name=office_name,
-                status=_ref_value("COUNTRY_STATUS", status_code),
+            business_unit = BusinessUnit.objects.create(
+                bu_code=bu_code,
+                name=name,
+                description=description,
+                office=office,
+                status=_ref_value("BUSINESS_UNIT_STATUS", "ACTIVE"),
                 created_by=current_user.email,
                 updated_by=current_user.email,
             )
         except IntegrityError as exc:
             raise AuthError(
-                "COUNTRY_NAME_NOT_UNIQUE",
-                "Office name must be unique.",
+                "BUSINESS_UNIT_CODE_NOT_UNIQUE",
+                "Initial Business Unit code must be unique.",
                 400,
             ) from exc
 
         write_audit_event(
             action_code="CREATE",
-            entity_name="office",
-            entity_id=office.id,
+            entity_name="business_unit",
+            entity_id=business_unit.id,
             actor_employee=actor_employee,
             actor_email=current_user.email,
-            reason_text="Office created by Timesheet Master Administrator.",
+            business_unit=business_unit,
+            reason_text="Initial Business Unit created with Office creation.",
         )
-        return _serialize_office(OfficeManagementService._refresh_office(office.id))
+        return business_unit
 
     @staticmethod
-    @transaction.atomic
-    def update_office(current_user: CurrentUser, office_id: int, payload: dict) -> dict:
-        _ensure_ts_admin_master(current_user)
-        actor_employee = _actor_employee(current_user)
-        office = OfficeManagementService._refresh_office(office_id)
-        changed_fields: list[tuple[str, str, str]] = []
-
-        if "office_name" in payload:
-            new_office_name = str(payload.get("office_name", "")).strip()
-            if not new_office_name:
-                raise AuthError("COUNTRY_NAME_REQUIRED", "Office name is required.", 400)
-            if new_office_name != office.office_name:
-                changed_fields.append(("office_name", office.office_name, new_office_name))
-                office.office_name = new_office_name
-
-        if "status_code" in payload:
-            new_status = _ref_value("COUNTRY_STATUS", str(payload.get("status_code", "")).strip())
-            if new_status.id != office.status_id:
-                changed_fields.append(("status", office.status.value_code, new_status.value_code))
-                office.status = new_status
-
-        if changed_fields:
-            try:
-                office.updated_by = current_user.email
-                office.save()
-            except IntegrityError as exc:
-                raise AuthError(
-                    "COUNTRY_NAME_NOT_UNIQUE",
-                    "Office name must be unique.",
-                    400,
-                ) from exc
-
-        for field_name, old_value, new_value in changed_fields:
-            write_audit_event(
-                action_code="UPDATE",
-                entity_name="office",
-                entity_id=office.id,
-                actor_employee=actor_employee,
-                actor_email=current_user.email,
-                field_name=field_name,
-                old_value=old_value,
-                new_value=new_value,
-                reason_text="Office updated by Timesheet Master Administrator.",
-            )
-
-        return _serialize_office(OfficeManagementService._refresh_office(office.id))
-
-    @staticmethod
-    def _refresh_office(office_id: int) -> Office:
+    def _create_bootstrap_admin_employee(
+        current_user: CurrentUser,
+        office: Office,
+        *,
+        business_unit: BusinessUnit,
+        employee_code: str,
+        full_name: str,
+        email: str,
+        actor_employee: Employee | None,
+    ) -> Employee:
         try:
-            return Office.objects.select_related("status").get(id=office_id)
-        except Office.DoesNotExist as exc:
-            raise AuthError("COUNTRY_NOT_FOUND", "Office not found.", 404) from exc
+            employee = Employee.objects.create(
+                employee_code=employee_code,
+                full_name=full_name,
+                email=email,
+                canonical_email=canonicalize_email(email),
+                office=office,
+                status=_ref_value("EMPLOYEE_STATUS", "ACTIVE"),
+                primary_business_unit=business_unit,
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+        except IntegrityError as exc:
+            raise AuthError(
+                "EMPLOYEE_EMAIL_NOT_UNIQUE",
+                "Initial admin employee email must be unique.",
+                400,
+            ) from exc
+
+        EmployeeManagementService._replace_business_unit_assignments(
+            current_user,
+            employee,
+            actor_employee=actor_employee,
+            primary_business_unit_id=business_unit.id,
+            business_unit_ids={business_unit.id},
+            reason="Initial Office administrator created with initial BU assignments.",
+            enforce_current_office_scope=False,
+        )
+        EmployeeManagementService._replace_role_assignments(
+            current_user,
+            employee,
+            actor_employee=actor_employee,
+            role_codes=["TS_ADMIN", "USER"],
+            reason="Initial Office administrator created with initial role assignments.",
+        )
+
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="employee",
+            entity_id=employee.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=business_unit,
+            reason_text="Initial Office administrator created with Office creation.",
+        )
+        return employee
 
 
 class EmployeeManagementService:
@@ -1572,6 +1910,104 @@ class EmployeeManagementService:
         return _serialize_employee(_refresh_employee(employee.id))
 
     @staticmethod
+    @transaction.atomic
+    def delete_employee(current_user: CurrentUser, employee_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        if current_user.employee_id == employee_id:
+            raise AuthError(
+                "EMPLOYEE_DELETE_SELF_BLOCKED",
+                "You cannot delete your own employee record.",
+                400,
+            )
+
+        actor_employee = _actor_employee(current_user)
+        employee = _get_scoped_employee_for_management(current_user, employee_id)
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            employee.office,
+            out_of_scope_message="Employee is outside your active office.",
+        )
+
+        EmployeeManagementService._delete_role_assignments(
+            current_user,
+            employee,
+            actor_employee=actor_employee,
+        )
+        EmployeeManagementService._delete_business_unit_assignments(
+            current_user,
+            employee,
+            actor_employee=actor_employee,
+        )
+
+        try:
+            employee_name = employee.full_name
+            employee_record_id = employee.id
+            employee.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "EMPLOYEE_DELETE_BLOCKED",
+                "Employee cannot be deleted because it is still referenced by "
+                "timesheets, approvals, management relationships, audit history, or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="employee",
+            entity_id=employee_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=employee.primary_business_unit,
+            old_value=employee_name,
+            reason_text="Employee deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
+    def _delete_role_assignments(
+        current_user: CurrentUser,
+        employee: Employee,
+        *,
+        actor_employee: Employee | None,
+    ) -> None:
+        assignments = list(employee.role_assignments.select_related("role"))
+        for assignment in assignments:
+            write_audit_event(
+                action_code="DELETE",
+                entity_name="employee_role",
+                entity_id=assignment.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=employee.primary_business_unit,
+                old_value=assignment.role.value_code,
+                reason_text="Employee role deleted with Employee deletion.",
+            )
+            assignment.delete()
+
+    @staticmethod
+    def _delete_business_unit_assignments(
+        current_user: CurrentUser,
+        employee: Employee,
+        *,
+        actor_employee: Employee | None,
+    ) -> None:
+        assignments = list(
+            employee.business_unit_assignments.select_related("business_unit").all()
+        )
+        for assignment in assignments:
+            write_audit_event(
+                action_code="DELETE",
+                entity_name="employee_business_unit",
+                entity_id=assignment.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=employee.primary_business_unit,
+                old_value=assignment.business_unit.bu_code,
+                reason_text="Employee Business Unit scope deleted with Employee deletion.",
+            )
+            assignment.delete()
+
+    @staticmethod
     def _replace_role_assignments(
         current_user: CurrentUser,
         employee: Employee,
@@ -1667,6 +2103,7 @@ class EmployeeManagementService:
         primary_business_unit_id: int,
         business_unit_ids: set[int],
         reason: str,
+        enforce_current_office_scope: bool = True,
     ) -> None:
         active_status = _ref_value("EMPLOYEE_BU_STATUS", "ACTIVE")
         inactive_status = _ref_value("EMPLOYEE_BU_STATUS", "INACTIVE")
@@ -1698,11 +2135,17 @@ class EmployeeManagementService:
                 400,
             )
         desired_office = next(iter(desired_business_units.values())).office
-        _ensure_scoped_active_office_for_write(
-            current_user,
-            desired_office,
-            out_of_scope_message="Employee Business Units must stay inside your active office.",
-        )
+        if enforce_current_office_scope:
+            _ensure_scoped_active_office_for_write(
+                current_user,
+                desired_office,
+                out_of_scope_message="Employee Business Units must stay inside your active office.",
+            )
+        else:
+            _ensure_office_active_for_write(
+                desired_office,
+                message="Records in inactive offices cannot be created or edited.",
+            )
 
         active_assignments = {
             assignment.business_unit_id: assignment
@@ -1795,16 +2238,14 @@ class ClientManagementService:
         _ensure_ts_admin(current_user)
         clients = _apply_status_filter(
             ClientRecord.objects.select_related(
-                "business_unit",
                 "office",
                 "parent_client",
                 "status",
             )
             .filter(
-                business_unit_id__in=current_user.scoped_business_unit_ids,
                 office_id=current_user.office_id,
             )
-            .order_by("business_unit__bu_code", "client_code"),
+            .order_by("client_code"),
             _parse_status_filter(status_code, domain_code="CLIENT_STATUS"),
         )
         return [_serialize_client(client) for client in clients]
@@ -1821,18 +2262,7 @@ class ClientManagementService:
         _ensure_ts_admin(current_user)
         _ensure_current_office_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
-
-        business_unit_id = _parse_required_int(
-            payload.get("business_unit_id"),
-            code="CLIENT_BUSINESS_UNIT_REQUIRED",
-            message="business_unit_id is required.",
-        )
-        business_unit = _get_scoped_business_unit(current_user, business_unit_id)
-        _ensure_scoped_active_office_for_write(
-            current_user,
-            business_unit.office,
-            out_of_scope_message="Client Business Unit is outside your active office.",
-        )
+        current_office = _ensure_current_office_active_for_write(current_user)
 
         client_code = str(payload.get("client_code", "")).strip()
         name = str(payload.get("name", "")).strip()
@@ -1843,21 +2273,20 @@ class ClientManagementService:
 
         parent_client = ClientManagementService._resolve_parent_client(
             current_user,
-            business_unit_id=business_unit_id,
+            office_id=current_office.id,
             parent_client_id=payload.get("parent_client_id"),
         )
         status_code = str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE"
         _validate_optional_office_payload(
             payload,
             code_prefix="CLIENT",
-            expected_office_id=business_unit.office_id,
-            mismatch_message="Client office must match the selected Business Unit office.",
+            expected_office_id=current_office.id,
+            mismatch_message="Client office must match your active office.",
         )
 
         try:
             client = ClientRecord.objects.create(
-                business_unit=business_unit,
-                office=business_unit.office,
+                office=current_office,
                 parent_client=parent_client,
                 client_code=client_code,
                 name=name,
@@ -1866,9 +2295,16 @@ class ClientManagementService:
                 updated_by=current_user.email,
             )
         except IntegrityError as exc:
+            error_text = str(exc).lower()
+            if "business_unit_id" in error_text and "not null" in error_text:
+                raise AuthError(
+                    "CLIENT_SCHEMA_OUTDATED",
+                    "Client schema is outdated. Run the latest database migrations and try again.",
+                    500,
+                ) from exc
             raise AuthError(
                 "CLIENT_CODE_NOT_UNIQUE",
-                "Client code must be unique within the Business Unit.",
+                "Client code must be unique within the Office.",
                 400,
             ) from exc
 
@@ -1878,7 +2314,6 @@ class ClientManagementService:
             entity_id=client.id,
             actor_employee=actor_employee,
             actor_email=current_user.email,
-            business_unit=client.business_unit,
             reason_text="Client created by Timesheet Administrator.",
         )
         return _serialize_client(ClientManagementService._refresh_client(client.id))
@@ -1903,21 +2338,6 @@ class ClientManagementService:
             mismatch_message="Client office must match the client office.",
             immutable_message="Client office cannot be changed.",
         )
-
-        if (
-            "business_unit_id" in payload
-            and _parse_required_int(
-                payload.get("business_unit_id"),
-                code="CLIENT_BUSINESS_UNIT_REQUIRED",
-                message="business_unit_id must be a valid Business Unit identifier.",
-            )
-            != client.business_unit_id
-        ):
-            raise AuthError(
-                "CLIENT_BUSINESS_UNIT_IMMUTABLE",
-                "Client Business Unit cannot be changed.",
-                400,
-            )
 
         changed_fields: list[tuple[str, str, str]] = []
 
@@ -1946,7 +2366,7 @@ class ClientManagementService:
         if "parent_client_id" in payload:
             new_parent_client = ClientManagementService._resolve_parent_client(
                 current_user,
-                business_unit_id=client.business_unit_id,
+                office_id=client.office_id,
                 parent_client_id=payload.get("parent_client_id"),
             )
             old_parent_code = client.parent_client.client_code if client.parent_client_id else ""
@@ -1962,7 +2382,7 @@ class ClientManagementService:
             except IntegrityError as exc:
                 raise AuthError(
                     "CLIENT_CODE_NOT_UNIQUE",
-                    "Client code must be unique within the Business Unit.",
+                    "Client code must be unique within the Office.",
                     400,
                 ) from exc
 
@@ -1973,7 +2393,6 @@ class ClientManagementService:
                 entity_id=client.id,
                 actor_employee=actor_employee,
                 actor_email=current_user.email,
-                business_unit=client.business_unit,
                 field_name=field_name,
                 old_value=old_value,
                 new_value=new_value,
@@ -1983,15 +2402,49 @@ class ClientManagementService:
         return _serialize_client(ClientManagementService._refresh_client(client.id))
 
     @staticmethod
+    @transaction.atomic
+    def delete_client(current_user: CurrentUser, client_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        client = ClientManagementService._get_scoped_client(current_user, client_id)
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            client.office,
+            out_of_scope_message="Client is outside your active office.",
+        )
+
+        try:
+            client_code = client.client_code
+            client_record_id = client.id
+            client.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "CLIENT_DELETE_BLOCKED",
+                "Client cannot be deleted because it is still referenced by "
+                "Projects, child Clients, or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="client",
+            entity_id=client_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            old_value=client_code,
+            reason_text="Client deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
     def _get_scoped_client(current_user: CurrentUser, client_id: int) -> ClientRecord:
         try:
             client = ClientRecord.objects.select_related(
-                "business_unit", "office", "parent_client", "status"
+                "office", "parent_client", "status"
             ).get(id=client_id)
         except ClientRecord.DoesNotExist as exc:
             raise AuthError("CLIENT_NOT_FOUND", "Client not found.", 404) from exc
 
-        _ensure_business_units_in_scope(current_user, {client.business_unit_id})
         _ensure_office_in_scope(
             current_user,
             client.office_id,
@@ -2002,14 +2455,14 @@ class ClientManagementService:
     @staticmethod
     def _refresh_client(client_id: int) -> ClientRecord:
         return ClientRecord.objects.select_related(
-            "business_unit", "office", "parent_client", "status"
+            "office", "parent_client", "status"
         ).get(id=client_id)
 
     @staticmethod
     def _resolve_parent_client(
         current_user: CurrentUser,
         *,
-        business_unit_id: int,
+        office_id: int,
         parent_client_id: object,
     ) -> ClientRecord | None:
         if parent_client_id in (None, ""):
@@ -2021,17 +2474,21 @@ class ClientManagementService:
             message="parent_client_id must be a valid client identifier.",
         )
         try:
-            parent_client = ClientRecord.objects.select_related("business_unit").get(
+            parent_client = ClientRecord.objects.select_related("office").get(
                 id=resolved_parent_client_id
             )
         except ClientRecord.DoesNotExist as exc:
             raise AuthError("CLIENT_PARENT_NOT_FOUND", "Parent client not found.", 404) from exc
 
-        _ensure_business_units_in_scope(current_user, {parent_client.business_unit_id})
-        if parent_client.business_unit_id != business_unit_id:
+        _ensure_office_in_scope(
+            current_user,
+            parent_client.office_id,
+            message="Parent client is outside your active office.",
+        )
+        if parent_client.office_id != office_id:
             raise AuthError(
-                "CLIENT_PARENT_BU_MISMATCH",
-                "Parent client must belong to the same Business Unit.",
+                "CLIENT_PARENT_OFFICE_MISMATCH",
+                "Parent client must belong to the same Office.",
                 400,
             )
         return parent_client
@@ -2233,6 +2690,42 @@ class InternalCategoryManagementService:
         )
 
     @staticmethod
+    @transaction.atomic
+    def delete_category(current_user: CurrentUser, category_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        category = InternalCategoryManagementService._get_scoped_category(current_user, category_id)
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            category.office,
+            out_of_scope_message="Internal category is outside your active office.",
+        )
+
+        try:
+            category_code = category.category_code
+            category_record_id = category.id
+            category.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "INTERNAL_CATEGORY_DELETE_BLOCKED",
+                "Internal category cannot be deleted because it is still referenced by "
+                "Projects or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="internal_category",
+            entity_id=category_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=category.business_unit,
+            old_value=category_code,
+            reason_text="Internal category deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
     def _get_scoped_category(
         current_user: CurrentUser,
         category_id: int,
@@ -2272,12 +2765,11 @@ class CostCenterManagementService:
     ) -> list[dict]:
         _ensure_ts_admin(current_user)
         cost_centers = _apply_status_filter(
-            CostCenterRecord.objects.select_related("business_unit", "office", "status")
+            CostCenterRecord.objects.select_related("office", "status")
             .filter(
-                business_unit_id__in=current_user.scoped_business_unit_ids,
                 office_id=current_user.office_id,
             )
-            .order_by("business_unit__bu_code", "cost_center_code"),
+            .order_by("cost_center_code"),
             _parse_status_filter(status_code, domain_code="COST_CENTER_STATUS"),
         )
         return [_serialize_cost_center(cost_center) for cost_center in cost_centers]
@@ -2296,18 +2788,7 @@ class CostCenterManagementService:
         _ensure_ts_admin(current_user)
         _ensure_current_office_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
-
-        business_unit_id = _parse_required_int(
-            payload.get("business_unit_id"),
-            code="COST_CENTER_BUSINESS_UNIT_REQUIRED",
-            message="business_unit_id is required.",
-        )
-        business_unit = _get_scoped_business_unit(current_user, business_unit_id)
-        _ensure_scoped_active_office_for_write(
-            current_user,
-            business_unit.office,
-            out_of_scope_message="Cost center Business Unit is outside your active office.",
-        )
+        current_office = _ensure_current_office_active_for_write(current_user)
 
         cost_center_code = str(payload.get("cost_center_code", "")).strip()
         name = str(payload.get("name", "")).strip()
@@ -2321,14 +2802,13 @@ class CostCenterManagementService:
         _validate_optional_office_payload(
             payload,
             code_prefix="COST_CENTER",
-            expected_office_id=business_unit.office_id,
-            mismatch_message="Cost center office must match the selected Business Unit office.",
+            expected_office_id=current_office.id,
+            mismatch_message="Cost center office must match your active office.",
         )
 
         try:
             cost_center = CostCenterRecord.objects.create(
-                business_unit=business_unit,
-                office=business_unit.office,
+                office=current_office,
                 cost_center_code=cost_center_code,
                 name=name,
                 description=description,
@@ -2337,9 +2817,17 @@ class CostCenterManagementService:
                 updated_by=current_user.email,
             )
         except IntegrityError as exc:
+            error_text = str(exc).lower()
+            if "business_unit_id" in error_text and "not null" in error_text:
+                raise AuthError(
+                    "COST_CENTER_SCHEMA_OUTDATED",
+                    "Cost center schema is outdated. Run the latest database "
+                    "migrations and try again.",
+                    500,
+                ) from exc
             raise AuthError(
                 "COST_CENTER_CODE_NOT_UNIQUE",
-                "Cost center code must be unique within the Business Unit.",
+                "Cost center code must be unique within the Office.",
                 400,
             ) from exc
 
@@ -2349,7 +2837,6 @@ class CostCenterManagementService:
             entity_id=cost_center.id,
             actor_employee=actor_employee,
             actor_email=current_user.email,
-            business_unit=cost_center.business_unit,
             reason_text="Cost center created by Timesheet Administrator.",
         )
         return _serialize_cost_center(
@@ -2378,21 +2865,6 @@ class CostCenterManagementService:
             mismatch_message="Cost center office must match the cost center office.",
             immutable_message="Cost center office cannot be changed.",
         )
-
-        if (
-            "business_unit_id" in payload
-            and _parse_required_int(
-                payload.get("business_unit_id"),
-                code="COST_CENTER_BUSINESS_UNIT_REQUIRED",
-                message="business_unit_id must be a valid Business Unit identifier.",
-            )
-            != cost_center.business_unit_id
-        ):
-            raise AuthError(
-                "COST_CENTER_BUSINESS_UNIT_IMMUTABLE",
-                "Cost center Business Unit cannot be changed.",
-                400,
-            )
 
         changed_fields: list[tuple[str, str, str]] = []
 
@@ -2438,7 +2910,7 @@ class CostCenterManagementService:
             except IntegrityError as exc:
                 raise AuthError(
                     "COST_CENTER_CODE_NOT_UNIQUE",
-                    "Cost center code must be unique within the Business Unit.",
+                    "Cost center code must be unique within the Office.",
                     400,
                 ) from exc
 
@@ -2449,7 +2921,6 @@ class CostCenterManagementService:
                 entity_id=cost_center.id,
                 actor_employee=actor_employee,
                 actor_email=current_user.email,
-                business_unit=cost_center.business_unit,
                 field_name=field_name,
                 old_value=old_value,
                 new_value=new_value,
@@ -2461,18 +2932,54 @@ class CostCenterManagementService:
         )
 
     @staticmethod
+    @transaction.atomic
+    def delete_cost_center(current_user: CurrentUser, cost_center_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        cost_center = CostCenterManagementService._get_scoped_cost_center(
+            current_user, cost_center_id
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            cost_center.office,
+            out_of_scope_message="Cost center is outside your active office.",
+        )
+
+        try:
+            cost_center_code = cost_center.cost_center_code
+            cost_center_record_id = cost_center.id
+            cost_center.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "COST_CENTER_DELETE_BLOCKED",
+                "Cost center cannot be deleted because it is still referenced by "
+                "Projects or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="cost_center",
+            entity_id=cost_center_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            old_value=cost_center_code,
+            reason_text="Cost center deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
     def _get_scoped_cost_center(
         current_user: CurrentUser,
         cost_center_id: int,
     ) -> CostCenterRecord:
         try:
-            cost_center = CostCenterRecord.objects.select_related(
-                "business_unit", "office", "status"
-            ).get(id=cost_center_id)
+            cost_center = CostCenterRecord.objects.select_related("office", "status").get(
+                id=cost_center_id
+            )
         except CostCenterRecord.DoesNotExist as exc:
             raise AuthError("COST_CENTER_NOT_FOUND", "Cost center not found.", 404) from exc
 
-        _ensure_business_units_in_scope(current_user, {cost_center.business_unit_id})
         _ensure_office_in_scope(
             current_user,
             cost_center.office_id,
@@ -2482,9 +2989,7 @@ class CostCenterManagementService:
 
     @staticmethod
     def _refresh_cost_center(cost_center_id: int) -> CostCenterRecord:
-        return CostCenterRecord.objects.select_related("business_unit", "office", "status").get(
-            id=cost_center_id
-        )
+        return CostCenterRecord.objects.select_related("office", "status").get(id=cost_center_id)
 
 
 class GeneralChargeCodeManagementService:
@@ -3656,10 +4161,11 @@ class ProjectManagementService:
                 message="client_id is required.",
             ),
         )
-        if client.business_unit_id != business_unit_id:
+        business_unit = _get_scoped_business_unit(current_user, business_unit_id)
+        if client.office_id != business_unit.office_id:
             raise AuthError(
-                "PROJECT_CLIENT_BU_MISMATCH",
-                "Project client must belong to the same Business Unit.",
+                "PROJECT_CLIENT_OFFICE_MISMATCH",
+                "Project client must belong to the same Office.",
                 400,
             )
         return client
@@ -3702,10 +4208,11 @@ class ProjectManagementService:
                 message="cost_center_id is required.",
             ),
         )
-        if cost_center.business_unit_id != business_unit_id:
+        business_unit = _get_scoped_business_unit(current_user, business_unit_id)
+        if cost_center.office_id != business_unit.office_id:
             raise AuthError(
-                "PROJECT_COST_CENTER_BU_MISMATCH",
-                "Project cost center must belong to the same Business Unit.",
+                "PROJECT_COST_CENTER_OFFICE_MISMATCH",
+                "Project cost center must belong to the same Office.",
                 400,
             )
         return cost_center

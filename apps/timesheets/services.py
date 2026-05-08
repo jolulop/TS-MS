@@ -11,10 +11,11 @@ from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
 from apps.auth.policies import AuthorizationPolicyService
 from apps.master_data.models import (
-    BusinessUnitConfiguration,
+    BusinessUnit,
     CalendarPeriodRule,
     Employee,
     GeneralChargeCode,
+    OfficeConfiguration,
     Project,
     ProjectAssignment,
 )
@@ -311,28 +312,35 @@ def _daily_limit_for_date(employee: Employee, work_date: date) -> Decimal:
     return Decimal(weekday_fields[work_date.weekday()])
 
 
-def _approval_mode_code(business_unit_id: int) -> str:
+def _office_configuration_for_business_unit(
+    business_unit_id: int,
+) -> OfficeConfiguration | None:
     try:
-        configuration = BusinessUnitConfiguration.objects.select_related("approval_mode").get(
-            business_unit_id=business_unit_id
-        )
-    except BusinessUnitConfiguration.DoesNotExist:
+        business_unit = BusinessUnit.objects.select_related(
+            "office__configuration__approval_mode"
+        ).get(id=business_unit_id)
+    except BusinessUnit.DoesNotExist:
+        return None
+    return getattr(business_unit.office, "configuration", None)
+
+
+def _approval_mode_code(business_unit_id: int) -> str:
+    configuration = _office_configuration_for_business_unit(business_unit_id)
+    if configuration is None:
         return "PROJECT"
     return configuration.approval_mode.value_code
 
 
 def _archive_after_years(business_unit_id: int) -> int:
-    try:
-        configuration = BusinessUnitConfiguration.objects.get(business_unit_id=business_unit_id)
-    except BusinessUnitConfiguration.DoesNotExist:
+    configuration = _office_configuration_for_business_unit(business_unit_id)
+    if configuration is None:
         return 5
     return configuration.archive_after_years or 5
 
 
 def _timesheet_cutoff_date(business_unit_id: int) -> date | None:
-    try:
-        configuration = BusinessUnitConfiguration.objects.get(business_unit_id=business_unit_id)
-    except BusinessUnitConfiguration.DoesNotExist:
+    configuration = _office_configuration_for_business_unit(business_unit_id)
+    if configuration is None:
         return None
     return configuration.timesheet_cutoff_date
 

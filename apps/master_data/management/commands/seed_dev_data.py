@@ -6,7 +6,6 @@ from django.db import transaction
 
 from apps.master_data.models import (
     BusinessUnit,
-    BusinessUnitConfiguration,
     CalendarPeriodRule,
     Client,
     CostCenter,
@@ -16,6 +15,7 @@ from apps.master_data.models import (
     GeneralChargeCode,
     InternalCategory,
     Office,
+    OfficeConfiguration,
     Project,
     ProjectAssignment,
     YearlyCalendar,
@@ -65,9 +65,9 @@ def _upsert_business_unit(
     return business_unit
 
 
-def _upsert_business_unit_configuration(business_unit: BusinessUnit) -> None:
-    BusinessUnitConfiguration.objects.update_or_create(
-        business_unit=business_unit,
+def _upsert_office_configuration(office: Office) -> None:
+    OfficeConfiguration.objects.update_or_create(
+        office=office,
         defaults={
             "approval_mode": _ref_value("APPROVAL_MODE", "PROJECT"),
             "allow_employee_withdraw_flag": False,
@@ -179,10 +179,9 @@ def _upsert_employee_role(*, employee: Employee, role_code: str) -> None:
 
 def _upsert_client(*, business_unit: BusinessUnit, client_code: str, name: str) -> Client:
     client, _ = Client.objects.update_or_create(
-        business_unit=business_unit,
+        office=business_unit.office,
         client_code=client_code,
         defaults={
-            "office": business_unit.office,
             "name": name,
             "parent_client": None,
             "status": _ref_value("CLIENT_STATUS", "ACTIVE"),
@@ -223,10 +222,9 @@ def _upsert_cost_center(
     description: str,
 ) -> CostCenter:
     cost_center, _ = CostCenter.objects.update_or_create(
-        business_unit=business_unit,
+        office=business_unit.office,
         cost_center_code=cost_center_code,
         defaults={
-            "office": business_unit.office,
             "name": name,
             "description": description,
             "status": _ref_value("COST_CENTER_STATUS", "ACTIVE"),
@@ -330,6 +328,8 @@ class Command(BaseCommand):
         _upsert_country(office_id=4, office_name="Perú", active=True)
         _upsert_country(office_id=5, office_name="Argentina", active=True)
         _upsert_country(office_id=6, office_name="México", active=False)
+        for office in Office.objects.all():
+            _upsert_office_configuration(office)
 
         consulting_bu = _upsert_business_unit(
             office=holding_country,
@@ -343,8 +343,6 @@ class Command(BaseCommand):
             name="Delivery",
             description="Secondary local sample Business Unit.",
         )
-        for business_unit in (consulting_bu, delivery_bu):
-            _upsert_business_unit_configuration(business_unit)
 
         consulting_calendar = _upsert_calendar(
             consulting_bu,

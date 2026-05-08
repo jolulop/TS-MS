@@ -1488,7 +1488,7 @@ def test_period_cutoff_blocks_edit_and_submit_until_admin_override() -> None:
     )
     assert save_response.status_code == 200
 
-    configuration = context["business_unit"].configuration
+    configuration = context["business_unit"].office.configuration
     configuration.timesheet_cutoff_date = date(2026, 5, 10)
     configuration.updated_by = "system@test.local"
     configuration.save(update_fields=["timesheet_cutoff_date", "updated_by", "updated_at"])

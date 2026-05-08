@@ -25,7 +25,7 @@ erDiagram
         bool active_flag
     }
 
-    COUNTRY {
+    OFFICE {
         bigint id PK
         string office_name
         bigint status_id FK
@@ -103,7 +103,6 @@ erDiagram
 
     CLIENT {
         bigint id PK
-        bigint business_unit_id FK
         bigint office_id FK
         bigint parent_client_id FK
         string client_code
@@ -122,7 +121,6 @@ erDiagram
 
     COST_CENTER {
         bigint id PK
-        bigint business_unit_id FK
         bigint office_id FK
         string cost_center_code
         string name
@@ -171,13 +169,17 @@ erDiagram
         bigint status_id FK
     }
 
-    BUSINESS_UNIT_CONFIGURATION {
+    OFFICE_CONFIGURATION {
         bigint id PK
-        bigint business_unit_id FK
+        bigint office_id FK
         bigint approval_mode_id FK
         bool allow_employee_withdraw_flag
         date timesheet_cutoff_date
+        bool count_non_billable_in_daily_limit_flag
         int archive_after_years
+        bool enable_timer_flag
+        bool enable_leave_integration_flag
+        bool enable_copy_previous_week_flag
     }
 
     REMINDER_RULE {
@@ -308,7 +310,7 @@ erDiagram
     }
 
     REF_DOMAIN ||--o{ REF_VALUE : contains
-    REF_VALUE ||--o{ COUNTRY : status
+    REF_VALUE ||--o{ OFFICE : status
     REF_VALUE ||--o{ BUSINESS_UNIT : status
     REF_VALUE ||--o{ YEARLY_CALENDAR : status
     REF_VALUE ||--o{ EMPLOYEE : status
@@ -322,7 +324,7 @@ erDiagram
     REF_VALUE ||--o{ GENERAL_CHARGE_CODE : charge_type_or_status
     REF_VALUE ||--o{ PROJECT : status
     REF_VALUE ||--o{ PROJECT_ASSIGNMENT : status
-    REF_VALUE ||--o{ BUSINESS_UNIT_CONFIGURATION : approval_mode
+    REF_VALUE ||--o{ OFFICE_CONFIGURATION : approval_mode
     REF_VALUE ||--o{ REMINDER_RULE : reminder_type
     REF_VALUE ||--o{ CUSTOM_ATTRIBUTE_DEFINITION : data_type
     REF_VALUE ||--o{ WEEKLY_TIMESHEET : status
@@ -334,24 +336,22 @@ erDiagram
     REF_VALUE ||--o{ AUDIT_LOG : action_type
     REF_VALUE ||--o{ INTEGRATION_JOB : status
 
-    COUNTRY ||--o{ BUSINESS_UNIT : groups
-    COUNTRY ||--o{ YEARLY_CALENDAR : owns
-    COUNTRY ||--o{ EMPLOYEE : belongs_to
-    COUNTRY ||--o{ CALENDAR_PERIOD_RULE : governs
-    COUNTRY ||--o{ CLIENT : owns
-    COUNTRY ||--o{ INTERNAL_CATEGORY : owns
-    COUNTRY ||--o{ COST_CENTER : owns
-    COUNTRY ||--o{ GENERAL_CHARGE_CODE : owns
-    COUNTRY ||--o{ PROJECT : owns
+    OFFICE ||--|| OFFICE_CONFIGURATION : configures
+    OFFICE ||--o{ BUSINESS_UNIT : groups
+    OFFICE ||--o{ YEARLY_CALENDAR : owns
+    OFFICE ||--o{ EMPLOYEE : belongs_to
+    OFFICE ||--o{ CALENDAR_PERIOD_RULE : governs
+    OFFICE ||--o{ CLIENT : owns
+    OFFICE ||--o{ INTERNAL_CATEGORY : owns
+    OFFICE ||--o{ COST_CENTER : owns
+    OFFICE ||--o{ GENERAL_CHARGE_CODE : owns
+    OFFICE ||--o{ PROJECT : owns
 
     BUSINESS_UNIT ||--o{ YEARLY_CALENDAR : owns
     BUSINESS_UNIT ||--o{ EMPLOYEE : primary_for
     BUSINESS_UNIT ||--o{ EMPLOYEE_BUSINESS_UNIT : scopes
     BUSINESS_UNIT ||--o{ EMPLOYEE_ROLE : scopes
-    BUSINESS_UNIT ||--|| BUSINESS_UNIT_CONFIGURATION : configures
-    BUSINESS_UNIT ||--o{ CLIENT : owns
     BUSINESS_UNIT ||--o{ INTERNAL_CATEGORY : owns
-    BUSINESS_UNIT ||--o{ COST_CENTER : owns
     BUSINESS_UNIT ||--o{ GENERAL_CHARGE_CODE : owns
     BUSINESS_UNIT ||--o{ PROJECT : owns
     BUSINESS_UNIT ||--o{ REMINDER_RULE : owns
@@ -412,6 +412,6 @@ erDiagram
 
 ## Office-Specific Highlights
 
-- `COUNTRY` is now a first-class master table.
+- `OFFICE` is a first-class master table.
 - `BUSINESS_UNIT`, `YEARLY_CALENDAR`, `EMPLOYEE`, `CALENDAR_PERIOD_RULE`, `CLIENT`, `INTERNAL_CATEGORY`, `COST_CENTER`, `GENERAL_CHARGE_CODE`, and `PROJECT` all carry a mandatory `office_id`.
 - `PROJECT_ASSIGNMENT`, `WEEKLY_TIMESHEET`, and `TIMESHEET_LINE` do not store `office_id` directly; they derive office context through linked employee, project, and business-unit relationships.

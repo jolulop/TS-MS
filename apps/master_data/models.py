@@ -43,6 +43,29 @@ class BusinessUnit(AuditFieldsModel):
         return self.bu_code
 
 
+class OfficeConfiguration(AuditFieldsModel):
+    office = models.OneToOneField(
+        Office,
+        on_delete=models.PROTECT,
+        related_name="configuration",
+    )
+    approval_mode = models.ForeignKey(
+        "reference_data.RefValue",
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    allow_employee_withdraw_flag = models.BooleanField(default=False)
+    timesheet_cutoff_date = models.DateField(null=True, blank=True)
+    count_non_billable_in_daily_limit_flag = models.BooleanField(default=False)
+    archive_after_years = models.PositiveSmallIntegerField(default=0)
+    enable_timer_flag = models.BooleanField(default=False)
+    enable_leave_integration_flag = models.BooleanField(default=False)
+    enable_copy_previous_week_flag = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "office_configuration"
+
+
 class YearlyCalendar(AuditFieldsModel):
     business_unit = models.ForeignKey(
         BusinessUnit,
@@ -230,11 +253,6 @@ class CalendarPeriodRule(AuditFieldsModel):
 
 
 class Client(AuditFieldsModel):
-    business_unit = models.ForeignKey(
-        BusinessUnit,
-        on_delete=models.PROTECT,
-        related_name="clients",
-    )
     office = models.ForeignKey(
         Office,
         on_delete=models.PROTECT,
@@ -257,11 +275,11 @@ class Client(AuditFieldsModel):
 
     class Meta:
         db_table = "client"
-        ordering = ["business_unit__bu_code", "client_code"]
+        ordering = ["client_code"]
         constraints = [
             models.UniqueConstraint(
-                fields=["business_unit", "client_code"],
-                name="client_bu_client_code_uniq",
+                fields=["office", "client_code"],
+                name="client_office_client_code_uniq",
             )
         ]
 
@@ -298,11 +316,6 @@ class InternalCategory(AuditFieldsModel):
 
 
 class CostCenter(AuditFieldsModel):
-    business_unit = models.ForeignKey(
-        BusinessUnit,
-        on_delete=models.PROTECT,
-        related_name="cost_centers",
-    )
     office = models.ForeignKey(
         Office,
         on_delete=models.PROTECT,
@@ -319,11 +332,11 @@ class CostCenter(AuditFieldsModel):
 
     class Meta:
         db_table = "cost_center"
-        ordering = ["business_unit__bu_code", "cost_center_code"]
+        ordering = ["cost_center_code"]
         constraints = [
             models.UniqueConstraint(
-                fields=["business_unit", "cost_center_code"],
-                name="cost_center_bu_code_uniq",
+                fields=["office", "cost_center_code"],
+                name="cost_center_office_code_uniq",
             )
         ]
 
@@ -494,29 +507,6 @@ class ProjectAssignment(AuditFieldsModel):
                 name="project_assignment_window_uniq",
             )
         ]
-
-
-class BusinessUnitConfiguration(AuditFieldsModel):
-    business_unit = models.OneToOneField(
-        BusinessUnit,
-        on_delete=models.PROTECT,
-        related_name="configuration",
-    )
-    approval_mode = models.ForeignKey(
-        "reference_data.RefValue",
-        on_delete=models.PROTECT,
-        related_name="+",
-    )
-    allow_employee_withdraw_flag = models.BooleanField(default=False)
-    timesheet_cutoff_date = models.DateField(null=True, blank=True)
-    count_non_billable_in_daily_limit_flag = models.BooleanField(default=False)
-    archive_after_years = models.PositiveSmallIntegerField(default=0)
-    enable_timer_flag = models.BooleanField(default=False)
-    enable_leave_integration_flag = models.BooleanField(default=False)
-    enable_copy_previous_week_flag = models.BooleanField(default=False)
-
-    class Meta:
-        db_table = "business_unit_configuration"
 
 
 class ReminderRule(AuditFieldsModel):

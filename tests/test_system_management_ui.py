@@ -1,3 +1,4 @@
+import re
 from datetime import date
 
 import pytest
@@ -6,12 +7,12 @@ from django.test import Client
 from apps.audit.models import AuditLog
 from apps.master_data.models import (
     BusinessUnit,
-    BusinessUnitConfiguration,
     CalendarPeriodRule,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
     Office,
+    OfficeConfiguration,
     Project,
     ProjectAssignment,
 )
@@ -222,39 +223,13 @@ def test_business_unit_management_list_and_detail_render_and_update_through_html
     assert managed_business_unit.description == "Updated description"
     assert managed_business_unit.status.value_code == "INACTIVE"
 
-    configuration_response = client.post(
-        f"/system/business-units/{managed_business_unit.id}/",
-        data={
-            "form_name": "configuration",
-            "approval_mode_code": "PROJECT",
-            "allow_employee_withdraw_flag": "on",
-            "timesheet_cutoff_date": "2026-05-31",
-            "count_non_billable_in_daily_limit_flag": "on",
-            "archive_after_years": "7",
-            "enable_timer_flag": "on",
-            "enable_leave_integration_flag": "on",
-            "enable_copy_previous_week_flag": "on",
-        },
-        follow=False,
-    )
-
-    assert configuration_response.status_code == 302
-    configuration = BusinessUnitConfiguration.objects.get(business_unit=managed_business_unit)
-    assert configuration.approval_mode.value_code == "PROJECT"
-    assert configuration.allow_employee_withdraw_flag is True
-    assert configuration.timesheet_cutoff_date == date(2026, 5, 31)
-    assert configuration.count_non_billable_in_daily_limit_flag is True
-    assert configuration.archive_after_years == 7
-    assert configuration.enable_timer_flag is True
-    assert configuration.enable_leave_integration_flag is True
-    assert configuration.enable_copy_previous_week_flag is True
-
     detail_response = client.get(f"/system/business-units/{managed_business_unit.id}/")
     detail_content = detail_response.content.decode()
     assert detail_response.status_code == 200
-    assert "Configuration" in detail_content
+    assert "Inherited Configuration" in detail_content
     assert "Back to Business Units" in detail_content
     assert "System BU 1 Updated" in detail_content
+    assert "parent Office and are shown here for reference only" in detail_content
     assert "Defines how submitted time is routed for approval." in detail_content
 
 
@@ -391,6 +366,221 @@ def test_employee_management_create_and_update_flows_render_through_html() -> No
 
 
 @pytest.mark.django_db
+def test_employee_create_form_does_not_preselect_business_unit_scope() -> None:
+    client, _, _ = _build_ts_admin_client()
+
+    response = client.get("/system/employees/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    match = re.search(
+        r'<select\s+id="business_unit_ids"\s+name="business_unit_ids"\s+multiple.*?>(.*?)</select>',
+        content,
+        re.S,
+    )
+    assert match is not None
+    assert "selected" not in match.group(1)
+
+
+@pytest.mark.django_db
+def test_employee_create_without_scope_selection_uses_only_primary_business_unit() -> None:
+    client, _, business_units = _build_ts_admin_client()
+
+    response = client.post(
+        "/system/employees/",
+        data={
+            "employee_code": "EMP-NEW-PRIMARY-ONLY",
+            "full_name": "Primary Only Employee",
+            "email": "primary-only@example.com",
+            "status_code": "ACTIVE",
+            "primary_business_unit_id": str(business_units[1].id),
+            "role_codes": ["USER"],
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    created_employee = Employee.objects.get(employee_code="EMP-NEW-PRIMARY-ONLY")
+    active_business_units = sorted(
+        assignment.business_unit.bu_code
+        for assignment in EmployeeBusinessUnit.objects.select_related(
+            "business_unit",
+            "status",
+            "status__domain",
+        ).filter(employee=created_employee, valid_to__isnull=True)
+        if assignment.status.domain.domain_code == "EMPLOYEE_BU_STATUS"
+        and assignment.status.value_code == "ACTIVE"
+    )
+    assert created_employee.primary_business_unit_id == business_units[1].id
+    assert active_business_units == ["BU-SYS-2"]
+
+
+@pytest.mark.django_db
+def test_employee_management_can_delete_unused_employee_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+
+    create_response = client.post(
+        "/system/employees/",
+        data={
+            "employee_code": "EMP-DELETE-1",
+            "full_name": "Delete Me",
+            "email": "delete-me@example.com",
+            "status_code": "ACTIVE",
+            "primary_business_unit_id": str(business_units[0].id),
+            "business_unit_ids": [str(business_units[0].id)],
+            "role_codes": ["USER"],
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    employee = Employee.objects.get(employee_code="EMP-DELETE-1")
+
+    response = client.post(
+        f"/system/employees/{employee.id}/",
+        data={
+            "form_name": "delete",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/employees/"
+    assert not Employee.objects.filter(id=employee.id).exists()
+    assert not EmployeeRole.objects.filter(employee_id=employee.id).exists()
+    assert not EmployeeBusinessUnit.objects.filter(employee_id=employee.id).exists()
+    assert AuditLog.objects.filter(entity_name="employee", entity_id=employee.id).count() == 2
+
+
+@pytest.mark.django_db
+def test_employee_management_delete_is_blocked_when_employee_has_dependents() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    employee = create_employee(
+        employee_code="EMP-BLOCK-DELETE-1",
+        full_name="Blocked Delete Employee",
+        email="blocked-delete@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+    direct_report = create_employee(
+        employee_code="EMP-BLOCK-DELETE-2",
+        full_name="Direct Report Employee",
+        email="direct-report@example.com",
+        primary_business_unit=business_units[0],
+    )
+    direct_report.manager_employee = employee
+    direct_report.updated_by = "system@test.local"
+    direct_report.save(update_fields=["manager_employee", "updated_by", "updated_at"])
+
+    response = client.post(
+        f"/system/employees/{employee.id}/",
+        data={
+            "form_name": "delete",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete Employee" in content
+    assert "Employee cannot be deleted because it is still referenced" in content
+    assert Employee.objects.filter(id=employee.id).exists()
+
+
+@pytest.mark.django_db
+def test_business_unit_management_can_delete_unused_business_unit_via_html() -> None:
+    client, employee, _ = _build_ts_admin_client()
+
+    create_response = client.post(
+        "/system/business-units/",
+        data={
+            "bu_code": "BU-DELETE-1",
+            "name": "Delete BU",
+            "description": "Temporary BU",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    business_unit = BusinessUnit.objects.get(bu_code="BU-DELETE-1")
+    assert EmployeeBusinessUnit.objects.filter(
+        employee=employee,
+        business_unit=business_unit,
+        valid_to__isnull=True,
+    ).exists()
+
+    response = client.post(
+        f"/system/business-units/{business_unit.id}/",
+        data={
+            "form_name": "delete",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/business-units/"
+    assert not BusinessUnit.objects.filter(id=business_unit.id).exists()
+    assert not EmployeeBusinessUnit.objects.filter(
+        employee=employee,
+        business_unit_id=business_unit.id,
+    ).exists()
+    assert not AuditLog.objects.filter(business_unit_id=business_unit.id).exists()
+    assert (
+        AuditLog.objects.filter(
+            entity_name="business_unit",
+            entity_id=business_unit.id,
+        ).count()
+        == 2
+    )
+
+
+@pytest.mark.django_db
+def test_business_unit_management_delete_is_blocked_when_business_unit_has_employees() -> None:
+    client, admin_employee, business_units = _build_ts_admin_client()
+    target_business_unit = create_business_unit(
+        bu_code="BU-BLOCK-DELETE",
+        name="Blocked Delete BU",
+        office=business_units[0].office,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=target_business_unit,
+        is_primary_flag=False,
+    )
+    employee = create_employee(
+        employee_code="EMP-BU-BLOCK-1",
+        full_name="BU Block Employee",
+        email="bu-block@example.com",
+        primary_business_unit=target_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=target_business_unit,
+        is_primary_flag=True,
+    )
+
+    response = client.post(
+        f"/system/business-units/{target_business_unit.id}/",
+        data={
+            "form_name": "delete",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete Business Unit" in content
+    assert "Business Unit cannot be deleted because it is still referenced" in content
+    assert BusinessUnit.objects.filter(id=target_business_unit.id).exists()
+
+
+@pytest.mark.django_db
 def test_client_management_create_and_update_via_html() -> None:
     client, _, business_units = _build_ts_admin_client()
     existing_parent = create_client(
@@ -402,7 +592,6 @@ def test_client_management_create_and_update_via_html() -> None:
     create_response = client.post(
         "/system/clients/",
         data={
-            "business_unit_id": str(business_units[0].id),
             "client_code": "CLI-NEW",
             "name": "New Client",
             "status_code": "ACTIVE",
@@ -432,6 +621,173 @@ def test_client_management_create_and_update_via_html() -> None:
     assert created_client.name == "New Client Updated"
     assert created_client.status.value_code == "INACTIVE"
     assert created_client.parent_client_id is None
+
+    collection_response = client.get("/system/clients/")
+    assert collection_response.status_code == 200
+    assert 'name="business_unit_id"' not in collection_response.content.decode()
+
+
+@pytest.mark.django_db
+def test_client_management_can_delete_unused_client_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    managed_client = create_client(
+        business_unit=business_units[0],
+        client_code="CLI-DELETE",
+        name="Delete Client",
+    )
+
+    response = client.post(
+        f"/system/clients/{managed_client.id}/",
+        data={
+            "form_name": "delete",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/clients/"
+    assert not ClientRecord.objects.filter(id=managed_client.id).exists()
+    assert AuditLog.objects.filter(entity_name="client", entity_id=managed_client.id).count() == 1
+
+
+@pytest.mark.django_db
+def test_client_management_delete_is_blocked_when_client_has_child_clients() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    parent_client = create_client(
+        business_unit=business_units[0],
+        client_code="CLI-PARENT-DELETE",
+        name="Parent Client",
+    )
+    create_client(
+        business_unit=business_units[0],
+        client_code="CLI-CHILD-DELETE",
+        name="Child Client",
+        parent_client=parent_client,
+    )
+
+    response = client.post(
+        f"/system/clients/{parent_client.id}/",
+        data={
+            "form_name": "delete",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete Client" in content
+    assert "Client cannot be deleted because it is still referenced" in content
+    assert ClientRecord.objects.filter(id=parent_client.id).exists()
+
+
+@pytest.mark.django_db
+def test_internal_category_management_can_delete_unused_category_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    category = create_internal_category(
+        business_unit=business_units[0],
+        category_code="CAT-DELETE",
+        name="Delete Category",
+    )
+
+    response = client.post(
+        f"/system/internal-categories/{category.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/internal-categories/"
+    assert not InternalCategoryRecord.objects.filter(id=category.id).exists()
+    assert (
+        AuditLog.objects.filter(
+            entity_name="internal_category",
+            entity_id=category.id,
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_internal_category_management_delete_is_blocked_when_category_has_projects() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    project_owner, project_manager, project_client, category, cost_center = (
+        _build_project_management_context(business_units[0])
+    )
+    create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-BLOCK-CAT",
+        name="Blocked Category Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        start_date=date(2026, 5, 1),
+    )
+
+    response = client.post(
+        f"/system/internal-categories/{category.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete Internal Category" in content
+    assert "Internal category cannot be deleted because it is still referenced" in content
+    assert InternalCategoryRecord.objects.filter(id=category.id).exists()
+
+
+@pytest.mark.django_db
+def test_cost_center_management_can_delete_unused_cost_center_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    cost_center = create_cost_center(
+        business_unit=business_units[0],
+        cost_center_code="CC-DELETE",
+        name="Delete Cost Center",
+    )
+
+    response = client.post(
+        f"/system/cost-centers/{cost_center.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/cost-centers/"
+    assert not CostCenterRecord.objects.filter(id=cost_center.id).exists()
+    assert AuditLog.objects.filter(entity_name="cost_center", entity_id=cost_center.id).count() == 1
+
+
+@pytest.mark.django_db
+def test_cost_center_management_delete_is_blocked_when_cost_center_has_projects() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    project_owner, project_manager, project_client, category, cost_center = (
+        _build_project_management_context(business_units[0])
+    )
+    create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-BLOCK-CC",
+        name="Blocked Cost Center Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        start_date=date(2026, 5, 1),
+    )
+
+    response = client.post(
+        f"/system/cost-centers/{cost_center.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete Cost Center" in content
+    assert "Cost center cannot be deleted because it is still referenced" in content
+    assert CostCenterRecord.objects.filter(id=cost_center.id).exists()
 
 
 @pytest.mark.django_db
@@ -471,7 +827,7 @@ def test_country_bound_forms_show_read_only_country_context() -> None:
 
 @pytest.mark.django_db
 def test_html_country_bound_writes_are_blocked_when_active_country_becomes_inactive() -> None:
-    client, _, business_units = _build_ts_admin_client()
+    client, _, _ = _build_ts_admin_client()
     holding_country = get_office()
     holding_country.status = ref_value("COUNTRY_STATUS", "INACTIVE")
     holding_country.save(update_fields=["status", "updated_at"])
@@ -479,7 +835,6 @@ def test_html_country_bound_writes_are_blocked_when_active_country_becomes_inact
     response = client.post(
         "/system/clients/",
         data={
-            "business_unit_id": str(business_units[0].id),
             "client_code": "CLI-BLOCKED",
             "name": "Blocked Client",
             "status_code": "ACTIVE",
@@ -528,7 +883,6 @@ def test_internal_category_and_cost_center_create_pages_work_through_html() -> N
     cost_center_response = client.post(
         "/system/cost-centers/",
         data={
-            "business_unit_id": str(business_units[0].id),
             "cost_center_code": "CC-NEW",
             "name": "New Cost Center",
             "description": "Cost center description",
@@ -553,6 +907,10 @@ def test_internal_category_and_cost_center_create_pages_work_through_html() -> N
     cost_center.refresh_from_db()
     assert cost_center.cost_center_code == "CC-UPDATED"
     assert cost_center.status.value_code == "INACTIVE"
+
+    collection_response = client.get("/system/cost-centers/")
+    assert collection_response.status_code == 200
+    assert 'name="business_unit_id"' not in collection_response.content.decode()
 
 
 @pytest.mark.django_db
@@ -692,6 +1050,78 @@ def test_project_management_create_and_update_via_html() -> None:
     assert project.name == "Updated Project"
     assert project.close_date == date(2026, 10, 31)
     assert project.status.value_code == "CLOSED"
+
+
+@pytest.mark.django_db
+def test_project_management_can_use_same_office_client_from_another_business_unit() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    project_owner, project_manager, _, category, cost_center = _build_project_management_context(
+        business_units[0]
+    )
+    office_level_client = create_client(
+        business_unit=business_units[1],
+        client_code="CLI-OFFICE-WIDE",
+        name="Office Wide Client",
+    )
+
+    response = client.post(
+        "/system/projects/",
+        data={
+            "business_unit_id": str(business_units[0].id),
+            "project_code": "PRJ-OFFICE-CLIENT",
+            "name": "Office Client Project",
+            "description": "Uses client from another BU in same office",
+            "project_owner_employee_id": str(project_owner.id),
+            "project_manager_employee_id": str(project_manager.id),
+            "client_id": str(office_level_client.id),
+            "internal_category_id": str(category.id),
+            "cost_center_id": str(cost_center.id),
+            "start_date": date(2026, 5, 1).isoformat(),
+            "billable_flag": "on",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    project = Project.objects.get(project_code="PRJ-OFFICE-CLIENT")
+    assert project.client_id == office_level_client.id
+
+
+@pytest.mark.django_db
+def test_project_management_can_use_same_office_cost_center_from_another_business_unit() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    project_owner, project_manager, project_client, category, _ = _build_project_management_context(
+        business_units[0]
+    )
+    office_level_cost_center = create_cost_center(
+        business_unit=business_units[1],
+        cost_center_code="CC-OFFICE-WIDE",
+        name="Office Wide Cost Center",
+    )
+
+    response = client.post(
+        "/system/projects/",
+        data={
+            "business_unit_id": str(business_units[0].id),
+            "project_code": "PRJ-OFFICE-CC",
+            "name": "Office Cost Center Project",
+            "description": "Uses cost center from another BU in same office",
+            "project_owner_employee_id": str(project_owner.id),
+            "project_manager_employee_id": str(project_manager.id),
+            "client_id": str(project_client.id),
+            "internal_category_id": str(category.id),
+            "cost_center_id": str(office_level_cost_center.id),
+            "start_date": date(2026, 5, 1).isoformat(),
+            "billable_flag": "on",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    project = Project.objects.get(project_code="PRJ-OFFICE-CC")
+    assert project.cost_center_id == office_level_cost_center.id
 
 
 @pytest.mark.django_db
@@ -891,16 +1321,70 @@ def test_country_management_create_and_update_via_html() -> None:
         data={
             "office_name": "Chile",
             "status_code": "ACTIVE",
+            "bootstrap_bu_code": "CHI-ADMIN",
+            "bootstrap_bu_name": "Chile Administration",
+            "bootstrap_bu_description": "Starter BU for Chile Office",
+            "bootstrap_admin_employee_code": "EMP-CHI-ADMIN-001",
+            "bootstrap_admin_full_name": "Chile Office Admin",
+            "bootstrap_admin_email": "chile.admin@example.com",
+            "approval_mode_code": "PROJECT",
+            "allow_employee_withdraw_flag": "on",
+            "timesheet_cutoff_date": "2026-05-31",
+            "count_non_billable_in_daily_limit_flag": "on",
+            "archive_after_years": "7",
+            "enable_timer_flag": "on",
+            "enable_leave_integration_flag": "on",
+            "enable_copy_previous_week_flag": "on",
         },
         follow=False,
     )
 
     assert create_response.status_code == 302
     country = Office.objects.get(office_name="Chile")
+    configuration = OfficeConfiguration.objects.get(office=country)
+    bootstrap_business_unit = BusinessUnit.objects.get(bu_code="CHI-ADMIN")
+    bootstrap_admin = Employee.objects.get(canonical_email="chile.admin@example.com")
+    assert configuration.allow_employee_withdraw_flag is True
+    assert configuration.timesheet_cutoff_date == date(2026, 5, 31)
+    assert configuration.archive_after_years == 7
+    assert bootstrap_business_unit.office_id == country.id
+    assert bootstrap_business_unit.name == "Chile Administration"
+    assert bootstrap_admin.office_id == country.id
+    assert bootstrap_admin.primary_business_unit_id == bootstrap_business_unit.id
+    assert EmployeeBusinessUnit.objects.filter(
+        employee=bootstrap_admin,
+        business_unit=bootstrap_business_unit,
+        is_primary_flag=True,
+        valid_to__isnull=True,
+    ).exists()
+    assert EmployeeRole.objects.filter(
+        employee=bootstrap_admin,
+        role__value_code="USER",
+        valid_to__isnull=True,
+    ).exists()
+    assert EmployeeRole.objects.filter(
+        employee=bootstrap_admin,
+        role__value_code="TS_ADMIN",
+        valid_to__isnull=True,
+    ).exists()
+
+    bootstrap_client = Client()
+    initialize_ui_session(bootstrap_client, "chile.admin@example.com")
+    bootstrap_system_response = bootstrap_client.get("/system/business-units/")
+    assert bootstrap_system_response.status_code == 200
+    assert "CHI-ADMIN" in bootstrap_system_response.content.decode()
+
+    office_detail_response = client.get(f"/system/offices/{country.id}/")
+    office_detail_content = office_detail_response.content.decode()
+    assert office_detail_response.status_code == 200
+    assert "Office Administrators" in office_detail_content
+    assert "chile.admin@example.com" in office_detail_content
+    assert "CHI-ADMIN" in office_detail_content
 
     update_response = client.post(
         f"/system/offices/{country.id}/",
         data={
+            "form_name": "general",
             "office_name": "Chile Updated",
             "status_code": "INACTIVE",
         },
@@ -911,7 +1395,81 @@ def test_country_management_create_and_update_via_html() -> None:
     country.refresh_from_db()
     assert country.office_name == "Chile Updated"
     assert country.status.value_code == "INACTIVE"
+    configuration_update_response = client.post(
+        f"/system/offices/{country.id}/",
+        data={
+            "form_name": "configuration",
+            "approval_mode_code": "PROJECT",
+            "archive_after_years": "9",
+        },
+        follow=False,
+    )
+
+    assert configuration_update_response.status_code == 302
+    configuration.refresh_from_db()
+    assert configuration.archive_after_years == 9
     assert AuditLog.objects.filter(entity_name="office", entity_id=country.id).count() == 3
+    assert (
+        AuditLog.objects.filter(
+            entity_name="office_configuration",
+            field_name="archive_after_years",
+            entity_id=configuration.id,
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_country_management_can_delete_unused_office_via_html() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    office = create_office(office_name="Delete Me", active=True)
+    configuration = OfficeConfiguration.objects.get(office=office)
+
+    response = client.post(
+        f"/system/offices/{office.id}/",
+        data={
+            "form_name": "delete",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/offices/"
+    assert not Office.objects.filter(id=office.id).exists()
+    assert not OfficeConfiguration.objects.filter(id=configuration.id).exists()
+    assert AuditLog.objects.filter(entity_name="office", entity_id=office.id).count() == 1
+    assert (
+        AuditLog.objects.filter(
+            entity_name="office_configuration",
+            entity_id=configuration.id,
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_country_management_delete_is_blocked_when_office_has_business_units() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    office = create_office(office_name="Used Office", active=True)
+    create_business_unit(
+        bu_code="BU-USED-OFFICE",
+        name="Used Office BU",
+        office=office,
+    )
+
+    response = client.post(
+        f"/system/offices/{office.id}/",
+        data={
+            "form_name": "delete",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete Office" in content
+    assert "Office cannot be deleted because it is still referenced" in content
+    assert Office.objects.filter(id=office.id).exists()
 
 
 @pytest.mark.django_db

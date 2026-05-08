@@ -5,12 +5,12 @@ from django.test import Client
 
 from apps.master_data.models import (
     BusinessUnit,
-    BusinessUnitConfiguration,
     CalendarPeriodRule,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
     Office,
+    OfficeConfiguration,
     Project,
     ProjectAssignment,
     YearlyCalendar,
@@ -50,12 +50,38 @@ def get_office(office_name: str = "Holding") -> Office:
 
 
 def create_office(*, office_name: str, active: bool = True) -> Office:
-    return Office.objects.create(
+    office = Office.objects.create(
         office_name=office_name,
         status=ref_value("COUNTRY_STATUS", "ACTIVE" if active else "INACTIVE"),
         created_by=SYSTEM_ACTOR,
         updated_by=SYSTEM_ACTOR,
     )
+    create_office_configuration(office=office)
+    return office
+
+
+def create_office_configuration(
+    *,
+    office: Office,
+    approval_mode_code: str = "PROJECT",
+    allow_employee_withdraw_flag: bool = False,
+    timesheet_cutoff_date: date | None = None,
+) -> OfficeConfiguration:
+    return OfficeConfiguration.objects.update_or_create(
+        office=office,
+        defaults={
+            "approval_mode": ref_value("APPROVAL_MODE", approval_mode_code),
+            "allow_employee_withdraw_flag": allow_employee_withdraw_flag,
+            "timesheet_cutoff_date": timesheet_cutoff_date,
+            "count_non_billable_in_daily_limit_flag": False,
+            "archive_after_years": 5,
+            "enable_timer_flag": False,
+            "enable_leave_integration_flag": False,
+            "enable_copy_previous_week_flag": False,
+            "created_by": SYSTEM_ACTOR,
+            "updated_by": SYSTEM_ACTOR,
+        },
+    )[0]
 
 
 def create_business_unit(
@@ -81,19 +107,12 @@ def create_business_unit_configuration(
     approval_mode_code: str = "PROJECT",
     allow_employee_withdraw_flag: bool = False,
     timesheet_cutoff_date: date | None = None,
-) -> BusinessUnitConfiguration:
-    return BusinessUnitConfiguration.objects.create(
-        business_unit=business_unit,
-        approval_mode=ref_value("APPROVAL_MODE", approval_mode_code),
+) -> OfficeConfiguration:
+    return create_office_configuration(
+        office=business_unit.office,
+        approval_mode_code=approval_mode_code,
         allow_employee_withdraw_flag=allow_employee_withdraw_flag,
         timesheet_cutoff_date=timesheet_cutoff_date,
-        count_non_billable_in_daily_limit_flag=False,
-        archive_after_years=5,
-        enable_timer_flag=False,
-        enable_leave_integration_flag=False,
-        enable_copy_previous_week_flag=False,
-        created_by=SYSTEM_ACTOR,
-        updated_by=SYSTEM_ACTOR,
     )
 
 
@@ -155,15 +174,16 @@ def assign_role(
 
 def create_client(
     *,
-    business_unit: BusinessUnit,
+    business_unit: BusinessUnit | None = None,
+    office: Office | None = None,
     client_code: str,
     name: str,
     parent_client: ClientRecord | None = None,
     active: bool = True,
 ) -> ClientRecord:
+    client_office = office or (business_unit.office if business_unit is not None else get_office())
     return ClientRecord.objects.create(
-        business_unit=business_unit,
-        office=business_unit.office,
+        office=client_office,
         parent_client=parent_client,
         client_code=client_code,
         name=name,
@@ -195,15 +215,18 @@ def create_internal_category(
 
 def create_cost_center(
     *,
-    business_unit: BusinessUnit,
+    business_unit: BusinessUnit | None = None,
+    office: Office | None = None,
     cost_center_code: str,
     name: str,
     description: str = "",
     active: bool = True,
 ) -> CostCenterRecord:
+    cost_center_office = office or (
+        business_unit.office if business_unit is not None else get_office()
+    )
     return CostCenterRecord.objects.create(
-        business_unit=business_unit,
-        office=business_unit.office,
+        office=cost_center_office,
         cost_center_code=cost_center_code,
         name=name,
         description=description,

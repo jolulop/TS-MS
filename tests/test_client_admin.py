@@ -27,7 +27,7 @@ def initialize_session(client: Client, validated_email: str) -> None:
 
 
 @pytest.mark.django_db
-def test_ts_admin_client_list_is_limited_to_assigned_business_units() -> None:
+def test_ts_admin_client_list_is_office_scoped_across_business_units() -> None:
     seed_reference_data()
     admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
     other_bu = create_business_unit(bu_code="BU-OTHER", name="Other BU")
@@ -54,7 +54,10 @@ def test_ts_admin_client_list_is_limited_to_assigned_business_units() -> None:
     response = client.get("/api/v1/admin/clients/")
 
     assert response.status_code == 200
-    assert [item["client_code"] for item in response.json()["clients"]] == ["CLIENT-1"]
+    assert [item["client_code"] for item in response.json()["clients"]] == [
+        "CLIENT-1",
+        "CLIENT-2",
+    ]
 
 
 @pytest.mark.django_db
@@ -88,7 +91,6 @@ def test_ts_admin_can_create_and_update_client_with_audit() -> None:
         "/api/v1/admin/clients/",
         data=json.dumps(
             {
-                "business_unit_id": business_unit.id,
                 "client_code": "CLIENT-NEW",
                 "name": "New Client",
                 "parent_client_id": parent_client.id,
@@ -166,10 +168,15 @@ def test_non_admin_is_denied_client_admin_endpoints() -> None:
 
 
 @pytest.mark.django_db
-def test_ts_admin_cannot_view_or_create_out_of_scope_client() -> None:
+def test_ts_admin_cannot_view_or_create_out_of_office_client() -> None:
     seed_reference_data()
     admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
-    other_bu = create_business_unit(bu_code="BU-OTHER", name="Other BU")
+    other_office = create_office(office_name="Other Office")
+    other_bu = create_business_unit(
+        bu_code="BU-OTHER",
+        name="Other BU",
+        office=other_office,
+    )
     admin_employee = create_employee(
         employee_code="EMP-1004",
         full_name="Admin User",
@@ -198,7 +205,7 @@ def test_ts_admin_cannot_view_or_create_out_of_scope_client() -> None:
         "/api/v1/admin/clients/",
         data=json.dumps(
             {
-                "business_unit_id": other_bu.id,
+                "office_id": other_office.id,
                 "client_code": "CLIENT-DENIED",
                 "name": "Denied Client",
             }
@@ -207,9 +214,9 @@ def test_ts_admin_cannot_view_or_create_out_of_scope_client() -> None:
     )
 
     assert detail_response.status_code == 403
-    assert detail_response.json()["error"]["code"] == "BUSINESS_UNIT_OUT_OF_SCOPE"
-    assert create_response.status_code == 403
-    assert create_response.json()["error"]["code"] == "BUSINESS_UNIT_OUT_OF_SCOPE"
+    assert detail_response.json()["error"]["code"] == "COUNTRY_OUT_OF_SCOPE"
+    assert create_response.status_code == 400
+    assert create_response.json()["error"]["code"] == "CLIENT_COUNTRY_MISMATCH"
 
 
 @pytest.mark.django_db
@@ -306,7 +313,6 @@ def test_ts_admin_client_write_rejects_country_change_and_inactive_country() -> 
         "/api/v1/admin/clients/",
         data=json.dumps(
             {
-                "business_unit_id": business_unit.id,
                 "client_code": "CLIENT-BLOCKED",
                 "name": "Blocked Client",
             }

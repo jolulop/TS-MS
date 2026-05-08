@@ -10,6 +10,7 @@ from tests.helpers import (
     create_business_unit,
     create_cost_center,
     create_employee,
+    create_office,
     seed_reference_data,
 )
 
@@ -24,7 +25,7 @@ def initialize_session(client: Client, validated_email: str) -> None:
 
 
 @pytest.mark.django_db
-def test_ts_admin_cost_center_list_is_limited_to_assigned_business_units() -> None:
+def test_ts_admin_cost_center_list_is_office_scoped_across_business_units() -> None:
     seed_reference_data()
     admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
     other_bu = create_business_unit(bu_code="BU-OTHER", name="Other BU")
@@ -59,7 +60,10 @@ def test_ts_admin_cost_center_list_is_limited_to_assigned_business_units() -> No
     response = client.get("/api/v1/admin/cost-centers/")
 
     assert response.status_code == 200
-    assert [item["cost_center_code"] for item in response.json()["cost_centers"]] == ["CC-1"]
+    assert [item["cost_center_code"] for item in response.json()["cost_centers"]] == [
+        "CC-1",
+        "CC-2",
+    ]
 
 
 @pytest.mark.django_db
@@ -87,7 +91,6 @@ def test_ts_admin_can_create_and_update_cost_center_with_audit() -> None:
         "/api/v1/admin/cost-centers/",
         data=json.dumps(
             {
-                "business_unit_id": business_unit.id,
                 "cost_center_code": "CC-NEW",
                 "name": "New Cost Center",
                 "description": "Initial description",
@@ -164,10 +167,15 @@ def test_non_admin_is_denied_cost_center_admin_endpoints() -> None:
 
 
 @pytest.mark.django_db
-def test_ts_admin_cannot_view_or_create_out_of_scope_cost_center() -> None:
+def test_ts_admin_cannot_view_or_create_out_of_office_cost_center() -> None:
     seed_reference_data()
     admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
-    other_bu = create_business_unit(bu_code="BU-OTHER", name="Other BU")
+    other_office = create_office(office_name="Other Office")
+    other_bu = create_business_unit(
+        bu_code="BU-OTHER",
+        name="Other BU",
+        office=other_office,
+    )
     admin_employee = create_employee(
         employee_code="EMP-1204",
         full_name="Admin User",
@@ -196,7 +204,7 @@ def test_ts_admin_cannot_view_or_create_out_of_scope_cost_center() -> None:
         "/api/v1/admin/cost-centers/",
         data=json.dumps(
             {
-                "business_unit_id": other_bu.id,
+                "office_id": other_office.id,
                 "cost_center_code": "CC-DENIED",
                 "name": "Denied Cost Center",
             }
@@ -205,6 +213,6 @@ def test_ts_admin_cannot_view_or_create_out_of_scope_cost_center() -> None:
     )
 
     assert detail_response.status_code == 403
-    assert detail_response.json()["error"]["code"] == "BUSINESS_UNIT_OUT_OF_SCOPE"
-    assert create_response.status_code == 403
-    assert create_response.json()["error"]["code"] == "BUSINESS_UNIT_OUT_OF_SCOPE"
+    assert detail_response.json()["error"]["code"] == "COUNTRY_OUT_OF_SCOPE"
+    assert create_response.status_code == 400
+    assert create_response.json()["error"]["code"] == "COST_CENTER_COUNTRY_MISMATCH"

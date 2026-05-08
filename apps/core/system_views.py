@@ -222,16 +222,15 @@ def _parent_client_options(
     selected_values = _selected_values(selected)
     options = [_option("", "No parent client", selected_values=selected_values)]
     clients = ClientRecord.objects.filter(
-        business_unit_id__in=current_user.scoped_business_unit_ids,
         office_id=current_user.office_id,
-    ).select_related("business_unit")
+    ).select_related("office")
     if exclude_client_id is not None:
         clients = clients.exclude(id=exclude_client_id)
-    clients = clients.order_by("business_unit__bu_code", "client_code")
+    clients = clients.order_by("client_code")
     options.extend(
         _option(
             client.id,
-            f"{client.business_unit.bu_code} - {client.client_code} - {client.name}",
+            f"{client.client_code} - {client.name}",
             selected_values=selected_values,
         )
         for client in clients
@@ -250,6 +249,7 @@ def _field(
     options: list[dict] | None = None,
     checked: bool = False,
     readonly: bool = False,
+    disabled: bool = False,
 ) -> dict:
     return {
         "name": name,
@@ -261,6 +261,7 @@ def _field(
         "options": options or [],
         "checked": checked,
         "readonly": readonly,
+        "disabled": disabled,
     }
 
 
@@ -322,16 +323,13 @@ def _scoped_client_options(
     if include_blank:
         options.append(_option("", "Select a Client", selected_values=selected_values))
     clients = ClientRecord.objects.filter(
-        business_unit_id__in=current_user.scoped_business_unit_ids,
         office_id=current_user.office_id,
-    ).select_related("business_unit")
-    if business_unit_id is not None:
-        clients = clients.filter(business_unit_id=business_unit_id)
-    clients = clients.order_by("business_unit__bu_code", "client_code")
+    ).select_related("office")
+    clients = clients.order_by("client_code")
     options.extend(
         _option(
             client.id,
-            f"{client.business_unit.bu_code} - {client.client_code} - {client.name}",
+            f"{client.client_code} - {client.name}",
             selected_values=selected_values,
         )
         for client in clients
@@ -380,19 +378,13 @@ def _scoped_cost_center_options(
     if include_blank:
         options.append(_option("", "Select a Cost Center", selected_values=selected_values))
     cost_centers = CostCenterRecord.objects.filter(
-        business_unit_id__in=current_user.scoped_business_unit_ids,
         office_id=current_user.office_id,
-    ).select_related("business_unit")
-    if business_unit_id is not None:
-        cost_centers = cost_centers.filter(business_unit_id=business_unit_id)
-    cost_centers = cost_centers.order_by("business_unit__bu_code", "cost_center_code")
+    ).select_related("office")
+    cost_centers = cost_centers.order_by("cost_center_code")
     options.extend(
         _option(
             cost_center.id,
-            (
-                f"{cost_center.business_unit.bu_code} - "
-                f"{cost_center.cost_center_code} - {cost_center.name}"
-            ),
+            f"{cost_center.cost_center_code} - {cost_center.name}",
             selected_values=selected_values,
         )
         for cost_center in cost_centers
@@ -536,7 +528,7 @@ def _employee_create_fields(
     selected_business_units = (
         post_data.getlist("business_unit_ids")
         if post_data is not None
-        else [str(current_user.primary_business_unit_id)]
+        else []
     )
     return [
         _office_display_field(current_user.office_name),
@@ -595,7 +587,10 @@ def _employee_create_fields(
                 current_user,
                 selected=selected_business_units,
             ),
-            help_text="Select every Business Unit this employee may operate in.",
+            help_text=(
+                "Select every additional Business Unit this employee may operate in. "
+                "The selected primary Business Unit is always included automatically."
+            ),
             required=True,
         ),
         _field(
@@ -704,10 +699,6 @@ def _client_form_fields(
     entity: dict | None = None,
 ) -> list[dict]:
     submitted_data = post_data or QueryDict("")
-    selected_business_unit = submitted_data.get("business_unit_id", "")
-    if entity is not None and post_data is None:
-        selected_business_unit = str(entity["business_unit"]["id"])
-
     selected_parent = submitted_data.get("parent_client_id", "")
     if entity is not None and post_data is None and entity["parent_client"] is not None:
         selected_parent = str(entity["parent_client"]["id"])
@@ -715,17 +706,6 @@ def _client_form_fields(
     return [
         _office_display_field(
             entity["office"]["office_name"] if entity else current_user.office_name
-        ),
-        _field(
-            name="business_unit_id",
-            label="Business Unit",
-            kind="select",
-            options=_scoped_business_unit_options(
-                current_user,
-                selected=selected_business_unit,
-                include_blank=entity is None,
-            ),
-            required=True,
         ),
         _field(
             name="client_code",
@@ -840,6 +820,66 @@ def _simple_master_fields(
             kind="select",
             options=_ref_options(
                 status_domain,
+                selected=submitted_data.get(
+                    "status_code", entity["status"] if entity else "ACTIVE"
+                )
+                if post_data is not None or entity is not None
+                else "ACTIVE",
+            ),
+            required=True,
+        ),
+    ]
+
+
+def _cost_center_fields(
+    current_user: CurrentUser,
+    *,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    description_value = ""
+    if entity is not None:
+        description_value = entity["description"]
+    if post_data is not None:
+        description_value = submitted_data.get("description", description_value)
+
+    return [
+        _office_display_field(
+            entity["office"]["office_name"] if entity else current_user.office_name
+        ),
+        _field(
+            name="cost_center_code",
+            label="Cost Center Code",
+            kind="text",
+            value=submitted_data.get(
+                "cost_center_code", entity["cost_center_code"] if entity else ""
+            )
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="name",
+            label="Cost Center Name",
+            kind="text",
+            value=submitted_data.get("name", entity["name"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="description",
+            label="Description",
+            kind="textarea",
+            value=description_value,
+        ),
+        _field(
+            name="status_code",
+            label="Status",
+            kind="select",
+            options=_ref_options(
+                "COST_CENTER_STATUS",
                 selected=submitted_data.get(
                     "status_code", entity["status"] if entity else "ACTIVE"
                 )
@@ -1500,7 +1540,6 @@ def _client_rows(clients: list[dict]) -> list[dict]:
         {
             "href": f"/system/clients/{client['id']}/",
             "cells": [
-                client["business_unit"]["bu_code"],
                 client["client_code"],
                 client["name"],
                 client["status"],
@@ -1513,7 +1552,6 @@ def _client_rows(clients: list[dict]) -> list[dict]:
 
 def _client_detail_rows(client: dict) -> list[tuple[str, str]]:
     return [
-        ("Business Unit", client["business_unit"]["bu_code"]),
         ("Client Code", client["client_code"]),
         ("Name", client["name"]),
         ("Status", client["status"]),
@@ -1554,7 +1592,6 @@ def _cost_center_rows(cost_centers: list[dict]) -> list[dict]:
         {
             "href": f"/system/cost-centers/{cost_center['id']}/",
             "cells": [
-                cost_center["business_unit"]["bu_code"],
                 cost_center["cost_center_code"],
                 cost_center["name"],
                 cost_center["status"],
@@ -1566,7 +1603,6 @@ def _cost_center_rows(cost_centers: list[dict]) -> list[dict]:
 
 def _cost_center_detail_rows(cost_center: dict) -> list[tuple[str, str]]:
     return [
-        ("Business Unit", cost_center["business_unit"]["bu_code"]),
         ("Cost Center Code", cost_center["cost_center_code"]),
         ("Name", cost_center["name"]),
         ("Description", cost_center["description"] or "None"),
@@ -1742,6 +1778,199 @@ def _office_form_fields(
     ]
 
 
+def _office_bootstrap_fields(*, post_data: QueryDict | None = None) -> list[dict]:
+    return [
+        _field(
+            name="bootstrap_bu_code",
+            label="Initial Business Unit Code",
+            kind="text",
+            value=post_data.get("bootstrap_bu_code", "") if post_data is not None else "",
+            required=True,
+            help_text="Required starter Business Unit code for the new Office.",
+        ),
+        _field(
+            name="bootstrap_bu_name",
+            label="Initial Business Unit Name",
+            kind="text",
+            value=post_data.get("bootstrap_bu_name", "") if post_data is not None else "",
+            required=True,
+            help_text="Required starter Business Unit name for the new Office.",
+        ),
+        _field(
+            name="bootstrap_bu_description",
+            label="Initial Business Unit Description",
+            kind="textarea",
+            value=post_data.get("bootstrap_bu_description", "") if post_data is not None else "",
+            help_text="Optional description for the starter Business Unit.",
+        ),
+        _field(
+            name="bootstrap_admin_employee_code",
+            label="Initial Admin Employee Code",
+            kind="text",
+            value=(
+                post_data.get("bootstrap_admin_employee_code", "")
+                if post_data is not None
+                else ""
+            ),
+            required=True,
+            help_text="Required employee code for the first Office administrator.",
+        ),
+        _field(
+            name="bootstrap_admin_full_name",
+            label="Initial Admin Full Name",
+            kind="text",
+            value=post_data.get("bootstrap_admin_full_name", "") if post_data is not None else "",
+            required=True,
+            help_text="Required full name for the first Office administrator.",
+        ),
+        _field(
+            name="bootstrap_admin_email",
+            label="Initial Admin Email",
+            kind="email",
+            value=post_data.get("bootstrap_admin_email", "") if post_data is not None else "",
+            required=True,
+            help_text=(
+                "Required email for the first Office administrator. The created "
+                "employee receives USER and TS_ADMIN roles automatically."
+            ),
+        ),
+    ]
+
+
+def _configuration_fields(
+    entity: dict,
+    *,
+    post_data: QueryDict | None = None,
+    read_only: bool = False,
+    scope_label: str,
+) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    configuration = entity["configuration"]
+    help_scope = "the parent Office" if read_only else scope_label
+    return [
+        _field(
+            name="approval_mode_code",
+            label="Approval Mode",
+            kind="select",
+            options=_ref_options(
+                "APPROVAL_MODE",
+                selected=submitted_data.get(
+                    "approval_mode_code",
+                    configuration["approval_mode"],
+                )
+                if post_data is not None
+                else configuration["approval_mode"],
+            ),
+            required=True,
+            disabled=read_only,
+            help_text=(
+                "Defines how submitted time is routed for approval. The current "
+                f"working option is project-based approval for {help_scope}."
+            ),
+        ),
+        _field(
+            name="allow_employee_withdraw_flag",
+            label="Allow Employee Withdraw",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "allow_employee_withdraw_flag")
+            if post_data is not None
+            else bool(configuration["allow_employee_withdraw_flag"]),
+            disabled=read_only,
+            help_text=(
+                "If enabled, employees may withdraw a submitted timesheet before "
+                f"final approval for {help_scope}."
+            ),
+        ),
+        _field(
+            name="timesheet_cutoff_date",
+            label="Timesheet Cutoff Date",
+            kind="date",
+            value=submitted_data.get(
+                "timesheet_cutoff_date",
+                configuration["timesheet_cutoff_date"] or "",
+            )
+            if post_data is not None
+            else configuration["timesheet_cutoff_date"] or "",
+            readonly=read_only,
+            disabled=read_only,
+            help_text=(
+                "Optional date before which employee timesheets become locked for "
+                f"edit or submit in {help_scope}."
+            ),
+        ),
+        _field(
+            name="count_non_billable_in_daily_limit_flag",
+            label="Count Non-billable In Daily Limit",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "count_non_billable_in_daily_limit_flag")
+            if post_data is not None
+            else bool(configuration["count_non_billable_in_daily_limit_flag"]),
+            disabled=read_only,
+            help_text=(
+                "If enabled, non-billable hours count toward the daily calendar "
+                f"hour limit for {help_scope}."
+            ),
+        ),
+        _field(
+            name="archive_after_years",
+            label="Archive After Years",
+            kind="number",
+            value=submitted_data.get(
+                "archive_after_years",
+                str(configuration["archive_after_years"]),
+            )
+            if post_data is not None
+            else str(configuration["archive_after_years"]),
+            required=True,
+            readonly=read_only,
+            disabled=read_only,
+            help_text=(
+                "Retention period, in years, before approved historical "
+                f"timesheets become archive candidates for {help_scope}. Must be greater than 0."
+            ),
+        ),
+        _field(
+            name="enable_timer_flag",
+            label="Enable Timer",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "enable_timer_flag")
+            if post_data is not None
+            else bool(configuration["enable_timer_flag"]),
+            disabled=read_only,
+            help_text=(
+                "Reserved switch for future timer-based time capture within "
+                f"{help_scope}."
+            ),
+        ),
+        _field(
+            name="enable_leave_integration_flag",
+            label="Enable Leave Integration",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "enable_leave_integration_flag")
+            if post_data is not None
+            else bool(configuration["enable_leave_integration_flag"]),
+            disabled=read_only,
+            help_text=(
+                "Reserved switch for future integration that imports leave or "
+                f"absence data into timesheet behavior for {help_scope}."
+            ),
+        ),
+        _field(
+            name="enable_copy_previous_week_flag",
+            label="Enable Copy Previous Week",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "enable_copy_previous_week_flag")
+            if post_data is not None
+            else bool(configuration["enable_copy_previous_week_flag"]),
+            disabled=read_only,
+            help_text=(
+                "Reserved switch for a future shortcut that preloads a new week "
+                f"using the previous week as a starting point for {help_scope}."
+            ),
+        ),
+    ]
+
+
 def _business_unit_general_fields(
     current_user: CurrentUser,
     *,
@@ -1807,121 +2036,26 @@ def _business_unit_configuration_fields(
     entity: dict,
     *,
     post_data: QueryDict | None = None,
+    read_only: bool = False,
 ) -> list[dict]:
-    submitted_data = post_data or QueryDict("")
-    configuration = entity["configuration"]
-    return [
-        _field(
-            name="approval_mode_code",
-            label="Approval Mode",
-            kind="select",
-            options=_ref_options(
-                "APPROVAL_MODE",
-                selected=submitted_data.get(
-                    "approval_mode_code",
-                    configuration["approval_mode"],
-                )
-                if post_data is not None
-                else configuration["approval_mode"],
-            ),
-            required=True,
-            help_text=(
-                "Defines how submitted time is routed for approval. The current "
-                "working option is project-based approval."
-            ),
-        ),
-        _field(
-            name="allow_employee_withdraw_flag",
-            label="Allow Employee Withdraw",
-            kind="checkbox",
-            checked=_bool_from_post(post_data, "allow_employee_withdraw_flag")
-            if post_data is not None
-            else bool(configuration["allow_employee_withdraw_flag"]),
-            help_text=(
-                "If enabled, employees may withdraw a submitted timesheet before "
-                "final approval."
-            ),
-        ),
-        _field(
-            name="timesheet_cutoff_date",
-            label="Timesheet Cutoff Date",
-            kind="date",
-            value=submitted_data.get(
-                "timesheet_cutoff_date",
-                configuration["timesheet_cutoff_date"] or "",
-            )
-            if post_data is not None
-            else configuration["timesheet_cutoff_date"] or "",
-            help_text=(
-                "Optional cut-off date after which normal employee edits or "
-                "submissions should stop for this Business Unit."
-            ),
-        ),
-        _field(
-            name="count_non_billable_in_daily_limit_flag",
-            label="Count Non-billable In Daily Limit",
-            kind="checkbox",
-            checked=_bool_from_post(post_data, "count_non_billable_in_daily_limit_flag")
-            if post_data is not None
-            else bool(configuration["count_non_billable_in_daily_limit_flag"]),
-            help_text=(
-                "If enabled, non-billable hours count toward the daily calendar "
-                "hour limit the same way billable hours do."
-            ),
-        ),
-        _field(
-            name="archive_after_years",
-            label="Archive After Years",
-            kind="number",
-            value=submitted_data.get(
-                "archive_after_years",
-                str(configuration["archive_after_years"]),
-            )
-            if post_data is not None
-            else str(configuration["archive_after_years"]),
-            required=True,
-            help_text=(
-                "Retention period, in years, before approved historical "
-                "timesheets become archive candidates. Must be greater than 0."
-            ),
-        ),
-        _field(
-            name="enable_timer_flag",
-            label="Enable Timer",
-            kind="checkbox",
-            checked=_bool_from_post(post_data, "enable_timer_flag")
-            if post_data is not None
-            else bool(configuration["enable_timer_flag"]),
-            help_text=(
-                "Reserved switch for future timer-based time capture within this "
-                "Business Unit."
-            ),
-        ),
-        _field(
-            name="enable_leave_integration_flag",
-            label="Enable Leave Integration",
-            kind="checkbox",
-            checked=_bool_from_post(post_data, "enable_leave_integration_flag")
-            if post_data is not None
-            else bool(configuration["enable_leave_integration_flag"]),
-            help_text=(
-                "Reserved switch for future integration that imports leave or "
-                "absence data into timesheet behavior."
-            ),
-        ),
-        _field(
-            name="enable_copy_previous_week_flag",
-            label="Enable Copy Previous Week",
-            kind="checkbox",
-            checked=_bool_from_post(post_data, "enable_copy_previous_week_flag")
-            if post_data is not None
-            else bool(configuration["enable_copy_previous_week_flag"]),
-            help_text=(
-                "Reserved switch for a future shortcut that preloads a new week "
-                "using the previous week as a starting point."
-            ),
-        ),
-    ]
+    return _configuration_fields(
+        entity,
+        post_data=post_data,
+        read_only=read_only,
+        scope_label="this Business Unit",
+    )
+
+
+def _office_configuration_fields(
+    entity: dict,
+    *,
+    post_data: QueryDict | None = None,
+) -> list[dict]:
+    return _configuration_fields(
+        entity,
+        post_data=post_data,
+        scope_label="this Office",
+    )
 
 
 def _business_unit_rows(business_units: list[dict]) -> list[dict]:
@@ -1970,6 +2104,21 @@ def _office_detail_rows(office: dict) -> list[tuple[str, str]]:
     ]
 
 
+def _office_administrator_rows(office: dict) -> list[tuple[str, str]]:
+    return [
+        (
+            f"Administrator {index}",
+            (
+                f"{administrator['employee_code']} - {administrator['full_name']} - "
+                f"{administrator['email']} - Primary BU: "
+                f"{administrator['primary_business_unit']['bu_code']} - "
+                f"Status: {administrator['status']}"
+            ),
+        )
+        for index, administrator in enumerate(office["administrators"], start=1)
+    ]
+
+
 BUSINESS_UNIT_CONFIG = MasterUiConfig(
     section_key="business-units",
     list_title="Business Unit Management",
@@ -1978,7 +2127,8 @@ BUSINESS_UNIT_CONFIG = MasterUiConfig(
     detail_title="Business Unit Detail",
     detail_eyebrow="SCR-103",
     detail_intro=(
-        "Maintain Business Unit identity and BU-level configuration inside the shared shell."
+        "Maintain Business Unit identity while reviewing inherited Office "
+        "configuration inside the shared shell."
     ),
     singular_label="Business Unit",
     plural_label="Business Units",
@@ -1993,10 +2143,16 @@ OFFICE_CONFIG = MasterUiConfig(
     section_key="offices",
     list_title="Office Management",
     list_eyebrow="SCR-100",
-    list_intro="Master administration list for office lifecycle and identity management.",
+    list_intro=(
+        "Master administration list for Office lifecycle, identity, and "
+        "inherited configuration management."
+    ),
     detail_title="Office Detail",
     detail_eyebrow="SCR-101",
-    detail_intro="Update office identity and active or inactive lifecycle state.",
+    detail_intro=(
+        "Update Office identity, lifecycle state, and inherited operational "
+        "configuration."
+    ),
     singular_label="Office",
     plural_label="Offices",
     collection_path="/system/offices/",
@@ -2010,18 +2166,19 @@ CLIENT_CONFIG = MasterUiConfig(
     section_key="clients",
     list_title="Client Management",
     list_eyebrow="SCR-130",
-    list_intro="Scoped client list with server-rendered create form for Timesheet Administrators.",
+    list_intro=(
+        "Office-scoped client list with server-rendered create form for "
+        "Timesheet Administrators."
+    ),
     detail_title="Client Detail",
     detail_eyebrow="SCR-131",
-    detail_intro=(
-        "Update client identity and lifecycle fields within your assigned Business Unit scope."
-    ),
+    detail_intro="Update client identity and lifecycle fields within your active Office.",
     singular_label="Client",
     plural_label="Clients",
     collection_path="/system/clients/",
     detail_path_prefix="/system/clients/",
-    table_headers=("Business Unit", "Client Code", "Name", "Status", "Parent"),
-    empty_message="No clients are available in your assigned Business Units yet.",
+    table_headers=("Client Code", "Name", "Status", "Parent"),
+    empty_message="No clients are available in your active Office yet.",
 )
 
 INTERNAL_CATEGORY_CONFIG = MasterUiConfig(
@@ -2046,16 +2203,16 @@ COST_CENTER_CONFIG = MasterUiConfig(
     section_key="cost-centers",
     list_title="Cost Center Management",
     list_eyebrow="SCR-150",
-    list_intro="Scoped cost center list with create form for Timesheet Administrators.",
+    list_intro="Office-scoped cost center list with create form for Timesheet Administrators.",
     detail_title="Cost Center Detail",
     detail_eyebrow="SCR-151",
-    detail_intro="Update cost center attributes while keeping Business Unit scope server-side.",
+    detail_intro="Update cost center attributes within your active Office.",
     singular_label="Cost Center",
     plural_label="Cost Centers",
     collection_path="/system/cost-centers/",
     detail_path_prefix="/system/cost-centers/",
-    table_headers=("Business Unit", "Cost Center Code", "Name", "Status"),
-    empty_message="No cost centers are available in your assigned Business Units yet.",
+    table_headers=("Cost Center Code", "Name", "Status"),
+    empty_message="No cost centers are available in your active Office yet.",
 )
 
 GENERAL_CHARGE_CODE_CONFIG = MasterUiConfig(
@@ -2169,8 +2326,9 @@ def business_units_collection(request: HttpRequest) -> HttpResponse:
         empty_message=BUSINESS_UNIT_CONFIG.empty_message,
         form_title="Create Business Unit",
         form_intro=(
-            "Create a new Business Unit in your active office. A default configuration "
-            "will be created automatically, and your admin scope will be extended to include it."
+            "Create a new Business Unit in your active office. It will inherit its "
+            "operational configuration from the parent Office, and your admin scope will "
+            "be extended to include it."
         ),
         form_fields=_business_unit_general_fields(current_user, post_data=post_data),
         submit_label="Create Business Unit",
@@ -2191,7 +2349,6 @@ def business_unit_detail(request: HttpRequest, business_unit_id: int) -> HttpRes
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
         active_form = request.POST.get("form_name", "general")
-        payload = {}
         if active_form == "general":
             payload = {
                 "bu_code": request.POST.get("bu_code", ""),
@@ -2199,28 +2356,8 @@ def business_unit_detail(request: HttpRequest, business_unit_id: int) -> HttpRes
                 "description": request.POST.get("description", ""),
                 "status_code": request.POST.get("status_code", ""),
             }
-        elif active_form == "configuration":
-            payload = {
-                "approval_mode_code": request.POST.get("approval_mode_code", ""),
-                "allow_employee_withdraw_flag": _bool_from_post(
-                    request.POST, "allow_employee_withdraw_flag"
-                ),
-                "timesheet_cutoff_date": request.POST.get("timesheet_cutoff_date", ""),
-                "count_non_billable_in_daily_limit_flag": _bool_from_post(
-                    request.POST,
-                    "count_non_billable_in_daily_limit_flag",
-                ),
-                "archive_after_years": request.POST.get("archive_after_years", ""),
-                "enable_timer_flag": _bool_from_post(request.POST, "enable_timer_flag"),
-                "enable_leave_integration_flag": _bool_from_post(
-                    request.POST,
-                    "enable_leave_integration_flag",
-                ),
-                "enable_copy_previous_week_flag": _bool_from_post(
-                    request.POST,
-                    "enable_copy_previous_week_flag",
-                ),
-            }
+        elif active_form == "delete":
+            payload = {}
         else:
             return _render_access_denied(
                 request,
@@ -2228,14 +2365,22 @@ def business_unit_detail(request: HttpRequest, business_unit_id: int) -> HttpRes
                 status=400,
             )
         try:
-            BusinessUnitManagementService.update_business_unit(
-                current_user,
-                business_unit_id,
-                payload,
-            )
+            if active_form == "delete":
+                BusinessUnitManagementService.delete_business_unit(
+                    current_user,
+                    business_unit_id,
+                )
+            else:
+                BusinessUnitManagementService.update_business_unit(
+                    current_user,
+                    business_unit_id,
+                    payload,
+                )
         except AuthError as error:
             form_error = error.message
         else:
+            if active_form == "delete":
+                return redirect(BUSINESS_UNIT_CONFIG.collection_path)
             return redirect(f"/system/business-units/{business_unit_id}/")
 
     try:
@@ -2268,14 +2413,27 @@ def business_unit_detail(request: HttpRequest, business_unit_id: int) -> HttpRes
         },
         {
             "form_name": "configuration",
-            "title": "Configuration",
-            "intro": "Update BU-level approval and operational configuration values.",
-            "submit_label": "Save Configuration",
-            "form_error": form_error if active_form == "configuration" else "",
+            "title": "Inherited Configuration",
+            "intro": (
+                "These values come from the parent Office and are shown here for reference only."
+            ),
+            "read_only": True,
             "fields": _business_unit_configuration_fields(
                 business_unit,
-                post_data=post_data if active_form == "configuration" else None,
+                read_only=True,
             ),
+        },
+        {
+            "form_name": "delete",
+            "title": "Delete Business Unit",
+            "intro": (
+                "Delete this Business Unit only if it has no dependent operational records. "
+                "Lightweight admin scope links will be removed automatically, but in-use "
+                "Business Units stay protected."
+            ),
+            "submit_label": "Delete Business Unit",
+            "form_error": form_error if active_form == "delete" else "",
+            "fields": [],
         },
     ]
     return _render_detail_page(
@@ -2307,6 +2465,37 @@ def offices_collection(request: HttpRequest) -> HttpResponse:
                 {
                     "office_name": request.POST.get("office_name", ""),
                     "status_code": request.POST.get("status_code", "ACTIVE"),
+                    "bootstrap_bu_code": request.POST.get("bootstrap_bu_code", ""),
+                    "bootstrap_bu_name": request.POST.get("bootstrap_bu_name", ""),
+                    "bootstrap_bu_description": request.POST.get(
+                        "bootstrap_bu_description", ""
+                    ),
+                    "bootstrap_admin_employee_code": request.POST.get(
+                        "bootstrap_admin_employee_code", ""
+                    ),
+                    "bootstrap_admin_full_name": request.POST.get(
+                        "bootstrap_admin_full_name", ""
+                    ),
+                    "bootstrap_admin_email": request.POST.get("bootstrap_admin_email", ""),
+                    "approval_mode_code": request.POST.get("approval_mode_code", ""),
+                    "allow_employee_withdraw_flag": _bool_from_post(
+                        request.POST, "allow_employee_withdraw_flag"
+                    ),
+                    "timesheet_cutoff_date": request.POST.get("timesheet_cutoff_date", ""),
+                    "count_non_billable_in_daily_limit_flag": _bool_from_post(
+                        request.POST,
+                        "count_non_billable_in_daily_limit_flag",
+                    ),
+                    "archive_after_years": request.POST.get("archive_after_years", ""),
+                    "enable_timer_flag": _bool_from_post(request.POST, "enable_timer_flag"),
+                    "enable_leave_integration_flag": _bool_from_post(
+                        request.POST,
+                        "enable_leave_integration_flag",
+                    ),
+                    "enable_copy_previous_week_flag": _bool_from_post(
+                        request.POST,
+                        "enable_copy_previous_week_flag",
+                    ),
                 },
             )
         except AuthError as error:
@@ -2333,8 +2522,29 @@ def offices_collection(request: HttpRequest) -> HttpResponse:
         table_rows=_office_rows(offices),
         empty_message=OFFICE_CONFIG.empty_message,
         form_title="Create Office",
-        form_intro="Create a new office and set its initial lifecycle state.",
-        form_fields=_office_form_fields(post_data=post_data),
+        form_intro=(
+            "Create a new office, bootstrap its first Business Unit and admin "
+            "employee, and define the inherited configuration for its Business Units."
+        ),
+        form_fields=(
+            _office_form_fields(post_data=post_data)
+            + _office_bootstrap_fields(post_data=post_data)
+            + _office_configuration_fields(
+                {
+                    "configuration": {
+                        "approval_mode": "PROJECT",
+                        "allow_employee_withdraw_flag": False,
+                        "timesheet_cutoff_date": None,
+                        "count_non_billable_in_daily_limit_flag": False,
+                        "archive_after_years": 5,
+                        "enable_timer_flag": False,
+                        "enable_leave_integration_flag": False,
+                        "enable_copy_previous_week_flag": False,
+                    }
+                },
+                post_data=post_data,
+            )
+        ),
         submit_label="Create Office",
         form_error=form_error,
         filter_links=filter_links,
@@ -2348,21 +2558,57 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
     if not isinstance(current_user, CurrentUser):
         return current_user
 
+    active_form = "general"
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
-        try:
-            OfficeManagementService.update_office(
-                current_user,
-                office_id,
-                {
-                    "office_name": request.POST.get("office_name", ""),
-                    "status_code": request.POST.get("status_code", ""),
-                },
+        active_form = request.POST.get("form_name", "general")
+        payload = {}
+        if active_form == "general":
+            payload = {
+                "office_name": request.POST.get("office_name", ""),
+                "status_code": request.POST.get("status_code", ""),
+            }
+        elif active_form == "configuration":
+            payload = {
+                "approval_mode_code": request.POST.get("approval_mode_code", ""),
+                "allow_employee_withdraw_flag": _bool_from_post(
+                    request.POST, "allow_employee_withdraw_flag"
+                ),
+                "timesheet_cutoff_date": request.POST.get("timesheet_cutoff_date", ""),
+                "count_non_billable_in_daily_limit_flag": _bool_from_post(
+                    request.POST,
+                    "count_non_billable_in_daily_limit_flag",
+                ),
+                "archive_after_years": request.POST.get("archive_after_years", ""),
+                "enable_timer_flag": _bool_from_post(request.POST, "enable_timer_flag"),
+                "enable_leave_integration_flag": _bool_from_post(
+                    request.POST,
+                    "enable_leave_integration_flag",
+                ),
+                "enable_copy_previous_week_flag": _bool_from_post(
+                    request.POST,
+                    "enable_copy_previous_week_flag",
+                ),
+            }
+        elif active_form == "delete":
+            payload = {}
+        else:
+            return _render_access_denied(
+                request,
+                message="Unknown Office form submission.",
+                status=400,
             )
+        try:
+            if active_form == "delete":
+                OfficeManagementService.delete_office(current_user, office_id)
+            else:
+                OfficeManagementService.update_office(current_user, office_id, payload)
         except AuthError as error:
             form_error = error.message
         else:
+            if active_form == "delete":
+                return redirect(OFFICE_CONFIG.collection_path)
             return redirect(f"/system/offices/{office_id}/")
 
     try:
@@ -2377,14 +2623,68 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
             error=error,
         )
 
-    return _render_master_detail(
+    form_sections = [
+        {
+            "form_name": "general",
+            "title": "General",
+            "intro": "Update Office identity and lifecycle status.",
+            "submit_label": "Save Office",
+            "form_error": form_error if active_form == "general" else "",
+            "fields": _office_form_fields(
+                post_data=post_data if active_form == "general" else None,
+                entity=office,
+            ),
+        },
+        {
+            "form_name": "configuration",
+            "title": "Configuration",
+            "intro": (
+                "Update the inherited operational configuration shared by "
+                "Business Units in this Office."
+            ),
+            "submit_label": "Save Configuration",
+            "form_error": form_error if active_form == "configuration" else "",
+            "fields": _office_configuration_fields(
+                office,
+                post_data=post_data if active_form == "configuration" else None,
+            ),
+        },
+        {
+            "form_name": "administrators",
+            "title": "Office Administrators",
+            "intro": (
+                "Active Office administrators are shown here for reference. "
+                "They cannot be edited from the Office screen."
+            ),
+            "read_only": True,
+            "detail_rows": _office_administrator_rows(office),
+            "empty_message": "No active Office administrators are assigned yet.",
+            "fields": [],
+        },
+        {
+            "form_name": "delete",
+            "title": "Delete Office",
+            "intro": (
+                "Delete this Office only if it has no Business Units or other "
+                "dependent records. If it is still in use, deletion will be blocked."
+            ),
+            "submit_label": "Delete Office",
+            "form_error": form_error if active_form == "delete" else "",
+            "fields": [],
+        },
+    ]
+
+    return _render_detail_page(
         request,
         current_user,
-        config=OFFICE_CONFIG,
-        entity=office,
+        title=office["name"],
+        eyebrow=OFFICE_CONFIG.detail_eyebrow,
+        intro=OFFICE_CONFIG.detail_intro,
         detail_rows=_office_detail_rows(office),
-        form_fields=_office_form_fields(post_data=post_data, entity=office),
-        form_error=form_error,
+        form_sections=form_sections,
+        back_href=OFFICE_CONFIG.collection_path,
+        back_label=f"Back to {OFFICE_CONFIG.plural_label}",
+        entity_status=office["status"],
     )
 
 
@@ -2487,6 +2787,8 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
                         "business_unit_ids": request.POST.getlist("business_unit_ids"),
                     },
                 )
+            elif active_form == "delete":
+                EmployeeManagementService.delete_employee(current_user, employee_id)
             else:
                 raise AuthError(
                     "UI_FORM_UNKNOWN",
@@ -2496,6 +2798,8 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
         except AuthError as error:
             form_error = error.message
         else:
+            if active_form == "delete":
+                return redirect("/system/employees/")
             return redirect(f"/system/employees/{employee_id}/")
 
     try:
@@ -2546,6 +2850,18 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
                 employee,
                 post_data=post_data if active_form == "business_units" else None,
             ),
+        },
+        {
+            "form_name": "delete",
+            "title": "Delete Employee",
+            "intro": (
+                "Delete this employee only if it has no dependent operational records. "
+                "Role and Business Unit scope rows created for the employee will be removed "
+                "with the employee when it is safe to do so."
+            ),
+            "submit_label": "Delete Employee",
+            "form_error": form_error if active_form == "delete" else "",
+            "fields": [],
         },
     ]
     return _render_detail_page(
@@ -2646,7 +2962,6 @@ def clients_collection(request: HttpRequest) -> HttpResponse:
             client = ClientManagementService.create_client(
                 current_user,
                 {
-                    "business_unit_id": request.POST.get("business_unit_id", ""),
                     "client_code": request.POST.get("client_code", ""),
                     "name": request.POST.get("name", ""),
                     "status_code": request.POST.get("status_code", "ACTIVE"),
@@ -2667,15 +2982,22 @@ def clients_collection(request: HttpRequest) -> HttpResponse:
         current_user,
         status_code=_service_status_code(selected_status_code),
     )
-    return _render_master_collection(
+    return _render_collection_page(
         request,
         current_user,
-        config=CLIENT_CONFIG,
-        entities=clients,
-        form_fields=_client_form_fields(current_user, post_data=post_data),
+        title=CLIENT_CONFIG.list_title,
+        eyebrow=CLIENT_CONFIG.list_eyebrow,
+        intro=CLIENT_CONFIG.list_intro,
+        table_headers=CLIENT_CONFIG.table_headers,
         table_rows=_client_rows(clients),
+        empty_message=CLIENT_CONFIG.empty_message,
+        form_title="Create Client",
+        form_intro="Create a new Client in your active Office.",
+        form_fields=_client_form_fields(current_user, post_data=post_data),
+        submit_label="Create Client",
         form_error=form_error,
         filter_links=filter_links,
+        filter_title="Client Status",
     )
 
 
@@ -2685,23 +3007,36 @@ def client_detail(request: HttpRequest, client_id: int) -> HttpResponse:
     if not isinstance(current_user, CurrentUser):
         return current_user
 
+    active_form = "edit"
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
         try:
-            ClientManagementService.update_client(
-                current_user,
-                client_id,
-                {
-                    "client_code": request.POST.get("client_code", ""),
-                    "name": request.POST.get("name", ""),
-                    "status_code": request.POST.get("status_code", ""),
-                    "parent_client_id": request.POST.get("parent_client_id", ""),
-                },
-            )
+            if active_form == "delete":
+                ClientManagementService.delete_client(current_user, client_id)
+            elif active_form == "edit":
+                ClientManagementService.update_client(
+                    current_user,
+                    client_id,
+                    {
+                        "client_code": request.POST.get("client_code", ""),
+                        "name": request.POST.get("name", ""),
+                        "status_code": request.POST.get("status_code", ""),
+                        "parent_client_id": request.POST.get("parent_client_id", ""),
+                    },
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown client form submission.",
+                    400,
+                )
         except AuthError as error:
             form_error = error.message
         else:
+            if active_form == "delete":
+                return redirect("/system/clients/")
             return redirect(f"/system/clients/{client_id}/")
 
     try:
@@ -2716,14 +3051,42 @@ def client_detail(request: HttpRequest, client_id: int) -> HttpResponse:
             error=error,
         )
 
-    return _render_master_detail(
+    return _render_detail_page(
         request,
         current_user,
-        config=CLIENT_CONFIG,
-        entity=client,
+        title=client["name"],
+        eyebrow=CLIENT_CONFIG.detail_eyebrow,
+        intro=CLIENT_CONFIG.detail_intro,
         detail_rows=_client_detail_rows(client),
-        form_fields=_client_form_fields(current_user, post_data=post_data, entity=client),
-        form_error=form_error,
+        form_sections=[
+            {
+                "form_name": "edit",
+                "title": "Edit Client",
+                "intro": "Update the selected client without leaving the shared shell.",
+                "submit_label": "Save Client",
+                "form_error": form_error if active_form == "edit" else "",
+                "fields": _client_form_fields(
+                    current_user,
+                    post_data=post_data if active_form == "edit" else None,
+                    entity=client,
+                ),
+            },
+            {
+                "form_name": "delete",
+                "title": "Delete Client",
+                "intro": (
+                    "Delete this Client only if it has no protected references. "
+                    "If Projects, child Clients, or other records still depend on it, "
+                    "deletion will be blocked."
+                ),
+                "submit_label": "Delete Client",
+                "form_error": form_error if active_form == "delete" else "",
+                "fields": [],
+            },
+        ],
+        back_href=CLIENT_CONFIG.collection_path,
+        back_label=f"Back to {CLIENT_CONFIG.plural_label}",
+        entity_status=client["status"],
     )
 
 
@@ -2789,23 +3152,36 @@ def internal_category_detail(request: HttpRequest, category_id: int) -> HttpResp
     if not isinstance(current_user, CurrentUser):
         return current_user
 
+    active_form = "edit"
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
         try:
-            InternalCategoryManagementService.update_category(
-                current_user,
-                category_id,
-                {
-                    "category_code": request.POST.get("category_code", ""),
-                    "name": request.POST.get("name", ""),
-                    "description": request.POST.get("description", ""),
-                    "status_code": request.POST.get("status_code", ""),
-                },
-            )
+            if active_form == "delete":
+                InternalCategoryManagementService.delete_category(current_user, category_id)
+            elif active_form == "edit":
+                InternalCategoryManagementService.update_category(
+                    current_user,
+                    category_id,
+                    {
+                        "category_code": request.POST.get("category_code", ""),
+                        "name": request.POST.get("name", ""),
+                        "description": request.POST.get("description", ""),
+                        "status_code": request.POST.get("status_code", ""),
+                    },
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown internal category form submission.",
+                    400,
+                )
         except AuthError as error:
             form_error = error.message
         else:
+            if active_form == "delete":
+                return redirect("/system/internal-categories/")
             return redirect(f"/system/internal-categories/{category_id}/")
 
     try:
@@ -2820,24 +3196,47 @@ def internal_category_detail(request: HttpRequest, category_id: int) -> HttpResp
             error=error,
         )
 
-    return _render_master_detail(
+    return _render_detail_page(
         request,
         current_user,
-        config=INTERNAL_CATEGORY_CONFIG,
-        entity=category,
+        title=category["name"],
+        eyebrow=INTERNAL_CATEGORY_CONFIG.detail_eyebrow,
+        intro=INTERNAL_CATEGORY_CONFIG.detail_intro,
         detail_rows=_internal_category_detail_rows(category),
-        form_fields=_simple_master_fields(
-            current_user,
-            post_data=post_data,
-            entity=category,
-            business_unit_label="Business Unit",
-            code_name="category_code",
-            code_label="Category Code",
-            name_label="Category Name",
-            description_label="Description",
-            status_domain="INTERNAL_CATEGORY_STATUS",
-        ),
-        form_error=form_error,
+        form_sections=[
+            {
+                "form_name": "edit",
+                "title": "Edit Internal Category",
+                "intro": "Update the selected internal category without leaving the shared shell.",
+                "submit_label": "Save Internal Category",
+                "form_error": form_error if active_form == "edit" else "",
+                "fields": _simple_master_fields(
+                    current_user,
+                    post_data=post_data if active_form == "edit" else None,
+                    entity=category,
+                    business_unit_label="Business Unit",
+                    code_name="category_code",
+                    code_label="Category Code",
+                    name_label="Category Name",
+                    description_label="Description",
+                    status_domain="INTERNAL_CATEGORY_STATUS",
+                ),
+            },
+            {
+                "form_name": "delete",
+                "title": "Delete Internal Category",
+                "intro": (
+                    "Delete this Internal Category only if it has no protected references. "
+                    "If Projects or other records still depend on it, deletion will be blocked."
+                ),
+                "submit_label": "Delete Internal Category",
+                "form_error": form_error if active_form == "delete" else "",
+                "fields": [],
+            },
+        ],
+        back_href=INTERNAL_CATEGORY_CONFIG.collection_path,
+        back_label=f"Back to {INTERNAL_CATEGORY_CONFIG.plural_label}",
+        entity_status=category["status"],
     )
 
 
@@ -2854,7 +3253,6 @@ def cost_centers_collection(request: HttpRequest) -> HttpResponse:
             cost_center = CostCenterManagementService.create_cost_center(
                 current_user,
                 {
-                    "business_unit_id": request.POST.get("business_unit_id", ""),
                     "cost_center_code": request.POST.get("cost_center_code", ""),
                     "name": request.POST.get("name", ""),
                     "description": request.POST.get("description", ""),
@@ -2875,25 +3273,22 @@ def cost_centers_collection(request: HttpRequest) -> HttpResponse:
         current_user,
         status_code=_service_status_code(selected_status_code),
     )
-    return _render_master_collection(
+    return _render_collection_page(
         request,
         current_user,
-        config=COST_CENTER_CONFIG,
-        entities=cost_centers,
-        form_fields=_simple_master_fields(
-            current_user,
-            post_data=post_data,
-            entity=None,
-            business_unit_label="Business Unit",
-            code_name="cost_center_code",
-            code_label="Cost Center Code",
-            name_label="Cost Center Name",
-            description_label="Description",
-            status_domain="COST_CENTER_STATUS",
-        ),
+        title=COST_CENTER_CONFIG.list_title,
+        eyebrow=COST_CENTER_CONFIG.list_eyebrow,
+        intro=COST_CENTER_CONFIG.list_intro,
+        table_headers=COST_CENTER_CONFIG.table_headers,
         table_rows=_cost_center_rows(cost_centers),
+        empty_message=COST_CENTER_CONFIG.empty_message,
+        form_title="Create Cost Center",
+        form_intro="Create a new Cost Center in your active Office.",
+        form_fields=_cost_center_fields(current_user, post_data=post_data),
+        submit_label="Create Cost Center",
         form_error=form_error,
         filter_links=filter_links,
+        filter_title="Cost Center Status",
     )
 
 
@@ -2903,23 +3298,36 @@ def cost_center_detail(request: HttpRequest, cost_center_id: int) -> HttpRespons
     if not isinstance(current_user, CurrentUser):
         return current_user
 
+    active_form = "edit"
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
         try:
-            CostCenterManagementService.update_cost_center(
-                current_user,
-                cost_center_id,
-                {
-                    "cost_center_code": request.POST.get("cost_center_code", ""),
-                    "name": request.POST.get("name", ""),
-                    "description": request.POST.get("description", ""),
-                    "status_code": request.POST.get("status_code", ""),
-                },
-            )
+            if active_form == "delete":
+                CostCenterManagementService.delete_cost_center(current_user, cost_center_id)
+            elif active_form == "edit":
+                CostCenterManagementService.update_cost_center(
+                    current_user,
+                    cost_center_id,
+                    {
+                        "cost_center_code": request.POST.get("cost_center_code", ""),
+                        "name": request.POST.get("name", ""),
+                        "description": request.POST.get("description", ""),
+                        "status_code": request.POST.get("status_code", ""),
+                    },
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown cost center form submission.",
+                    400,
+                )
         except AuthError as error:
             form_error = error.message
         else:
+            if active_form == "delete":
+                return redirect("/system/cost-centers/")
             return redirect(f"/system/cost-centers/{cost_center_id}/")
 
     try:
@@ -2934,24 +3342,41 @@ def cost_center_detail(request: HttpRequest, cost_center_id: int) -> HttpRespons
             error=error,
         )
 
-    return _render_master_detail(
+    return _render_detail_page(
         request,
         current_user,
-        config=COST_CENTER_CONFIG,
-        entity=cost_center,
+        title=cost_center["name"],
+        eyebrow=COST_CENTER_CONFIG.detail_eyebrow,
+        intro=COST_CENTER_CONFIG.detail_intro,
         detail_rows=_cost_center_detail_rows(cost_center),
-        form_fields=_simple_master_fields(
-            current_user,
-            post_data=post_data,
-            entity=cost_center,
-            business_unit_label="Business Unit",
-            code_name="cost_center_code",
-            code_label="Cost Center Code",
-            name_label="Cost Center Name",
-            description_label="Description",
-            status_domain="COST_CENTER_STATUS",
-        ),
-        form_error=form_error,
+        form_sections=[
+            {
+                "form_name": "edit",
+                "title": "Edit Cost Center",
+                "intro": "Update the selected cost center without leaving the shared shell.",
+                "submit_label": "Save Cost Center",
+                "form_error": form_error if active_form == "edit" else "",
+                "fields": _cost_center_fields(
+                    current_user,
+                    post_data=post_data if active_form == "edit" else None,
+                    entity=cost_center,
+                ),
+            },
+            {
+                "form_name": "delete",
+                "title": "Delete Cost Center",
+                "intro": (
+                    "Delete this Cost Center only if it has no protected references. "
+                    "If Projects or other records still depend on it, deletion will be blocked."
+                ),
+                "submit_label": "Delete Cost Center",
+                "form_error": form_error if active_form == "delete" else "",
+                "fields": [],
+            },
+        ],
+        back_href=COST_CENTER_CONFIG.collection_path,
+        back_label=f"Back to {COST_CENTER_CONFIG.plural_label}",
+        entity_status=cost_center["status"],
     )
 
 

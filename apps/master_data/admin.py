@@ -6,6 +6,7 @@ from apps.master_data.models import (
     EmployeeBusinessUnit,
     EmployeeRole,
     Office,
+    OfficeConfiguration,
 )
 
 
@@ -14,6 +15,14 @@ class OfficeAdmin(admin.ModelAdmin):
     list_display = ("office_name", "status")
     search_fields = ("office_name",)
     ordering = ("office_name",)
+
+
+@admin.register(OfficeConfiguration)
+class OfficeConfigurationAdmin(admin.ModelAdmin):
+    list_display = ("office", "approval_mode", "archive_after_years", "timesheet_cutoff_date")
+    list_filter = ("approval_mode",)
+    search_fields = ("office__office_name",)
+    ordering = ("office__office_name",)
 
 
 @admin.register(BusinessUnit)

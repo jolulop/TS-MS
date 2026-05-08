@@ -37,7 +37,9 @@ Insert into the project setup rules:
 - Project setup UI must enforce that:
   - project owner holds `PROJECT_OWNER`
   - project manager holds `PROJECT_MANAGER`
-  - client, internal category, and cost center belong to the same Business Unit as the project
+  - client belongs to the same Office as the project
+  - cost center belongs to the same Office as the project
+  - internal category belongs to the same Business Unit as the project
 - Project setup remains Business Unit scoped for `TS_ADMIN`.
 
 ## Project Assignment Rules Insertions

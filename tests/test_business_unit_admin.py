@@ -5,7 +5,7 @@ import pytest
 from django.test import Client
 
 from apps.audit.models import AuditLog
-from apps.master_data.models import BusinessUnitConfiguration, EmployeeBusinessUnit
+from apps.master_data.models import EmployeeBusinessUnit, OfficeConfiguration
 from tests.helpers import (
     assign_employee_to_business_unit,
     assign_role,
@@ -58,6 +58,27 @@ def test_ts_admin_business_unit_list_is_limited_to_assigned_scope() -> None:
 def test_ts_admin_can_create_business_unit_and_gain_scope_to_it() -> None:
     seed_reference_data()
     business_unit = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    create_business_unit_configuration(
+        business_unit=business_unit,
+        allow_employee_withdraw_flag=True,
+        timesheet_cutoff_date=date(2026, 5, 31),
+    )
+    office_configuration = OfficeConfiguration.objects.get(office=business_unit.office)
+    office_configuration.archive_after_years = 7
+    office_configuration.enable_timer_flag = True
+    office_configuration.enable_leave_integration_flag = True
+    office_configuration.enable_copy_previous_week_flag = True
+    office_configuration.updated_by = "system@test.local"
+    office_configuration.save(
+        update_fields=[
+            "archive_after_years",
+            "enable_timer_flag",
+            "enable_leave_integration_flag",
+            "enable_copy_previous_week_flag",
+            "updated_by",
+            "updated_at",
+        ]
+    )
     admin_employee = create_employee(
         employee_code="EMP-BU-1000",
         full_name="Admin User",
@@ -92,6 +113,10 @@ def test_ts_admin_can_create_business_unit_and_gain_scope_to_it() -> None:
     payload = create_response.json()["business_unit"]
     assert payload["bu_code"] == "BU-NEW"
     assert payload["configuration"]["approval_mode"] == "PROJECT"
+    assert payload["configuration"]["allow_employee_withdraw_flag"] is True
+    assert payload["configuration"]["timesheet_cutoff_date"] == "2026-05-31"
+    assert payload["configuration"]["archive_after_years"] == 7
+    assert payload["configuration"]["enable_timer_flag"] is True
     assert EmployeeBusinessUnit.objects.filter(
         employee=admin_employee,
         business_unit__bu_code="BU-NEW",
@@ -104,6 +129,49 @@ def test_ts_admin_can_create_business_unit_and_gain_scope_to_it() -> None:
         "BU-ADMIN",
         "BU-NEW",
     ]
+
+
+@pytest.mark.django_db
+def test_existing_business_unit_reads_updated_parent_office_configuration() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    create_business_unit_configuration(business_unit=business_unit)
+    admin_employee = create_employee(
+        employee_code="EMP-BU-1001A",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=business_unit)
+    assign_role(employee=admin_employee, role_code="USER")
+
+    office_configuration = OfficeConfiguration.objects.get(office=business_unit.office)
+    office_configuration.allow_employee_withdraw_flag = True
+    office_configuration.archive_after_years = 9
+    office_configuration.updated_by = "system@test.local"
+    office_configuration.save(
+        update_fields=[
+            "allow_employee_withdraw_flag",
+            "archive_after_years",
+            "updated_by",
+            "updated_at",
+        ]
+    )
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.get(f"/api/v1/admin/business-units/{business_unit.id}/")
+
+    assert response.status_code == 200
+    payload = response.json()["business_unit"]
+    assert payload["configuration"]["allow_employee_withdraw_flag"] is True
+    assert payload["configuration"]["archive_after_years"] == 9
 
 
 @pytest.mark.django_db
@@ -136,14 +204,6 @@ def test_ts_admin_can_update_business_unit_core_and_configuration_with_audit() -
                 "name": "Updated Admin BU",
                 "description": "Updated description",
                 "status_code": "INACTIVE",
-                "approval_mode_code": "PROJECT",
-                "allow_employee_withdraw_flag": True,
-                "timesheet_cutoff_date": "2026-05-31",
-                "count_non_billable_in_daily_limit_flag": True,
-                "archive_after_years": 7,
-                "enable_timer_flag": True,
-                "enable_leave_integration_flag": True,
-                "enable_copy_previous_week_flag": True,
             }
         ),
         content_type="application/json",
@@ -155,27 +215,60 @@ def test_ts_admin_can_update_business_unit_core_and_configuration_with_audit() -
     assert payload["name"] == "Updated Admin BU"
     assert payload["description"] == "Updated description"
     assert payload["status"] == "INACTIVE"
-    assert payload["configuration"]["allow_employee_withdraw_flag"] is True
-    assert payload["configuration"]["timesheet_cutoff_date"] == "2026-05-31"
-    assert payload["configuration"]["archive_after_years"] == 7
-    assert payload["configuration"]["enable_timer_flag"] is True
-    assert payload["configuration"]["enable_leave_integration_flag"] is True
-    assert payload["configuration"]["enable_copy_previous_week_flag"] is True
-
-    configuration = BusinessUnitConfiguration.objects.get(business_unit=business_unit)
-    assert configuration.timesheet_cutoff_date == date(2026, 5, 31)
+    assert payload["configuration"]["allow_employee_withdraw_flag"] is False
+    assert payload["configuration"]["timesheet_cutoff_date"] is None
+    assert payload["configuration"]["archive_after_years"] == 5
     assert (
         AuditLog.objects.filter(entity_name="business_unit", field_name="bu_code").count() == 1
     )
     assert (
         AuditLog.objects.filter(entity_name="business_unit", field_name="status").count() == 1
     )
+
+
+@pytest.mark.django_db
+def test_ts_admin_cannot_update_inherited_business_unit_configuration() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    create_business_unit_configuration(business_unit=business_unit)
+    admin_employee = create_employee(
+        employee_code="EMP-BU-1002A",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=business_unit)
+    assign_role(employee=admin_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.patch(
+        f"/api/v1/admin/business-units/{business_unit.id}/",
+        data=json.dumps(
+            {
+                "archive_after_years": 7,
+                "timesheet_cutoff_date": "2026-05-31",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "BUSINESS_UNIT_CONFIGURATION_INHERITED"
+    configuration = OfficeConfiguration.objects.get(office=business_unit.office)
+    assert configuration.archive_after_years == 5
     assert (
         AuditLog.objects.filter(
-            entity_name="business_unit_configuration",
+            entity_name="office_configuration",
             field_name="archive_after_years",
         ).count()
-        == 1
+        == 0
     )
 
 

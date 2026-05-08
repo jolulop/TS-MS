@@ -169,7 +169,7 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                     },
                     {
                         "title": "Clients",
-                        "summary": "Manage clients inside assigned Business Unit scope.",
+                        "summary": "Manage office-level clients inside the active Office.",
                         "status": "Ready now",
                         "href": "/system/clients/",
                     },
@@ -183,7 +183,10 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                     },
                     {
                         "title": "Cost Centers",
-                        "summary": "Maintain cost center masters inside the shared admin shell.",
+                        "summary": (
+                            "Maintain office-level cost center masters inside "
+                            "the shared admin shell."
+                        ),
                         "status": "Ready now",
                         "href": "/system/cost-centers/",
                     },
