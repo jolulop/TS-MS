@@ -1,5 +1,7 @@
 # UI Screen Specification v5.2
 
+Superseded by [ui-screen-spec-v5.4.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.4.md).
+
 ## Purpose
 
 This v5.2 note captures the Milestone 2 correction pass for the server-rendered System Management UI.

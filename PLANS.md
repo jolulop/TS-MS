@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-09`: `docs/plans/2026-05-09-docs-v5.4-refresh.md`
+  - status: completed
+  - focus: publish a complete v5.4 markdown specification set aligned with the implemented Office-based model and expanded System Management behavior
 - `2026-05-08`: `docs/plans/2026-05-08-pricing-models.md`
   - status: completed
   - focus: add office-level Pricing Model master data, make project pricing model mandatory, and wire CRUD/UI/API/test support end to end

@@ -1,5 +1,7 @@
 # Integration API Specification v5.2
 
+Superseded by [integration-api-spec-v5.4.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.4.md).
+
 ## Purpose
 
 This v5.2 note captures the Milestone 2 correction-pass API additions for System Management.

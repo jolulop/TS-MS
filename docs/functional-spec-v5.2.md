@@ -1,5 +1,7 @@
 # Functional Specification v5.2
 
+Superseded by [functional-spec-v5.4.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.4.md).
+
 ## Purpose
 
 This v5.2 note records the Milestone 2 correction pass requested after the first System Management UI rollout.

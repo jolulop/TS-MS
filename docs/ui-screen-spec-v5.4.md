@@ -1,0 +1,258 @@
+# UI Screen Specification v5.4
+
+## 1. Purpose
+
+Describe the current server-rendered UI screens and behaviors implemented in the repository.
+
+## 2. Navigation
+
+Top-level areas:
+- `System Management`
+- `TS Management`
+- `Approvals`
+- `Reports`
+- `Profile`
+
+Role-aware visibility applies to menus and actions.
+
+## 3. System Management Navigation
+
+### 3.1 `TS_ADMIN_MASTER`
+
+Visible section:
+- Offices
+
+### 3.2 `TS_ADMIN`
+
+Visible sections:
+- Business Units
+- Employees
+- Clients
+- Internal Categories
+- Cost Centers
+- Pricing Models
+- General Charge Codes
+- Projects
+- Project Assignments
+- Calendar Period Rules
+
+## 4. Shared Collection Behavior
+
+- Collections use a shared administrative shell.
+- Rows expose an explicit `Open / Edit` action.
+- Status-managed collections expose a status filter bar where applicable.
+- Create forms live on collection screens.
+- Update and delete actions live on detail screens.
+
+## 5. Office Screens
+
+### SCR-100 Office Management
+
+- Access: `TS_ADMIN_MASTER`
+- Collection:
+  - list Offices
+  - create Office
+  - capture Office configuration
+  - capture bootstrap Business Unit data
+  - capture bootstrap admin user data
+- Detail:
+  - edit general Office data
+  - edit Office configuration
+  - show read-only Office administrators
+  - guarded delete action
+
+## 6. Business Unit Screens
+
+### SCR-105 Business Unit Management
+
+- Access: `TS_ADMIN`
+- Collection:
+  - create Business Unit in active Office
+- Detail:
+  - edit Business Unit identity and status
+  - show inherited Office configuration as read-only
+  - guarded delete action
+
+## 7. Employee Screens
+
+### SCR-110 Employee Management
+
+- Access: `TS_ADMIN`
+- Collection:
+  - status filter
+  - create employee
+  - assign primary Business Unit
+  - assign Business Unit scope
+  - assign roles
+- Detail:
+  - edit core employee data
+  - edit roles
+  - edit Business Unit scope
+  - guarded delete action
+
+Important UI behavior:
+- new employee creation does not preselect the current admin’s Business Unit in scope
+- selected primary Business Unit is included automatically in the employee scope
+
+## 8. Classification And Master Screens
+
+### SCR-130 Client Management
+
+- Access: `TS_ADMIN`
+- Scope: Office
+- Collection:
+  - status filter
+  - create client
+- Detail:
+  - edit code, name, parent client, status
+  - guarded delete action
+
+### SCR-140 Internal Category Management
+
+- Access: `TS_ADMIN`
+- Scope: Business Unit
+- Collection:
+  - status filter
+  - create internal category
+- Detail:
+  - edit category fields
+  - guarded delete action
+
+### SCR-150 Cost Center Management
+
+- Access: `TS_ADMIN`
+- Scope: Office
+- Collection:
+  - status filter
+  - create cost center
+- Detail:
+  - edit cost center fields
+  - guarded delete action
+
+### SCR-155 Pricing Model Management
+
+- Access: `TS_ADMIN`
+- Scope: Office
+- Collection:
+  - create pricing model
+- Detail:
+  - edit name and description
+  - guarded delete action
+
+### SCR-170 General Charge Code Management
+
+- Access: `TS_ADMIN`
+- Scope: Business Unit
+- Collection:
+  - status filter
+  - create general charge code
+- Detail:
+  - edit lifecycle, validity, and behavior flags
+
+## 9. Project Screens
+
+### SCR-180 Project Management
+
+- Access: `TS_ADMIN`
+- Scope: Business Unit
+- Collection:
+  - status filter with `All`, `Draft`, `Active`, `Closed`
+  - create project
+- Mandatory create/edit fields:
+  - Business Unit
+  - Project Code
+  - Project Name
+  - Description
+  - Project Owner
+  - Project Manager
+  - Client
+  - Internal Category
+  - Cost Center
+  - Pricing Model
+  - Start Date
+  - End Date
+  - Close Date
+  - Billable
+  - Status
+- Detail:
+  - edit project data from the detail page
+
+### SCR-190 Project Assignment Management
+
+- Access: `TS_ADMIN`
+- Scope: Project Business Unit
+- Collection:
+  - status filter
+  - create project assignment
+- Detail:
+  - edit assignment dates and status
+
+### SCR-120 Calendar Period Rule Management
+
+- Access: `TS_ADMIN`
+- Collection:
+  - status filter
+  - create period rule
+- Detail:
+  - edit date range and daily hour limits
+
+## 10. TS Management Screens
+
+### SCR-200 My Timesheets
+
+- Access: authenticated `USER`
+- features:
+  - view current/available weekly timesheets
+  - edit lines
+  - submit
+  - withdraw if allowed
+
+### SCR-210 My History
+
+- Access: authenticated `USER`
+- features:
+  - read-only historical list
+  - open a historical timesheet detail
+
+### SCR-220 Project Time Inquiry
+
+- Access: `PROJECT_OWNER` or `PROJECT_MANAGER`
+- features:
+  - scoped live inquiry
+  - project-related filters
+  - totals
+
+## 11. Approval Screens
+
+### SCR-300 Approval Worklist
+
+- Access: `PROJECT_MANAGER`
+- features:
+  - pending approval list
+  - approval detail
+  - approve
+  - reject
+
+## 12. Report Screens
+
+### SCR-400 Reports Hub
+
+- Access: role-based by report
+- cards show:
+  - title
+  - summary
+  - audience
+  - scoped count
+
+### SCR-410 Report Viewer
+
+- Access: enforced per report
+- supports report-specific filters and scoped result grids
+
+## 13. Detail Screen Delete Pattern
+
+Where delete exists:
+- the delete action is on the detail page
+- the action is separate from edit
+- the action does not cascade
+- blocked deletes return an inline error on the same screen
