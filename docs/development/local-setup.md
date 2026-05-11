@@ -23,7 +23,9 @@ Optional for parity work:
    `python manage.py migrate`
 6. Seed mandatory reference data:
    `python manage.py seed_reference_data`
-7. Start the app:
+7. Optional: seed sample browsing data:
+   `python manage.py seed_dev_data`
+8. Start the app:
    `python manage.py runserver`
 
 ## Database modes
@@ -34,7 +36,7 @@ The scaffold defaults to SQLite through:
 
 `TSMS_DB_BACKEND=sqlite`
 
-This is the fastest path to a working local setup during the foundation phase.
+This is the default path for local feature work and UI testing.
 
 ### PostgreSQL mode
 
@@ -55,3 +57,15 @@ Set these environment variables to use PostgreSQL:
 - `make check`
 
 Run these before preparing a commit.
+
+## Common Makefile shortcuts
+
+- `make run`
+- `make migrate`
+- `make seed`
+- `make seed-dev`
+
+## Sample local login
+
+After `seed_dev_data`, a seeded `TS_ADMIN` access email is:
+- `jose.luis.lopez@timia.ai`

@@ -52,7 +52,7 @@
 
 - can administer records only inside:
   - the active Office
-  - assigned Business Unit scope where BU-scoped entities are concerned
+  - Business Unit scope, which is synchronized to all Business Units in the active Office while the employee holds `TS_ADMIN`
 - can perform admin timesheet actions inside scoped Business Units
 
 ### TS_ADMIN_MASTER

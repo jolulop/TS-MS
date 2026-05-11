@@ -4,7 +4,7 @@ import pytest
 from django.test import Client
 
 from apps.audit.models import AuditLog
-from apps.master_data.models import Employee
+from apps.master_data.models import Employee, EmployeeBusinessUnit
 from tests.helpers import (
     assign_employee_to_business_unit,
     assign_role,
@@ -230,6 +230,61 @@ def test_ts_admin_cannot_create_employee_with_business_units_from_multiple_count
 
 
 @pytest.mark.django_db
+def test_creating_ts_admin_employee_expands_scope_to_all_office_business_units() -> None:
+    seed_reference_data()
+    primary_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    secondary_bu = create_business_unit(bu_code="BU-OPS", name="Operations BU")
+    hidden_bu = create_business_unit(bu_code="BU-HIDDEN", name="Hidden BU")
+    admin_employee = create_employee(
+        employee_code="EMP-704A",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=primary_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=primary_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(employee=admin_employee, business_unit=secondary_bu)
+    assign_role(employee=admin_employee, role_code="TS_ADMIN")
+    assign_role(employee=admin_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.post(
+        "/api/v1/admin/employees/",
+        data=json.dumps(
+            {
+                "employee_code": "EMP-704B",
+                "full_name": "New Office Admin",
+                "email": "new-office-admin@example.com",
+                "status_code": "ACTIVE",
+                "primary_business_unit_id": primary_bu.id,
+                "business_unit_ids": [primary_bu.id],
+                "role_codes": ["TS_ADMIN", "USER"],
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    payload = response.json()["employee"]
+    assert [business_unit["bu_code"] for business_unit in payload["business_units"]] == [
+        "BU-ADMIN",
+        "BU-HIDDEN",
+        "BU-OPS",
+    ]
+    assert payload["role_codes"] == ["TS_ADMIN", "USER"]
+    assert EmployeeBusinessUnit.objects.filter(
+        employee__employee_code="EMP-704B",
+        business_unit=hidden_bu,
+        valid_to__isnull=True,
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_ts_admin_cannot_update_employee_outside_scope() -> None:
     seed_reference_data()
     admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
@@ -386,3 +441,120 @@ def test_ts_admin_can_update_employee_roles_and_business_units_with_audit() -> N
         ).count()
         == 1
     )
+
+
+@pytest.mark.django_db
+def test_assigning_ts_admin_role_expands_employee_scope_to_full_office() -> None:
+    seed_reference_data()
+    admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    secondary_bu = create_business_unit(bu_code="BU-OPS", name="Operations BU")
+    hidden_bu = create_business_unit(bu_code="BU-HIDDEN", name="Hidden BU")
+    admin_employee = create_employee(
+        employee_code="EMP-903",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=admin_bu,
+    )
+    target_employee = create_employee(
+        employee_code="EMP-904",
+        full_name="Target User",
+        email="target@example.com",
+        primary_business_unit=admin_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(employee=admin_employee, business_unit=secondary_bu)
+    assign_employee_to_business_unit(
+        employee=target_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN")
+    assign_role(employee=admin_employee, role_code="USER")
+    assign_role(employee=target_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.put(
+        f"/api/v1/admin/employees/{target_employee.id}/roles/",
+        data=json.dumps({"role_codes": ["TS_ADMIN", "USER"]}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["employee"]
+    assert payload["role_codes"] == ["TS_ADMIN", "USER"]
+    assert [business_unit["bu_code"] for business_unit in payload["business_units"]] == [
+        "BU-ADMIN",
+        "BU-HIDDEN",
+        "BU-OPS",
+    ]
+    assert EmployeeBusinessUnit.objects.filter(
+        employee=target_employee,
+        business_unit=hidden_bu,
+        valid_to__isnull=True,
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_ts_admin_employee_scope_cannot_be_narrowed_below_full_office() -> None:
+    seed_reference_data()
+    admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    secondary_bu = create_business_unit(bu_code="BU-OPS", name="Operations BU")
+    hidden_bu = create_business_unit(bu_code="BU-HIDDEN", name="Hidden BU")
+    admin_employee = create_employee(
+        employee_code="EMP-905",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=admin_bu,
+    )
+    target_employee = create_employee(
+        employee_code="EMP-906",
+        full_name="Target Admin",
+        email="target-admin@example.com",
+        primary_business_unit=admin_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(employee=admin_employee, business_unit=secondary_bu)
+    assign_employee_to_business_unit(
+        employee=target_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(employee=target_employee, business_unit=secondary_bu)
+    assign_employee_to_business_unit(employee=target_employee, business_unit=hidden_bu)
+    assign_role(employee=admin_employee, role_code="TS_ADMIN")
+    assign_role(employee=admin_employee, role_code="USER")
+    assign_role(employee=target_employee, role_code="TS_ADMIN")
+    assign_role(employee=target_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.put(
+        f"/api/v1/admin/employees/{target_employee.id}/business-units/",
+        data=json.dumps(
+            {
+                "primary_business_unit_id": secondary_bu.id,
+                "business_unit_ids": [secondary_bu.id],
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["employee"]
+    assert payload["primary_business_unit"]["bu_code"] == "BU-OPS"
+    assert [business_unit["bu_code"] for business_unit in payload["business_units"]] == [
+        "BU-ADMIN",
+        "BU-HIDDEN",
+        "BU-OPS",
+    ]

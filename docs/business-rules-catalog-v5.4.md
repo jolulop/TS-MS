@@ -10,6 +10,7 @@
 ## 2. Office And Business Unit Rules
 
 - Every Business Unit belongs to one Office.
+- Business Unit code must be unique within its Office.
 - Business Unit operational configuration is inherited from Office configuration.
 - Business Unit detail may display inherited configuration but may not edit it.
 - Office creation must also create an initial Business Unit and Office admin employee.
@@ -19,6 +20,7 @@
 - Every employee belongs to one Office.
 - Every employee has exactly one primary Business Unit.
 - Primary Business Unit must also be in the employee’s Business Unit scope.
+- Active `TS_ADMIN` employees must keep full Business Unit scope for their Office, and new Office Business Units extend that scope automatically.
 - Business Unit scope changes must be audited.
 
 ## 4. Classification Master Rules

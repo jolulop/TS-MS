@@ -2,11 +2,13 @@
 
 Superseded by [ui-screen-spec-v5.4.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.4.md).
 
+Historical note only. Do not use this file as the current implementation source of truth.
+
 ## Purpose
 
 This v5.2 note captures the Milestone 2 correction pass for the server-rendered System Management UI.
 
-Insert these updates into `docs/UI - Screen Specification  v5.1.docx` in the matching screen sections.
+It originally targeted the legacy v5.1 UI screen specification and is preserved here only as a historical delta.
 
 ## Insertions for Existing Screens
 

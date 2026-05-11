@@ -1,6 +1,6 @@
 # Database Schema Diagram
 
-This diagram reflects the current Django model schema in the repository as of `2026-05-09`.
+This diagram reflects the current Django model schema in the repository as of `2026-05-11`.
 
 Notes:
 - Standard audit columns from `AuditFieldsModel` and `CreatedAuditModel` are omitted from most boxes for readability.

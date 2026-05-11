@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This markdown set is the current repository-aligned specification for the implemented Timesheet Management System as of `2026-05-09`.
+This markdown set is the current repository-aligned specification for the implemented Timesheet Management System as of `2026-05-11`.
 
 It supersedes the incremental markdown delta notes in:
 - `docs/functional-spec-v5.2.md`
@@ -32,7 +32,10 @@ v5.4 captures these major implemented changes relative to the older baseline doc
 - Clients and Cost Centers are now Office-level masters.
 - Pricing Models were added as a new Office-level master.
 - Projects now require a Pricing Model.
-- System Management now includes Office, Project, Project Assignment, Calendar Period Rule, and Pricing Model management.
+- System Management now includes Office, Project, Project Assignment, Calendar, Calendar Special Day, Calendar Period Rule, and Pricing Model management.
+- Yearly Calendars are Office-level and shared by all Business Units in the Office.
+- Calendar Period Rules remain Business Unit-specific inside the shared Office calendar and may overlap across different Business Units.
+- Calendar Period Rules can enable working Saturdays and Sundays with explicit weekend max-hours.
 - Guarded delete actions exist on selected System Management detail screens.
 - Live Project Time Inquiry is available to Project Owners and Project Managers.
 

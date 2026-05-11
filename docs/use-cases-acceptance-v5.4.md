@@ -98,6 +98,11 @@
 - Pricing Model belongs to the same Office
 - Internal Category belongs to the same Business Unit
 
+### Additional Acceptance
+
+- guarded delete succeeds when no assignments, timesheet lines, approval items, or other protected references exist
+- guarded delete fails when dependent records still reference the Project
+
 ## 8. Project Assignment Creation
 
 ### Use Case
@@ -110,6 +115,22 @@
 - employee is in project Business Unit scope
 - project is not closed
 - assignment window respects project dates
+
+### Additional Acceptance
+
+- guarded delete succeeds when no protected references exist
+
+## 8A. General Charge Code Management
+
+### Use Case
+
+`TS_ADMIN` maintains General Charge Codes in scoped Business Units.
+
+### Acceptance
+
+- create and update a General Charge Code with lifecycle and validity fields
+- guarded delete succeeds when no timesheet lines, approval items, or other protected references exist
+- guarded delete fails when dependent records still reference the General Charge Code
 
 ## 9. Employee Self-Service Timesheet
 
@@ -161,3 +182,27 @@ An admin deletes a transient master record from System Management.
 - delete succeeds when no protected references exist
 - delete fails with an error when references still exist
 - no cascade business delete occurs
+
+## 13. TS Admin Business Unit Scope Synchronization
+
+### Use Case
+
+`TS_ADMIN` scope stays aligned with all Business Units in the active Office so Business Units cannot become orphaned.
+
+### Acceptance
+
+- creating a new Business Unit assigns it to every active `TS_ADMIN` employee in the same Office
+- creating an employee with `TS_ADMIN` assigns all Business Units in that Office to the employee scope
+- adding `TS_ADMIN` to an existing employee expands the employee scope to all Business Units in that Office
+- saving Business Unit scope for an employee who still has `TS_ADMIN` may change the primary Business Unit but keeps the full Office Business Unit scope
+
+## 14. Business Unit Code Reuse Across Offices
+
+### Use Case
+
+`TS_ADMIN` creates a Business Unit in one Office using a code that already exists in a different Office.
+
+### Acceptance
+
+- creation succeeds when the duplicate code exists only in another Office
+- creation fails when the duplicate code already exists in the active Office

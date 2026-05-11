@@ -12,6 +12,7 @@ from tests.helpers import (
     create_business_unit,
     create_business_unit_configuration,
     create_employee,
+    create_office,
     seed_reference_data,
 )
 
@@ -129,6 +130,159 @@ def test_ts_admin_can_create_business_unit_and_gain_scope_to_it() -> None:
         "BU-ADMIN",
         "BU-NEW",
     ]
+
+
+@pytest.mark.django_db
+def test_ts_admin_can_reuse_business_unit_code_from_different_office() -> None:
+    seed_reference_data()
+    other_office = create_office(office_name="Other Office")
+    create_business_unit(
+        bu_code="DELIVERY",
+        name="Delivery",
+        office=other_office,
+    )
+    business_unit = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    admin_employee = create_employee(
+        employee_code="EMP-BU-1000C",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=business_unit)
+    assign_role(employee=admin_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    create_response = client.post(
+        "/api/v1/admin/business-units/",
+        data=json.dumps(
+            {
+                "bu_code": "DELIVERY",
+                "name": "Delivery BU",
+                "description": "Created from API",
+                "status_code": "ACTIVE",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 201
+    assert create_response.json()["business_unit"]["bu_code"] == "DELIVERY"
+    assert EmployeeBusinessUnit.objects.filter(
+        employee=admin_employee,
+        business_unit__office=business_unit.office,
+        business_unit__bu_code="DELIVERY",
+        valid_to__isnull=True,
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_ts_admin_cannot_reuse_business_unit_code_in_same_office() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="DELIVERY", name="Delivery")
+    admin_employee = create_employee(
+        employee_code="EMP-BU-1000D",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=business_unit)
+    assign_role(employee=admin_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    create_response = client.post(
+        "/api/v1/admin/business-units/",
+        data=json.dumps(
+            {
+                "bu_code": "DELIVERY",
+                "name": "Delivery BU",
+                "description": "Created from API",
+                "status_code": "ACTIVE",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 400
+    assert create_response.json()["error"]["code"] == "BUSINESS_UNIT_CODE_NOT_UNIQUE"
+    assert (
+        create_response.json()["error"]["message"]
+        == "Business Unit code must be unique within the active office."
+    )
+
+
+@pytest.mark.django_db
+def test_creating_business_unit_syncs_all_office_ts_admins_to_new_scope() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    other_admin = create_employee(
+        employee_code="EMP-BU-1000B",
+        full_name="Second Admin",
+        email="second-admin@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=other_admin,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=other_admin, role_code="TS_ADMIN")
+    assign_role(employee=other_admin, role_code="USER")
+
+    admin_employee = create_employee(
+        employee_code="EMP-BU-1000A",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN")
+    assign_role(employee=admin_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    create_response = client.post(
+        "/api/v1/admin/business-units/",
+        data=json.dumps(
+            {
+                "bu_code": "BU-NEW",
+                "name": "New Admin BU",
+                "description": "Created from API",
+                "status_code": "ACTIVE",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 201
+    assert EmployeeBusinessUnit.objects.filter(
+        employee=admin_employee,
+        business_unit__bu_code="BU-NEW",
+        valid_to__isnull=True,
+    ).exists()
+    assert EmployeeBusinessUnit.objects.filter(
+        employee=other_admin,
+        business_unit__bu_code="BU-NEW",
+        valid_to__isnull=True,
+    ).exists()
 
 
 @pytest.mark.django_db

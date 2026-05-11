@@ -626,7 +626,8 @@ def _employee_create_fields(
             ),
             help_text=(
                 "Select every additional Business Unit this employee may operate in. "
-                "The selected primary Business Unit is always included automatically."
+                "The selected primary Business Unit is always included automatically. "
+                "Employees with an active TS_ADMIN role keep full Office Business Unit scope."
             ),
             required=True,
         ),
@@ -700,6 +701,7 @@ def _employee_business_unit_fields(
     *,
     post_data: QueryDict | None = None,
 ) -> list[dict]:
+    has_ts_admin_role = "TS_ADMIN" in employee["role_codes"]
     selected_primary = (
         post_data.get("primary_business_unit_id", employee["primary_business_unit"]["id"])
         if post_data is not None
@@ -710,6 +712,12 @@ def _employee_business_unit_fields(
         if post_data is not None
         else [business_unit["id"] for business_unit in employee["business_units"]]
     )
+    help_text = "The primary Business Unit must also be part of the employee scope."
+    if has_ts_admin_role:
+        help_text = (
+            "Employees with an active TS_ADMIN role always keep all Business Units in the "
+            "active Office scope. Saving this form can still change the primary Business Unit."
+        )
     return [
         _field(
             name="primary_business_unit_id",
@@ -723,7 +731,7 @@ def _employee_business_unit_fields(
             label="Business Unit Scope",
             kind="multiselect",
             options=_scoped_business_unit_options(current_user, selected=selected_scope),
-            help_text="The primary Business Unit must also be part of the employee scope.",
+            help_text=help_text,
             required=True,
         ),
     ]
@@ -1426,6 +1434,7 @@ def _project_assignment_fields(
     post_data: QueryDict | None = None,
     entity: dict | None = None,
 ) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
     return [
         _field(
             name="project_id",
@@ -1433,7 +1442,10 @@ def _project_assignment_fields(
             kind="select",
             options=_scoped_project_options(
                 current_user,
-                selected=post_data.get("project_id", entity["project"]["id"] if entity else "")
+                selected=submitted_data.get(
+                    "project_id",
+                    entity["project"]["id"] if entity else "",
+                )
                 if post_data is not None or entity is not None
                 else "",
                 include_blank=entity is None,
@@ -1446,7 +1458,10 @@ def _project_assignment_fields(
             kind="select",
             options=_scoped_employee_options(
                 current_user,
-                selected=post_data.get("employee_id", entity["employee"]["id"] if entity else "")
+                selected=submitted_data.get(
+                    "employee_id",
+                    entity["employee"]["id"] if entity else "",
+                )
                 if post_data is not None or entity is not None
                 else "",
                 include_blank=entity is None,
@@ -1458,7 +1473,7 @@ def _project_assignment_fields(
             name="assignment_start_date",
             label="Assignment Start Date",
             kind="date",
-            value=post_data.get(
+            value=submitted_data.get(
                 "assignment_start_date",
                 entity["assignment_start_date"] if entity else "",
             )
@@ -1470,7 +1485,7 @@ def _project_assignment_fields(
             name="assignment_end_date",
             label="Assignment End Date",
             kind="date",
-            value=post_data.get(
+            value=submitted_data.get(
                 "assignment_end_date",
                 entity["assignment_end_date"] if entity and entity["assignment_end_date"] else "",
             )
@@ -1483,7 +1498,10 @@ def _project_assignment_fields(
             kind="select",
             options=_ref_options(
                 "PROJECT_ASSIGNMENT_STATUS",
-                selected=post_data.get("status_code", entity["status"] if entity else "ACTIVE")
+                selected=submitted_data.get(
+                    "status_code",
+                    entity["status"] if entity else "ACTIVE",
+                )
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -3395,7 +3413,24 @@ def _render_master_detail(
     detail_rows: list[tuple[str, str]],
     form_fields: list[dict],
     form_error: str,
+    active_form: str = "edit",
+    extra_form_sections: list[dict] | None = None,
 ) -> HttpResponse:
+    form_sections = [
+        {
+            "form_name": "edit",
+            "title": f"Edit {config.singular_label}",
+            "intro": (
+                f"Update the selected {config.singular_label.lower()} "
+                "without leaving the shared shell."
+            ),
+            "submit_label": f"Save {config.singular_label}",
+            "form_error": form_error if active_form == "edit" else "",
+            "fields": form_fields,
+        }
+    ]
+    if extra_form_sections:
+        form_sections.extend(extra_form_sections)
     return _render_detail_page(
         request,
         current_user,
@@ -3403,19 +3438,7 @@ def _render_master_detail(
         eyebrow=config.detail_eyebrow,
         intro=config.detail_intro,
         detail_rows=detail_rows,
-        form_sections=[
-            {
-                "form_name": "edit",
-                "title": f"Edit {config.singular_label}",
-                "intro": (
-                    f"Update the selected {config.singular_label.lower()} "
-                    "without leaving the shared shell."
-                ),
-                "submit_label": f"Save {config.singular_label}",
-                "form_error": form_error,
-                "fields": form_fields,
-            }
-        ],
+        form_sections=form_sections,
         back_href=config.collection_path,
         back_label=f"Back to {config.plural_label}",
         entity_status=entity["status"],
@@ -4048,33 +4071,49 @@ def general_charge_code_detail(
     if not isinstance(current_user, CurrentUser):
         return current_user
 
+    active_form = "edit"
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
         try:
-            GeneralChargeCodeManagementService.update_general_charge_code(
-                current_user,
-                general_charge_code_id,
-                {
-                    "code": request.POST.get("code", ""),
-                    "name": request.POST.get("name", ""),
-                    "charge_type_code": request.POST.get("charge_type_code", ""),
-                    "billable_flag": _bool_from_post(request.POST, "billable_flag"),
-                    "common_code_flag": _bool_from_post(request.POST, "common_code_flag"),
-                    "requires_approval_flag": _bool_from_post(
-                        request.POST, "requires_approval_flag"
-                    ),
-                    "description_required_flag": _bool_from_post(
-                        request.POST, "description_required_flag"
-                    ),
-                    "valid_from": request.POST.get("valid_from", ""),
-                    "valid_to": request.POST.get("valid_to", ""),
-                    "status_code": request.POST.get("status_code", ""),
-                },
-            )
+            if active_form == "delete":
+                GeneralChargeCodeManagementService.delete_general_charge_code(
+                    current_user,
+                    general_charge_code_id,
+                )
+            elif active_form == "edit":
+                GeneralChargeCodeManagementService.update_general_charge_code(
+                    current_user,
+                    general_charge_code_id,
+                    {
+                        "code": request.POST.get("code", ""),
+                        "name": request.POST.get("name", ""),
+                        "charge_type_code": request.POST.get("charge_type_code", ""),
+                        "billable_flag": _bool_from_post(request.POST, "billable_flag"),
+                        "common_code_flag": _bool_from_post(request.POST, "common_code_flag"),
+                        "requires_approval_flag": _bool_from_post(
+                            request.POST, "requires_approval_flag"
+                        ),
+                        "description_required_flag": _bool_from_post(
+                            request.POST, "description_required_flag"
+                        ),
+                        "valid_from": request.POST.get("valid_from", ""),
+                        "valid_to": request.POST.get("valid_to", ""),
+                        "status_code": request.POST.get("status_code", ""),
+                    },
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown general charge code form submission.",
+                    400,
+                )
         except AuthError as error:
             form_error = error.message
         else:
+            if active_form == "delete":
+                return redirect(GENERAL_CHARGE_CODE_CONFIG.collection_path)
             return redirect(f"/system/general-charge-codes/{general_charge_code_id}/")
 
     try:
@@ -4100,10 +4139,25 @@ def general_charge_code_detail(
         detail_rows=_general_charge_code_detail_rows(general_charge_code),
         form_fields=_general_charge_code_fields(
             current_user,
-            post_data=post_data,
+            post_data=post_data if active_form == "edit" else None,
             entity=general_charge_code,
         ),
         form_error=form_error,
+        active_form=active_form,
+        extra_form_sections=[
+            {
+                "form_name": "delete",
+                "title": "Delete General Charge Code",
+                "intro": (
+                    "Delete this General Charge Code only if it has no protected references. "
+                    "If timesheets, approvals, or other records still depend on it, "
+                    "deletion will be blocked."
+                ),
+                "submit_label": "Delete General Charge Code",
+                "form_error": form_error if active_form == "delete" else "",
+                "fields": [],
+            }
+        ],
     )
 
 
@@ -4175,39 +4229,52 @@ def project_detail(request: HttpRequest, project_id: int) -> HttpResponse:
     if not isinstance(current_user, CurrentUser):
         return current_user
 
+    active_form = "edit"
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
         try:
-            ProjectManagementService.update_project(
-                current_user,
-                project_id,
-                {
-                    "project_code": request.POST.get("project_code", ""),
-                    "name": request.POST.get("name", ""),
-                    "description": request.POST.get("description", ""),
-                    "project_owner_employee_id": request.POST.get(
-                        "project_owner_employee_id",
-                        "",
-                    ),
-                    "project_manager_employee_id": request.POST.get(
-                        "project_manager_employee_id",
-                        "",
-                    ),
-                    "client_id": request.POST.get("client_id", ""),
-                    "internal_category_id": request.POST.get("internal_category_id", ""),
-                    "cost_center_id": request.POST.get("cost_center_id", ""),
-                    "pricing_model_id": request.POST.get("pricing_model_id", ""),
-                    "start_date": request.POST.get("start_date", ""),
-                    "end_date": request.POST.get("end_date", ""),
-                    "close_date": request.POST.get("close_date", ""),
-                    "billable_flag": _bool_from_post(request.POST, "billable_flag"),
-                    "status_code": request.POST.get("status_code", ""),
-                },
-            )
+            if active_form == "delete":
+                ProjectManagementService.delete_project(current_user, project_id)
+            elif active_form == "edit":
+                ProjectManagementService.update_project(
+                    current_user,
+                    project_id,
+                    {
+                        "project_code": request.POST.get("project_code", ""),
+                        "name": request.POST.get("name", ""),
+                        "description": request.POST.get("description", ""),
+                        "project_owner_employee_id": request.POST.get(
+                            "project_owner_employee_id",
+                            "",
+                        ),
+                        "project_manager_employee_id": request.POST.get(
+                            "project_manager_employee_id",
+                            "",
+                        ),
+                        "client_id": request.POST.get("client_id", ""),
+                        "internal_category_id": request.POST.get("internal_category_id", ""),
+                        "cost_center_id": request.POST.get("cost_center_id", ""),
+                        "pricing_model_id": request.POST.get("pricing_model_id", ""),
+                        "start_date": request.POST.get("start_date", ""),
+                        "end_date": request.POST.get("end_date", ""),
+                        "close_date": request.POST.get("close_date", ""),
+                        "billable_flag": _bool_from_post(request.POST, "billable_flag"),
+                        "status_code": request.POST.get("status_code", ""),
+                    },
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown project form submission.",
+                    400,
+                )
         except AuthError as error:
             form_error = error.message
         else:
+            if active_form == "delete":
+                return redirect(PROJECT_CONFIG.collection_path)
             return redirect(f"/system/projects/{project_id}/")
 
     try:
@@ -4228,8 +4295,27 @@ def project_detail(request: HttpRequest, project_id: int) -> HttpResponse:
         config=PROJECT_CONFIG,
         entity=project,
         detail_rows=_project_detail_rows(project),
-        form_fields=_project_form_fields(current_user, post_data=post_data, entity=project),
+        form_fields=_project_form_fields(
+            current_user,
+            post_data=post_data if active_form == "edit" else None,
+            entity=project,
+        ),
         form_error=form_error,
+        active_form=active_form,
+        extra_form_sections=[
+            {
+                "form_name": "delete",
+                "title": "Delete Project",
+                "intro": (
+                    "Delete this Project only if it has no protected references. "
+                    "If assignments, timesheets, approvals, or other records still depend on it, "
+                    "deletion will be blocked."
+                ),
+                "submit_label": "Delete Project",
+                "form_error": form_error if active_form == "delete" else "",
+                "fields": [],
+            }
+        ],
     )
 
 
@@ -4285,22 +4371,38 @@ def project_assignment_detail(request: HttpRequest, assignment_id: int) -> HttpR
     if not isinstance(current_user, CurrentUser):
         return current_user
 
+    active_form = "edit"
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
         try:
-            ProjectAssignmentManagementService.update_assignment(
-                current_user,
-                assignment_id,
-                {
-                    "assignment_start_date": request.POST.get("assignment_start_date", ""),
-                    "assignment_end_date": request.POST.get("assignment_end_date", ""),
-                    "status_code": request.POST.get("status_code", ""),
-                },
-            )
+            if active_form == "delete":
+                ProjectAssignmentManagementService.delete_assignment(
+                    current_user,
+                    assignment_id,
+                )
+            elif active_form == "edit":
+                ProjectAssignmentManagementService.update_assignment(
+                    current_user,
+                    assignment_id,
+                    {
+                        "assignment_start_date": request.POST.get("assignment_start_date", ""),
+                        "assignment_end_date": request.POST.get("assignment_end_date", ""),
+                        "status_code": request.POST.get("status_code", ""),
+                    },
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown project assignment form submission.",
+                    400,
+                )
         except AuthError as error:
             form_error = error.message
         else:
+            if active_form == "delete":
+                return redirect(PROJECT_ASSIGNMENT_CONFIG.collection_path)
             return redirect(f"/system/project-assignments/{assignment_id}/")
 
     try:
@@ -4323,10 +4425,24 @@ def project_assignment_detail(request: HttpRequest, assignment_id: int) -> HttpR
         detail_rows=_project_assignment_detail_rows(assignment),
         form_fields=_project_assignment_fields(
             current_user,
-            post_data=post_data,
+            post_data=post_data if active_form == "edit" else None,
             entity=assignment,
         ),
         form_error=form_error,
+        active_form=active_form,
+        extra_form_sections=[
+            {
+                "form_name": "delete",
+                "title": "Delete Project Assignment",
+                "intro": (
+                    "Delete this Project Assignment only if it has no protected references. "
+                    "If other records still depend on it, deletion will be blocked."
+                ),
+                "submit_label": "Delete Project Assignment",
+                "form_error": form_error if active_form == "delete" else "",
+                "fields": [],
+            }
+        ],
     )
 
 

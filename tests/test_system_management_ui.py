@@ -32,6 +32,7 @@ from apps.master_data.models import (
 from apps.master_data.models import (
     PricingModel as PricingModelRecord,
 )
+from apps.timesheets.models import TimesheetLine, WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
     assign_employee_to_business_unit,
@@ -43,6 +44,7 @@ from tests.helpers import (
     create_client,
     create_cost_center,
     create_employee,
+    create_general_charge_code,
     create_internal_category,
     create_office,
     create_pricing_model,
@@ -1061,6 +1063,74 @@ def test_general_charge_code_management_create_and_update_via_html() -> None:
 
 
 @pytest.mark.django_db
+def test_general_charge_code_management_can_delete_unused_code_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    general_charge_code = create_general_charge_code(
+        business_unit=business_units[0],
+        code="GCC-DELETE",
+        name="Delete General Charge Code",
+        valid_from=date(2026, 1, 1),
+    )
+
+    response = client.post(
+        f"/system/general-charge-codes/{general_charge_code.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/general-charge-codes/"
+    assert not GeneralChargeCodeRecord.objects.filter(id=general_charge_code.id).exists()
+    assert (
+        AuditLog.objects.filter(
+            entity_name="general_charge_code",
+            entity_id=general_charge_code.id,
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_general_charge_code_management_delete_is_blocked_when_code_has_timesheet_usage() -> None:
+    client, employee, business_units = _build_ts_admin_client()
+    general_charge_code = create_general_charge_code(
+        business_unit=business_units[0],
+        code="GCC-BLOCK",
+        name="Blocked General Charge Code",
+        valid_from=date(2026, 1, 1),
+    )
+    timesheet = WeeklyTimesheet.objects.create(
+        employee=employee,
+        business_unit=business_units[0],
+        week_start_date=date(2026, 5, 4),
+        week_end_date=date(2026, 5, 10),
+        status=ref_value("TIMESHEET_STATUS", "CREATED"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+    TimesheetLine.objects.create(
+        weekly_timesheet=timesheet,
+        work_date=date(2026, 5, 4),
+        general_charge_code=general_charge_code,
+        hours="8.00",
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+
+    response = client.post(
+        f"/system/general-charge-codes/{general_charge_code.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete General Charge Code" in content
+    assert "General charge code cannot be deleted because it is still referenced" in content
+    assert GeneralChargeCodeRecord.objects.filter(id=general_charge_code.id).exists()
+
+
+@pytest.mark.django_db
 def test_system_management_collection_filter_can_show_active_or_inactive_records() -> None:
     client, _, business_units = _build_ts_admin_client()
     active_client = create_client(
@@ -1151,6 +1221,78 @@ def test_project_management_create_and_update_via_html() -> None:
     assert project.name == "Updated Project"
     assert project.close_date == date(2026, 10, 31)
     assert project.status.value_code == "CLOSED"
+
+
+@pytest.mark.django_db
+def test_project_management_can_delete_unused_project_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    project_owner, project_manager, project_client, category, cost_center, pricing_model = (
+        _build_project_management_context(business_units[0])
+    )
+    project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-DELETE",
+        name="Delete Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 5, 1),
+    )
+
+    response = client.post(
+        f"/system/projects/{project.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/projects/"
+    assert not Project.objects.filter(id=project.id).exists()
+    assert AuditLog.objects.filter(entity_name="project", entity_id=project.id).count() == 1
+
+
+@pytest.mark.django_db
+def test_project_management_delete_is_blocked_when_project_has_assignments() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    project_owner, project_manager, project_client, category, cost_center, pricing_model = (
+        _build_project_management_context(business_units[0])
+    )
+    project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-BLOCK-DELETE",
+        name="Blocked Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 5, 1),
+    )
+    ProjectAssignment.objects.create(
+        project=project,
+        employee=project_owner,
+        assignment_start_date=date(2026, 5, 1),
+        assignment_end_date=None,
+        status=ref_value("PROJECT_ASSIGNMENT_STATUS", "ACTIVE"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+
+    response = client.post(
+        f"/system/projects/{project.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete Project" in content
+    assert "Project cannot be deleted because it is still referenced" in content
+    assert Project.objects.filter(id=project.id).exists()
 
 
 @pytest.mark.django_db
@@ -1291,6 +1433,12 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
     assert create_response.status_code == 302
     assignment = ProjectAssignment.objects.get(project=project, employee=assigned_employee)
 
+    detail_response = client.get(f"/system/project-assignments/{assignment.id}/")
+    assert detail_response.status_code == 200
+    detail_content = detail_response.content.decode()
+    assert "Assignment Project" in detail_content
+    assert "Assignment Start Date" in detail_content
+
     update_response = client.post(
         f"/system/project-assignments/{assignment.id}/",
         data={
@@ -1305,6 +1453,64 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
     assignment.refresh_from_db()
     assert assignment.assignment_end_date == date(2026, 9, 30)
     assert assignment.status.value_code == "INACTIVE"
+
+
+@pytest.mark.django_db
+def test_project_assignment_management_can_delete_assignment_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    project_owner, project_manager, project_client, category, cost_center, pricing_model = (
+        _build_project_management_context(business_units[0])
+    )
+    assigned_employee = create_employee(
+        employee_code="EMP-ASSIGN-DELETE",
+        full_name="Delete Assigned Employee",
+        email="assigned-delete@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=assigned_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=assigned_employee, role_code="USER")
+    project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-ASN-DELETE",
+        name="Assignment Delete Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+    assignment = ProjectAssignment.objects.create(
+        project=project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 4, 7),
+        assignment_end_date=None,
+        status=ref_value("PROJECT_ASSIGNMENT_STATUS", "ACTIVE"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+
+    response = client.post(
+        f"/system/project-assignments/{assignment.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/project-assignments/"
+    assert not ProjectAssignment.objects.filter(id=assignment.id).exists()
+    assert (
+        AuditLog.objects.filter(
+            entity_name="project_assignment",
+            entity_id=assignment.id,
+        ).count()
+        == 1
+    )
 
 
 @pytest.mark.django_db

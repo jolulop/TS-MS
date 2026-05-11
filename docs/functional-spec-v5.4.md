@@ -50,7 +50,9 @@ Role behavior is additive. A user may hold multiple roles at once.
 ### 5.2 Business Unit
 
 - Business Units belong to exactly one Office.
+- Business Unit code uniqueness is enforced within the parent Office.
 - `TS_ADMIN` scope is Business Unit based.
+- Active `TS_ADMIN` employees in an Office are automatically kept in scope for all Business Units in that Office, including newly created Business Units.
 - Business Units do not own operational configuration anymore.
 - Business Unit detail shows inherited Office configuration as read-only.
 - Business Units can be deleted only when no protected references remain.
@@ -63,6 +65,7 @@ Role behavior is additive. A user may hold multiple roles at once.
   - one or more Business Units in scope
   - zero or more active roles
 - The primary Business Unit must also be in Business Unit scope.
+- An employee with an active `TS_ADMIN` role always keeps full Business Unit scope for their Office while that role remains active.
 - Employee create/edit/delete is handled by `TS_ADMIN` inside the active Office and scoped Business Units.
 
 ## 6. Office-Level Configuration
@@ -145,6 +148,7 @@ The following masters remain Business Unit scoped:
 
 - General Charge Codes remain Business Unit scoped.
 - They keep lifecycle, approval, billing, and validity-window behavior.
+- General Charge Code deletion is guarded by referential integrity.
 
 ### 8.7 Calendars And Special Days
 
@@ -169,6 +173,7 @@ The following masters remain Business Unit scoped:
 ### 8.8 Projects
 
 - Projects remain Business Unit scoped.
+- Project deletion is guarded by referential integrity.
 - The following fields are mandatory for project setup:
   - Business Unit
   - Project Code
@@ -196,6 +201,7 @@ The following masters remain Business Unit scoped:
 - Assignment creation is blocked for closed projects.
 - The assigned employee must be active and in the project Business Unit scope.
 - Assignment dates must stay inside the allowed project date window.
+- Project Assignment deletion is guarded by referential integrity.
 
 ### 8.10 Calendar Period Rules
 
@@ -223,6 +229,9 @@ Guarded delete actions exist in the UI for selected administrative records:
 - Cost Center
 - Pricing Model
 - Calendar Period Rule
+- General Charge Code
+- Project
+- Project Assignment
 
 Delete behavior:
 - proceed only when protected dependencies do not exist

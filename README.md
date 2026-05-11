@@ -2,29 +2,29 @@
 
 This repository contains the Timesheet Management System (TS Management) project.
 
-## Current scope
+## Current implemented scope
 
-The repository is currently in a Phase 1 foundation stage:
-- Python 3.12 target
-- Django monolith for local-first development
-- env-driven database configuration with a zero-friction SQLite bootstrap path
-- PostgreSQL support for later Azure parity and CI use
-- Windows + WSL + VS Code development workflow
-- Azure App Service as the later deployment target
+The repository now contains an implemented Django application, not only a foundation scaffold. Current features include:
+- internal session initialization after external email validation
+- Office and Business Unit administration
+- Office-level configuration inherited by Business Units at runtime
+- employee management, roles, and Business Unit scope
+- Office-level Clients, Cost Centers, and Pricing Models
+- Business Unit-level Internal Categories and General Charge Codes
+- Office-level Yearly Calendars with Special Days
+- Business Unit-specific Calendar Period Rules inside shared Office calendars
+- weekly timesheets, approvals, and project time inquiry
+- guarded delete actions for selected System Management entities
 
-## Local development approach
+## Stack
 
-Use WSL for Python commands and virtual environment management.
-
-Planned stack:
-- Django
+- Python 3.12
+- Django monolith
 - server-rendered HTML templates
-- responsive UI shell
 - SQLite bootstrap fallback for local setup
-- PostgreSQL for CI and later Azure parity
-- Ruff for formatting and linting
-- pytest for automated tests
-- GitHub Actions for CI
+- PostgreSQL support for parity environments
+- Ruff for linting and formatting
+- pytest with `pytest-django`
 
 ## Initial setup
 
@@ -43,7 +43,7 @@ Planned stack:
 8. Optional: load local sample data for browsing the UI:
    `python manage.py seed_dev_data`
 
-## Daily commands
+## Common commands
 
 - Start the app: `make run`
 - Run migrations: `make migrate`
@@ -61,12 +61,27 @@ After running `make seed-dev`, you can initialize a TS Admin session in the acce
 
 - `jose.luis.lopez@timia.ai`
 
+## Documentation baseline
+
+Current repository-aligned specification set:
+- `docs/specification-index-v5.4.md`
+- `docs/functional-spec-v5.4.md`
+- `docs/ui-screen-spec-v5.4.md`
+- `docs/integration-api-spec-v5.4.md`
+- `docs/authorization-matrix-v5.4.md`
+- `docs/business-rules-catalog-v5.4.md`
+- `docs/use-cases-acceptance-v5.4.md`
+- `docs/data-model-erd-v5.4.md`
+- `docs/non-functional-requirements-v5.4.md`
+
+Legacy `v5.2` markdown notes remain in `docs/` only as historical superseded deltas and should not be used as the current source of truth.
+
 ## Repository guidance
 
 Before implementing business features, follow:
 - `AGENTS.md`
 - `PLANS.md`
-- `docs/plans/2026-04-20-phase-1-core-timesheet-flow.md`
+- `docs/specification-index-v5.4.md`
 - `docs/architecture/stack.md`
 - `docs/development/local-setup.md`
 - `docs/development/reference-data-strategy.md`

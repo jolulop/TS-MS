@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-11`: `docs/plans/2026-05-11-markdown-baseline-refresh.md`
+  - status: completed
+  - focus: align all repository markdown files to the current v5.4 Office-based Django implementation and mark older markdown notes as superseded
 - `2026-05-11`: `docs/plans/2026-05-11-working-weekends-calendar-period-rules.md`
   - status: completed
   - focus: add Saturday/Sunday working-day flags to Calendar Period Rules and use them in timesheet date validation plus weekend chargeability
@@ -69,6 +72,10 @@
   - focus: app shell, access entry, dashboard, profile/session context, and role-aware top-level navigation
   - progress: milestones 1-5 completed; milestone 2 correction pass finished with status filters plus project, project assignment, and calendar period rule management screens; Phase V complete
 
+Historical note:
+- completed plan files intentionally preserve the source-document references and milestone wording that existed when those plans were written
+- use `AGENTS.md`, this file, and the v5.4 markdown spec set for current implementation work
+
 ## Purpose
 
 Use this file as the standard planning guide and template for non-trivial work in the **Timesheet (TS) Management System** repository.
@@ -86,7 +93,7 @@ For feature-specific or task-specific plans, create files in:
 Example:
 
 ```text
-/docs/plans/2026-04-20-timesheet-submit-workflow.md
+/docs/plans/2026-05-11-timesheet-submit-workflow.md
 ```
 
 ---
@@ -227,14 +234,14 @@ Out of scope:
 
 ## 3. Source documents
 
-- docs/functional-spec-v5.1.md
-- docs/use-cases-acceptance-v5.1.md
-- docs/data-model-erd.md
-- docs/authorization-matrix.md
-- docs/ui-screen-spec.md
-- docs/integration-api-spec.md
-- docs/business-rules-catalog.md
-- docs/non-functional-requirements.md
+- docs/functional-spec-v5.4.md
+- docs/use-cases-acceptance-v5.4.md
+- docs/data-model-erd-v5.4.md
+- docs/authorization-matrix-v5.4.md
+- docs/ui-screen-spec-v5.4.md
+- docs/integration-api-spec-v5.4.md
+- docs/business-rules-catalog-v5.4.md
+- docs/non-functional-requirements-v5.4.md
 - AGENTS.md
 
 List only the documents relevant to this task.

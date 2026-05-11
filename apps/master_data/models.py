@@ -21,7 +21,7 @@ class Office(AuditFieldsModel):
 
 
 class BusinessUnit(AuditFieldsModel):
-    bu_code = models.CharField(max_length=50, unique=True)
+    bu_code = models.CharField(max_length=50)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     office = models.ForeignKey(
@@ -38,6 +38,12 @@ class BusinessUnit(AuditFieldsModel):
     class Meta:
         db_table = "business_unit"
         ordering = ["bu_code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["office", "bu_code"],
+                name="business_unit_office_bu_code_uniq",
+            )
+        ]
 
     def __str__(self) -> str:
         return self.bu_code

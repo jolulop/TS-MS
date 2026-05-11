@@ -375,6 +375,33 @@ def _employee_has_active_business_unit_scope(employee_id: int, business_unit_id:
     ).exists()
 
 
+def _office_business_units(office_id: int) -> dict[int, BusinessUnit]:
+    return {
+        business_unit.id: business_unit
+        for business_unit in BusinessUnit.objects.select_related("office", "office__status")
+        .filter(office_id=office_id)
+        .order_by("bu_code")
+    }
+
+
+def _ensure_business_unit_code_available(
+    *,
+    office_id: int,
+    bu_code: str,
+    exclude_business_unit_id: int | None = None,
+    message: str,
+) -> None:
+    duplicates = BusinessUnit.objects.filter(office_id=office_id, bu_code=bu_code)
+    if exclude_business_unit_id is not None:
+        duplicates = duplicates.exclude(id=exclude_business_unit_id)
+    if duplicates.exists():
+        raise AuthError(
+            "BUSINESS_UNIT_CODE_NOT_UNIQUE",
+            message,
+            400,
+        )
+
+
 def _serialize_employee(employee: Employee) -> dict:
     active_roles = sorted(
         {
@@ -884,6 +911,11 @@ class BusinessUnitManagementService:
             )
 
         status_code = str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE"
+        _ensure_business_unit_code_available(
+            office_id=current_office.id,
+            bu_code=bu_code,
+            message="Business Unit code must be unique within the active office.",
+        )
         _validate_optional_office_payload(
             payload,
             code_prefix="BUSINESS_UNIT",
@@ -904,11 +936,11 @@ class BusinessUnitManagementService:
         except IntegrityError as exc:
             raise AuthError(
                 "BUSINESS_UNIT_CODE_NOT_UNIQUE",
-                "Business Unit code must be unique.",
+                "Business Unit code must be unique within the active office.",
                 400,
             ) from exc
 
-        BusinessUnitManagementService._add_creator_scope_assignment(
+        BusinessUnitManagementService._sync_office_ts_admin_scope_assignments(
             current_user,
             business_unit,
             actor_employee=actor_employee,
@@ -982,6 +1014,12 @@ class BusinessUnitManagementService:
                     400,
                 )
             if new_bu_code != business_unit.bu_code:
+                _ensure_business_unit_code_available(
+                    office_id=business_unit.office_id,
+                    bu_code=new_bu_code,
+                    exclude_business_unit_id=business_unit.id,
+                    message="Business Unit code must be unique within the Business Unit office.",
+                )
                 changed_fields.append(("bu_code", business_unit.bu_code, new_bu_code))
                 business_unit.bu_code = new_bu_code
 
@@ -1023,7 +1061,7 @@ class BusinessUnitManagementService:
             except IntegrityError as exc:
                 raise AuthError(
                     "BUSINESS_UNIT_CODE_NOT_UNIQUE",
-                    "Business Unit code must be unique.",
+                    "Business Unit code must be unique within the Business Unit office.",
                     400,
                 ) from exc
 
@@ -1177,63 +1215,34 @@ class BusinessUnitManagementService:
         return business_unit
 
     @staticmethod
-    def _add_creator_scope_assignment(
+    def _sync_office_ts_admin_scope_assignments(
         current_user: CurrentUser,
         business_unit: BusinessUnit,
         *,
         actor_employee: Employee | None,
     ) -> None:
-        if actor_employee is None:
-            return
-        if _employee_has_active_business_unit_scope(actor_employee.id, business_unit.id):
-            return
-
-        active_assignments = list(
-            actor_employee.business_unit_assignments.select_related(
-                "business_unit",
-                "status",
-                "status__domain",
-            ).filter(valid_to__isnull=True)
+        office_admins = (
+            Employee.objects.select_related("primary_business_unit")
+            .filter(
+                office_id=business_unit.office_id,
+                role_assignments__role__domain__domain_code="ROLE_CODE",
+                role_assignments__role__value_code="TS_ADMIN",
+                role_assignments__status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
+                role_assignments__status__value_code="ACTIVE",
+                role_assignments__valid_to__isnull=True,
+            )
+            .distinct()
         )
-        active_scope_ids = {
-            assignment.business_unit_id
-            for assignment in active_assignments
-            if assignment.status.domain.domain_code == "EMPLOYEE_BU_STATUS"
-            and assignment.status.value_code == "ACTIVE"
-        }
-        previous_scope_codes = sorted(
-            assignment.business_unit.bu_code
-            for assignment in active_assignments
-            if assignment.status.domain.domain_code == "EMPLOYEE_BU_STATUS"
-            and assignment.status.value_code == "ACTIVE"
-        )
-        if actor_employee.primary_business_unit_id not in active_scope_ids:
-            previous_scope_codes.append(actor_employee.primary_business_unit.bu_code)
-        previous_scope_codes = sorted(set(previous_scope_codes))
-
-        EmployeeBusinessUnit.objects.create(
-            employee=actor_employee,
-            business_unit=business_unit,
-            is_primary_flag=False,
-            status=_ref_value("EMPLOYEE_BU_STATUS", "ACTIVE"),
-            valid_from=date.today(),
-            created_by=current_user.email,
-            updated_by=current_user.email,
-        )
-
-        new_scope_codes = sorted({*previous_scope_codes, business_unit.bu_code})
-        write_audit_event(
-            action_code="UPDATE",
-            entity_name="employee_business_unit",
-            entity_id=actor_employee.id,
-            actor_employee=actor_employee,
-            actor_email=current_user.email,
-            business_unit=actor_employee.primary_business_unit,
-            field_name="business_unit_scope",
-            old_value=",".join(previous_scope_codes),
-            new_value=",".join(new_scope_codes),
-            reason_text="Business Unit scope updated after Business Unit creation.",
-        )
+        for office_admin in office_admins:
+            EmployeeManagementService._replace_business_unit_assignments(
+                current_user,
+                office_admin,
+                actor_employee=actor_employee,
+                primary_business_unit_id=office_admin.primary_business_unit_id,
+                business_unit_ids={office_admin.primary_business_unit_id},
+                reason="Employee BU scope synchronized after Business Unit creation.",
+                force_full_office_scope=True,
+            )
 
 
 class OfficeManagementService:
@@ -1695,6 +1704,11 @@ class OfficeManagementService:
         description: str,
         actor_employee: Employee | None,
     ) -> BusinessUnit:
+        _ensure_business_unit_code_available(
+            office_id=office.id,
+            bu_code=bu_code,
+            message="Initial Business Unit code must be unique within the Office.",
+        )
         try:
             business_unit = BusinessUnit.objects.create(
                 bu_code=bu_code,
@@ -1708,7 +1722,7 @@ class OfficeManagementService:
         except IntegrityError as exc:
             raise AuthError(
                 "BUSINESS_UNIT_CODE_NOT_UNIQUE",
-                "Initial Business Unit code must be unique.",
+                "Initial Business Unit code must be unique within the Office.",
                 400,
             ) from exc
 
@@ -1881,6 +1895,7 @@ class EmployeeManagementService:
             primary_business_unit_id=primary_business_unit_id,
             business_unit_ids=business_unit_ids,
             reason="Employee created with initial BU assignments.",
+            force_full_office_scope="TS_ADMIN" in role_codes,
         )
         EmployeeManagementService._replace_role_assignments(
             current_user,
@@ -1990,6 +2005,16 @@ class EmployeeManagementService:
             role_codes=role_codes,
             reason="Employee roles replaced by administrator.",
         )
+        if "TS_ADMIN" in role_codes:
+            EmployeeManagementService._replace_business_unit_assignments(
+                current_user,
+                employee,
+                actor_employee=actor_employee,
+                primary_business_unit_id=employee.primary_business_unit_id,
+                business_unit_ids={employee.primary_business_unit_id},
+                reason="Employee BU scope synchronized after TS_ADMIN role assignment.",
+                force_full_office_scope=True,
+            )
         return _serialize_employee(_refresh_employee(employee.id))
 
     @staticmethod
@@ -2215,15 +2240,24 @@ class EmployeeManagementService:
         business_unit_ids: set[int],
         reason: str,
         enforce_current_office_scope: bool = True,
+        force_full_office_scope: bool = False,
     ) -> None:
         active_status = _ref_value("EMPLOYEE_BU_STATUS", "ACTIVE")
         inactive_status = _ref_value("EMPLOYEE_BU_STATUS", "INACTIVE")
-        desired_business_units = {
-            business_unit.id: business_unit
-            for business_unit in BusinessUnit.objects.select_related("office", "office__status")
-            .filter(id__in=business_unit_ids)
-            .order_by("bu_code")
-        }
+        full_office_scope_required = force_full_office_scope or _employee_has_active_role(
+            employee.id,
+            role_code="TS_ADMIN",
+        )
+        desired_business_units = (
+            _office_business_units(employee.office_id)
+            if full_office_scope_required
+            else {
+                business_unit.id: business_unit
+                for business_unit in BusinessUnit.objects.select_related("office", "office__status")
+                .filter(id__in=business_unit_ids)
+                .order_by("bu_code")
+            }
+        )
         if primary_business_unit_id not in desired_business_units:
             raise AuthError(
                 "EMPLOYEE_PRIMARY_BU_OUT_OF_SCOPE",
@@ -2290,15 +2324,41 @@ class EmployeeManagementService:
             assignment = active_assignments.get(business_unit_id)
             is_primary = business_unit_id == primary_business_unit_id
             if assignment is None:
-                EmployeeBusinessUnit.objects.create(
-                    employee=employee,
-                    business_unit=business_unit,
-                    is_primary_flag=is_primary,
-                    status=active_status,
-                    valid_from=date.today(),
-                    created_by=current_user.email,
-                    updated_by=current_user.email,
+                existing_inactive = (
+                    employee.business_unit_assignments.select_related("status", "status__domain")
+                    .filter(
+                        business_unit=business_unit,
+                        status__domain__domain_code="EMPLOYEE_BU_STATUS",
+                        status__value_code="INACTIVE",
+                        valid_to=date.today(),
+                    )
+                    .order_by("-id")
+                    .first()
                 )
+                if existing_inactive is not None:
+                    existing_inactive.is_primary_flag = is_primary
+                    existing_inactive.status = active_status
+                    existing_inactive.valid_to = None
+                    existing_inactive.updated_by = current_user.email
+                    existing_inactive.save(
+                        update_fields=[
+                            "is_primary_flag",
+                            "status",
+                            "valid_to",
+                            "updated_by",
+                            "updated_at",
+                        ]
+                    )
+                else:
+                    EmployeeBusinessUnit.objects.create(
+                        employee=employee,
+                        business_unit=business_unit,
+                        is_primary_flag=is_primary,
+                        status=active_status,
+                        valid_from=date.today(),
+                        created_by=current_user.email,
+                        updated_by=current_user.email,
+                    )
             else:
                 assignment.is_primary_flag = is_primary
                 assignment.updated_by = current_user.email
@@ -3588,6 +3648,49 @@ class GeneralChargeCodeManagementService:
 
         return _serialize_general_charge_code(
             GeneralChargeCodeManagementService._refresh_general_charge_code(general_charge_code.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def delete_general_charge_code(
+        current_user: CurrentUser,
+        general_charge_code_id: int,
+    ) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        general_charge_code = GeneralChargeCodeManagementService._get_scoped_general_charge_code(
+            current_user,
+            general_charge_code_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            general_charge_code.office,
+            out_of_scope_message="General charge code is outside your active office.",
+        )
+
+        try:
+            general_charge_code_value = general_charge_code.code
+            general_charge_code_record_id = general_charge_code.id
+            business_unit = general_charge_code.business_unit
+            general_charge_code.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_DELETE_BLOCKED",
+                "General charge code cannot be deleted because it is still referenced by "
+                "timesheets, approvals, or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="general_charge_code",
+            entity_id=general_charge_code_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=business_unit,
+            old_value=general_charge_code_value,
+            reason_text="General charge code deleted by Timesheet Administrator.",
         )
 
     @staticmethod
@@ -5151,6 +5254,43 @@ class ProjectManagementService:
         return _serialize_project(ProjectManagementService._refresh_project(project.id))
 
     @staticmethod
+    @transaction.atomic
+    def delete_project(current_user: CurrentUser, project_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        project = ProjectManagementService._get_scoped_project(current_user, project_id)
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            project.office,
+            out_of_scope_message="Project is outside your active office.",
+        )
+
+        try:
+            project_code = project.project_code
+            project_record_id = project.id
+            business_unit = project.business_unit
+            project.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "PROJECT_DELETE_BLOCKED",
+                "Project cannot be deleted because it is still referenced by "
+                "assignments, timesheets, approvals, or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="project",
+            entity_id=project_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=business_unit,
+            old_value=project_code,
+            reason_text="Project deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
     def _validate_project_dates(
         *,
         start_date: date,
@@ -5587,6 +5727,49 @@ class ProjectAssignmentManagementService:
             )
         return _serialize_project_assignment(
             ProjectAssignmentManagementService._refresh_assignment(assignment.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def delete_assignment(current_user: CurrentUser, assignment_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        assignment = ProjectAssignmentManagementService._get_scoped_assignment(
+            current_user,
+            assignment_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            assignment.project.office,
+            out_of_scope_message="Project assignment is outside your active office.",
+        )
+
+        try:
+            assignment_record_id = assignment.id
+            assignment_label = (
+                f"{assignment.project.project_code}:{assignment.employee.employee_code}:"
+                f"{assignment.assignment_start_date.isoformat()}"
+            )
+            business_unit = assignment.project.business_unit
+            assignment.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_DELETE_BLOCKED",
+                "Project assignment cannot be deleted because it is still referenced by "
+                "other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="project_assignment",
+            entity_id=assignment_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=business_unit,
+            old_value=assignment_label,
+            reason_text="Project assignment deleted by Timesheet Administrator.",
         )
 
     @staticmethod

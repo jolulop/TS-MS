@@ -2,11 +2,13 @@
 
 Superseded by [functional-spec-v5.4.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.4.md).
 
+Historical note only. Do not use this file as the current implementation source of truth.
+
 ## Purpose
 
 This v5.2 note records the Milestone 2 correction pass requested after the first System Management UI rollout.
 
-Insert these updates into `docs/TS MAnagement functional specification v.5.1.docx` in the System Management behavior section.
+It originally targeted the legacy v5.1 functional-specification document set and is preserved here only as a historical delta.
 
 ## Lifecycle And Delete Clarification
 

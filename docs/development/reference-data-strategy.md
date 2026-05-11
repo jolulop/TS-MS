@@ -4,7 +4,7 @@
 
 Reference data in this repository is mandatory system data, not sample/demo content.
 
-Phase 1 seeds the ERD-backed domain/value structure required by future TS authorization, workflow, configuration, and audit features.
+The repository seeds the ERD-backed domain/value structure required by implemented TS authorization, workflow, configuration, calendar, and audit features.
 
 ## Rules
 
@@ -30,11 +30,11 @@ The command uses update-or-create semantics keyed by:
 
 ## Why this matters
 
-Later phases will depend on stable domains and coded values for internal authorization, lifecycle handling, approval processing, configuration, integration jobs, and audit events. The foundation phase needs a stable place for that system data before domain features are added.
+The implemented product depends on stable domains and coded values for internal authorization, lifecycle handling, approval processing, Office configuration, calendar rules, integration jobs, and audit events.
 
 ## Future additions
 
-When business modules arrive, this strategy can be extended with:
+This strategy can still be extended with:
 
 - richer metadata per domain
 - validation around reserved codes
@@ -47,8 +47,9 @@ reference-data seed.
 
 Current dev sample seed behavior:
 - loads reference data first
-- creates sample Business Units, calendars, BU configuration, employees, and scoped roles
-- creates sample clients, internal categories, cost centers, general charge codes, and one project
+- creates sample Offices, Office configuration, Business Units, employees, roles, and scope assignments
+- creates sample Yearly Calendars, Calendar Period Rules, and supporting calendar reference data
+- creates sample Clients, Internal Categories, Cost Centers, Pricing Models, General Charge Codes, and Projects
 - is idempotent and keyed by stable business codes
 
 Current TS Admin sample login:

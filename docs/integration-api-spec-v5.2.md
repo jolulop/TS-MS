@@ -2,11 +2,13 @@
 
 Superseded by [integration-api-spec-v5.4.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.4.md).
 
+Historical note only. Do not use this file as the current implementation source of truth.
+
 ## Purpose
 
 This v5.2 note captures the Milestone 2 correction-pass API additions for System Management.
 
-Insert these updates into `docs/Integration - API Specification v5.1.docx` in the admin/master-data endpoint section.
+It originally targeted the legacy v5.1 integration/API document set and is preserved here only as a historical delta.
 
 ## Collection Filter Update
 
