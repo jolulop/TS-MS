@@ -541,20 +541,15 @@ def _scoped_yearly_calendar_options(
     if include_blank:
         options.append(_option("", "Select a Calendar", selected_values=selected_values))
     calendars = (
-        YearlyCalendar.objects.select_related("business_unit")
-        .filter(
-            business_unit_id__in=current_user.scoped_business_unit_ids,
-            office_id=current_user.office_id,
+        YearlyCalendar.objects.filter(office_id=current_user.office_id).order_by(
+            "calendar_year",
+            "calendar_name",
         )
-        .order_by("business_unit__bu_code", "calendar_year", "calendar_name")
     )
     options.extend(
         _option(
             calendar.id,
-            (
-                f"{calendar.business_unit.bu_code} - "
-                f"{calendar.calendar_year} - {calendar.calendar_name}"
-            ),
+            f"{calendar.calendar_year} - {calendar.calendar_name}",
             selected_values=selected_values,
         )
         for calendar in calendars
@@ -940,39 +935,11 @@ def _yearly_calendar_fields(
     entity: dict | None = None,
 ) -> list[dict]:
     submitted_data = post_data or QueryDict("")
-    selected_business_unit = submitted_data.get("business_unit_id", "")
-    if entity is not None and post_data is None:
-        selected_business_unit = str(entity["business_unit"]["id"])
-
     fields = [
         _office_display_field(
             entity["office"]["office_name"] if entity else current_user.office_name
         )
     ]
-    if entity is None:
-        fields.append(
-            _field(
-                name="business_unit_id",
-                label="Business Unit",
-                kind="select",
-                options=_scoped_business_unit_options(
-                    current_user,
-                    selected=selected_business_unit,
-                    include_blank=True,
-                ),
-                required=True,
-            )
-        )
-    else:
-        fields.append(
-            _field(
-                name="business_unit_display",
-                label="Business Unit",
-                kind="text",
-                value=f"{entity['business_unit']['bu_code']} - {entity['business_unit']['name']}",
-                readonly=True,
-            )
-        )
 
     fields.extend(
         [
@@ -1532,9 +1499,30 @@ def _calendar_period_rule_fields(
     entity: dict | None = None,
 ) -> list[dict]:
     submitted_data = post_data or QueryDict("")
+    selected_business_unit = submitted_data.get(
+        "business_unit_id",
+        str(entity["business_unit"]["id"])
+        if entity and entity.get("business_unit") is not None
+        else str(current_user.primary_business_unit_id),
+    )
     return [
         _office_display_field(
             entity["office"]["office_name"] if entity else current_user.office_name
+        ),
+        _field(
+            name="business_unit_id",
+            label="Business Unit",
+            kind="select",
+            options=_scoped_business_unit_options(
+                current_user,
+                selected=selected_business_unit,
+                include_blank=entity is not None and entity.get("business_unit") is None,
+            ),
+            required=True,
+            help_text=(
+                "Business Unit that owns this period rule. The selected yearly calendar "
+                "is still shared at Office level."
+            ),
         ),
         _field(
             name="yearly_calendar_id",
@@ -1838,7 +1826,6 @@ def _yearly_calendar_rows(calendars: list[dict]) -> list[dict]:
         {
             "href": f"/system/calendars/{calendar['id']}/",
             "cells": [
-                calendar["business_unit"]["bu_code"],
                 str(calendar["calendar_year"]),
                 calendar["calendar_name"],
                 calendar["status"],
@@ -1850,7 +1837,7 @@ def _yearly_calendar_rows(calendars: list[dict]) -> list[dict]:
 
 def _yearly_calendar_detail_rows(yearly_calendar: dict) -> list[tuple[str, str]]:
     return [
-        ("Business Unit", yearly_calendar["business_unit"]["bu_code"]),
+        ("Office", yearly_calendar["office"]["office_name"]),
         ("Calendar Year", str(yearly_calendar["calendar_year"])),
         ("Calendar Name", yearly_calendar["calendar_name"]),
         ("Status", yearly_calendar["status"]),
@@ -2099,9 +2086,13 @@ def _calendar_period_rule_rows(period_rules: list[dict]) -> list[dict]:
         {
             "href": f"/system/calendar-period-rules/{period_rule['id']}/",
             "cells": [
-                period_rule["yearly_calendar"]["business_unit"]["bu_code"],
                 str(period_rule["yearly_calendar"]["calendar_year"]),
                 period_rule["yearly_calendar"]["calendar_name"],
+                (
+                    period_rule["business_unit"]["bu_code"]
+                    if period_rule["business_unit"] is not None
+                    else "Unassigned"
+                ),
                 period_rule["effective_from"],
                 period_rule["effective_to"],
                 period_rule["status"],
@@ -2113,8 +2104,16 @@ def _calendar_period_rule_rows(period_rules: list[dict]) -> list[dict]:
 
 def _calendar_period_rule_detail_rows(period_rule: dict) -> list[tuple[str, str]]:
     return [
-        ("Business Unit", period_rule["yearly_calendar"]["business_unit"]["bu_code"]),
+        ("Office", period_rule["office"]["office_name"]),
         ("Calendar", period_rule["yearly_calendar"]["name"]),
+        (
+            "Business Unit",
+            (
+                period_rule["business_unit"]["bu_code"]
+                if period_rule["business_unit"] is not None
+                else "Unassigned"
+            ),
+        ),
         ("Effective From", period_rule["effective_from"]),
         ("Effective To", period_rule["effective_to"]),
         ("Monday Max Hours", period_rule["monday_max_hours"]),
@@ -2673,8 +2672,8 @@ YEARLY_CALENDAR_CONFIG = MasterUiConfig(
     plural_label="Calendars",
     collection_path="/system/calendars/",
     detail_path_prefix="/system/calendars/",
-    table_headers=("Business Unit", "Year", "Calendar", "Status"),
-    empty_message="No yearly calendars are available in your assigned Business Units yet.",
+    table_headers=("Year", "Calendar", "Status"),
+    empty_message="No yearly calendars are available in your active Office yet.",
 )
 
 CALENDAR_PERIOD_RULE_CONFIG = MasterUiConfig(
@@ -2689,8 +2688,8 @@ CALENDAR_PERIOD_RULE_CONFIG = MasterUiConfig(
     plural_label="Calendar Period Rules",
     collection_path="/system/calendar-period-rules/",
     detail_path_prefix="/system/calendar-period-rules/",
-    table_headers=("Business Unit", "Year", "Calendar", "Effective From", "Effective To", "Status"),
-    empty_message="No calendar period rules are available in your assigned Business Units yet.",
+    table_headers=("Year", "Calendar", "Business Unit", "Effective From", "Effective To", "Status"),
+    empty_message="No calendar period rules are available in your active Office yet.",
 )
 
 
@@ -4282,7 +4281,6 @@ def yearly_calendars_collection(request: HttpRequest) -> HttpResponse:
             yearly_calendar = YearlyCalendarManagementService.create_yearly_calendar(
                 current_user,
                 {
-                    "business_unit_id": request.POST.get("business_unit_id", ""),
                     "calendar_year": request.POST.get("calendar_year", ""),
                     "calendar_name": request.POST.get("calendar_name", ""),
                     "status_code": request.POST.get("status_code", "ACTIVE"),
@@ -4590,6 +4588,7 @@ def calendar_period_rules_collection(request: HttpRequest) -> HttpResponse:
             period_rule = CalendarPeriodRuleManagementService.create_period_rule(
                 current_user,
                 {
+                    "business_unit_id": request.POST.get("business_unit_id", ""),
                     "yearly_calendar_id": request.POST.get("yearly_calendar_id", ""),
                     "effective_from": request.POST.get("effective_from", ""),
                     "effective_to": request.POST.get("effective_to", ""),
@@ -4633,27 +4632,38 @@ def calendar_period_rule_detail(request: HttpRequest, period_rule_id: int) -> Ht
     if not isinstance(current_user, CurrentUser):
         return current_user
 
+    active_form = "edit"
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
         try:
-            CalendarPeriodRuleManagementService.update_period_rule(
-                current_user,
-                period_rule_id,
-                {
-                    "effective_from": request.POST.get("effective_from", ""),
-                    "effective_to": request.POST.get("effective_to", ""),
-                    "monday_max_hours": request.POST.get("monday_max_hours", ""),
-                    "tuesday_max_hours": request.POST.get("tuesday_max_hours", ""),
-                    "wednesday_max_hours": request.POST.get("wednesday_max_hours", ""),
-                    "thursday_max_hours": request.POST.get("thursday_max_hours", ""),
-                    "friday_max_hours": request.POST.get("friday_max_hours", ""),
-                    "status_code": request.POST.get("status_code", ""),
-                },
-            )
+            if active_form == "delete":
+                CalendarPeriodRuleManagementService.delete_period_rule(
+                    current_user,
+                    period_rule_id,
+                )
+            else:
+                CalendarPeriodRuleManagementService.update_period_rule(
+                    current_user,
+                    period_rule_id,
+                    {
+                        "business_unit_id": request.POST.get("business_unit_id", ""),
+                        "effective_from": request.POST.get("effective_from", ""),
+                        "effective_to": request.POST.get("effective_to", ""),
+                        "monday_max_hours": request.POST.get("monday_max_hours", ""),
+                        "tuesday_max_hours": request.POST.get("tuesday_max_hours", ""),
+                        "wednesday_max_hours": request.POST.get("wednesday_max_hours", ""),
+                        "thursday_max_hours": request.POST.get("thursday_max_hours", ""),
+                        "friday_max_hours": request.POST.get("friday_max_hours", ""),
+                        "status_code": request.POST.get("status_code", ""),
+                    },
+                )
         except AuthError as error:
             form_error = error.message
         else:
+            if active_form == "delete":
+                return redirect(CALENDAR_PERIOD_RULE_CONFIG.collection_path)
             return redirect(f"/system/calendar-period-rules/{period_rule_id}/")
 
     try:
@@ -4671,16 +4681,43 @@ def calendar_period_rule_detail(request: HttpRequest, period_rule_id: int) -> Ht
             error=error,
         )
 
-    return _render_master_detail(
+    return _render_detail_page(
         request,
         current_user,
-        config=CALENDAR_PERIOD_RULE_CONFIG,
-        entity=period_rule,
+        title=period_rule["name"],
+        eyebrow=CALENDAR_PERIOD_RULE_CONFIG.detail_eyebrow,
+        intro=CALENDAR_PERIOD_RULE_CONFIG.detail_intro,
         detail_rows=_calendar_period_rule_detail_rows(period_rule),
-        form_fields=_calendar_period_rule_fields(
-            current_user,
-            post_data=post_data,
-            entity=period_rule,
-        ),
-        form_error=form_error,
+        form_sections=[
+            {
+                "form_name": "edit",
+                "title": "Edit Calendar Period Rule",
+                "intro": (
+                    "Update the selected calendar period rule without leaving "
+                    "the shared shell."
+                ),
+                "submit_label": "Save Calendar Period Rule",
+                "form_error": form_error if active_form == "edit" else "",
+                "fields": _calendar_period_rule_fields(
+                    current_user,
+                    post_data=post_data if active_form == "edit" else None,
+                    entity=period_rule,
+                ),
+            },
+            {
+                "form_name": "delete",
+                "title": "Delete Calendar Period Rule",
+                "intro": (
+                    "Delete this Calendar Period Rule only if it has no protected "
+                    "references. If other records still depend on it, deletion "
+                    "will be blocked."
+                ),
+                "submit_label": "Delete Calendar Period Rule",
+                "form_error": form_error if active_form == "delete" else "",
+                "fields": [],
+            },
+        ],
+        back_href=CALENDAR_PERIOD_RULE_CONFIG.collection_path,
+        back_label=f"Back to {CALENDAR_PERIOD_RULE_CONFIG.plural_label}",
+        entity_status=period_rule["status"],
     )

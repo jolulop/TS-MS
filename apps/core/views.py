@@ -200,6 +200,15 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         "href": "/system/pricing-models/",
                     },
                     {
+                        "title": "Calendar Period Rules",
+                        "summary": (
+                            "Maintain BU-specific daily-hour rules inside the shared "
+                            "Office calendar workspace."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/calendar-period-rules/",
+                    },
+                    {
                         "title": "General Charge Codes",
                         "summary": (
                             "Maintain general charge code validity, flags, and lifecycle fields."

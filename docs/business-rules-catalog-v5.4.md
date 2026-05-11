@@ -48,8 +48,11 @@
 
 ## 5. Calendar Rules
 
-- Yearly Calendars are Business Unit-level inside the active Office.
+- Yearly Calendars are Office-level inside the active Office.
 - A Yearly Calendar can remain active outside its calendar year.
+- Only one Yearly Calendar can exist for a given year in an Office.
+- Calendar Period Rules are Business Unit-level inside the shared Office Yearly Calendar.
+- Calendar Period Rules may overlap across different Business Units, but not within the same Business Unit and Yearly Calendar.
 - Calendar Special Day date must belong to the selected Yearly Calendar year.
 - Only one Calendar Special Day can exist per date inside a Yearly Calendar.
 - Supported Calendar Special Day types are:

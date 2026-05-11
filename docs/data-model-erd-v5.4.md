@@ -13,8 +13,8 @@ Primary diagram:
 - `BusinessUnit` belongs to `Office`.
 - `OfficeConfiguration` is owned by `Office` and is inherited by Business Units at runtime.
 - `Employee` belongs to `Office` and has a primary Business Unit plus scoped Business Unit assignments.
-- `Client`, `CostCenter`, and `PricingModel` are Office-level masters.
-- `InternalCategory`, `GeneralChargeCode`, `Project`, `ProjectAssignment`, and `YearlyCalendar` remain Business Unit linked.
+- `Client`, `CostCenter`, `PricingModel`, and `YearlyCalendar` are Office-level masters.
+- `InternalCategory`, `GeneralChargeCode`, `Project`, and `ProjectAssignment` remain Business Unit linked.
 - `CalendarSpecialDay` belongs to `YearlyCalendar`.
 - `Project` now requires `pricing_model_id`.
 
@@ -27,6 +27,7 @@ Primary diagram:
 - Yearly Calendars
 - Calendar Special Days
 - Calendar Period Rules
+  - Each rule belongs to one Business Unit plus the shared Office-level Yearly Calendar
 - Clients
 - Cost Centers
 - Pricing Models

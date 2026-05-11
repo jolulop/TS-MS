@@ -90,7 +90,6 @@ Request fields:
 - `PATCH /api/v1/admin/yearly-calendars/{yearlyCalendarId}/`
 
 Request fields:
-- `business_unit_id`
 - `calendar_year`
 - `calendar_name`
 - `status_code`
@@ -153,6 +152,7 @@ Request fields:
 - `POST /api/v1/admin/calendar-period-rules/`
 - `GET /api/v1/admin/calendar-period-rules/{periodRuleId}/`
 - `PATCH /api/v1/admin/calendar-period-rules/{periodRuleId}/`
+- `business_unit_id` is required on create and update payloads
 
 ## 6. Collection Filtering
 
@@ -249,7 +249,7 @@ Admin timesheet actions:
 - `CALENDAR_SPECIAL_DAY_DATE_REQUIRED`
 - `CALENDAR_SPECIAL_DAY_YEAR_MISMATCH`
 - `CALENDAR_SPECIAL_DAY_NOT_UNIQUE`
-- `CALENDAR_SPECIAL_DAY_GENERAL_CHARGE_CODE_BU_MISMATCH`
+- `CALENDAR_SPECIAL_DAY_GENERAL_CHARGE_CODE_OFFICE_MISMATCH`
 
 ## 11. Explicit Non-Endpoints
 

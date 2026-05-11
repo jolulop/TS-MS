@@ -182,6 +182,9 @@ def test_system_management_hub_shows_real_admin_screen_links() -> None:
     assert "/system/projects/" in content
     assert "/system/project-assignments/" in content
     assert "/system/calendar-period-rules/" in content
+    card_hrefs = {card["href"] for card in response.context["section_cards"]}
+    assert "/system/pricing-models/" in card_hrefs
+    assert "/system/calendar-period-rules/" in card_hrefs
 
 
 @pytest.mark.django_db
@@ -1326,9 +1329,14 @@ def test_calendar_period_rule_management_create_and_update_via_html() -> None:
     assign_role(employee=base_employee, role_code="USER")
     assign_calendar(employee=base_employee, yearly_calendar=yearly_calendar)
 
+    collection_response = client.get("/system/calendar-period-rules/")
+    assert collection_response.status_code == 200
+    assert 'name="business_unit_id"' in collection_response.content.decode()
+
     create_response = client.post(
         "/system/calendar-period-rules/",
         data={
+            "business_unit_id": str(business_units[0].id),
             "yearly_calendar_id": str(yearly_calendar.id),
             "effective_from": date(2026, 1, 1).isoformat(),
             "effective_to": date(2026, 3, 31).isoformat(),
@@ -1345,12 +1353,19 @@ def test_calendar_period_rule_management_create_and_update_via_html() -> None:
     assert create_response.status_code == 302
     period_rule = CalendarPeriodRule.objects.get(
         yearly_calendar=yearly_calendar,
+        business_unit=business_units[0],
         effective_from=date(2026, 1, 1),
     )
+    assert period_rule.business_unit_id == business_units[0].id
+
+    detail_response = client.get(f"/system/calendar-period-rules/{period_rule.id}/")
+    assert detail_response.status_code == 200
+    assert 'name="business_unit_id"' in detail_response.content.decode()
 
     update_response = client.post(
         f"/system/calendar-period-rules/{period_rule.id}/",
         data={
+            "business_unit_id": str(business_units[0].id),
             "effective_from": date(2026, 1, 1).isoformat(),
             "effective_to": date(2026, 4, 30).isoformat(),
             "monday_max_hours": "7.50",
@@ -1368,6 +1383,7 @@ def test_calendar_period_rule_management_create_and_update_via_html() -> None:
     assert period_rule.effective_to == date(2026, 4, 30)
     assert str(period_rule.monday_max_hours) == "7.50"
     assert period_rule.status.value_code == "INACTIVE"
+    assert period_rule.business_unit_id == business_units[0].id
 
 
 @pytest.mark.django_db
@@ -1390,6 +1406,32 @@ def test_calendar_period_rule_detail_renders_on_get() -> None:
     content = response.content.decode()
     assert "Operations Calendar" in content
     assert date(2026, 1, 1).isoformat() in content
+
+
+@pytest.mark.django_db
+def test_calendar_period_rule_can_be_deleted_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_units[0],
+        calendar_year=2026,
+        calendar_name="Delete Period Rule Calendar",
+    )
+    period_rule = create_calendar_period_rule(
+        yearly_calendar=yearly_calendar,
+        business_unit=business_units[0],
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 3, 31),
+    )
+
+    response = client.post(
+        f"/system/calendar-period-rules/{period_rule.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/calendar-period-rules/"
+    assert CalendarPeriodRule.objects.filter(id=period_rule.id).exists() is False
 
 
 @pytest.mark.django_db
@@ -1423,13 +1465,68 @@ def test_calendar_period_rule_management_all_filter_shows_active_and_inactive_re
 
 
 @pytest.mark.django_db
+def test_calendar_period_rule_management_allows_overlap_for_different_business_units() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_units[0],
+        calendar_year=2026,
+        calendar_name="Shared Office Calendar",
+    )
+
+    first_response = client.post(
+        "/system/calendar-period-rules/",
+        data={
+            "business_unit_id": str(business_units[0].id),
+            "yearly_calendar_id": str(yearly_calendar.id),
+            "effective_from": date(2026, 1, 1).isoformat(),
+            "effective_to": date(2026, 3, 31).isoformat(),
+            "monday_max_hours": "8.00",
+            "tuesday_max_hours": "8.00",
+            "wednesday_max_hours": "8.00",
+            "thursday_max_hours": "8.00",
+            "friday_max_hours": "8.00",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert first_response.status_code == 302
+
+    overlap_response = client.post(
+        "/system/calendar-period-rules/",
+        data={
+            "business_unit_id": str(business_units[1].id),
+            "yearly_calendar_id": str(yearly_calendar.id),
+            "effective_from": date(2026, 2, 1).isoformat(),
+            "effective_to": date(2026, 4, 30).isoformat(),
+            "monday_max_hours": "7.50",
+            "tuesday_max_hours": "7.50",
+            "wednesday_max_hours": "7.50",
+            "thursday_max_hours": "7.50",
+            "friday_max_hours": "7.50",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert overlap_response.status_code == 302
+    assert (
+        CalendarPeriodRule.objects.filter(
+            yearly_calendar=yearly_calendar,
+            business_unit=business_units[1],
+            effective_from=date(2026, 2, 1),
+        ).exists()
+        is True
+    )
+
+
+@pytest.mark.django_db
 def test_calendar_management_create_update_and_filter_via_html() -> None:
     client, _, business_units = _build_ts_admin_client()
 
     create_response = client.post(
         "/system/calendars/",
         data={
-            "business_unit_id": str(business_units[0].id),
             "calendar_year": "2027",
             "calendar_name": "Delivery Calendar",
             "status_code": "ACTIVE",
@@ -1439,15 +1536,16 @@ def test_calendar_management_create_update_and_filter_via_html() -> None:
 
     assert create_response.status_code == 302
     yearly_calendar = YearlyCalendar.objects.get(
-        business_unit=business_units[0],
+        office=business_units[0].office,
         calendar_year=2027,
-        calendar_name="Delivery Calendar",
     )
+    assert yearly_calendar.calendar_name == "Delivery Calendar"
 
     detail_response = client.get(f"/system/calendars/{yearly_calendar.id}/?month=5")
 
     assert detail_response.status_code == 200
     detail_content = detail_response.content.decode()
+    assert 'name="business_unit_id"' not in detail_content
     assert "Year Summary" in detail_content
     assert "Month View" in detail_content
     assert "May 2027" in detail_content
@@ -1475,6 +1573,37 @@ def test_calendar_management_create_update_and_filter_via_html() -> None:
     filtered_content = filtered_response.content.decode()
     assert 'href="/system/calendars/?status=ALL"' in filtered_content
     assert f"/system/calendars/{yearly_calendar.id}/" in filtered_content
+
+
+@pytest.mark.django_db
+def test_calendar_management_rejects_second_calendar_for_same_office_year() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    create_yearly_calendar(
+        office=business_units[0].office,
+        calendar_year=2027,
+        calendar_name="First Office Calendar",
+    )
+
+    response = client.post(
+        "/system/calendars/",
+        data={
+            "calendar_year": "2027",
+            "calendar_name": "Second Office Calendar",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Only one yearly calendar can exist for the same year within the Office." in content
+    assert (
+        YearlyCalendar.objects.filter(
+            office=business_units[0].office,
+            calendar_year=2027,
+        ).count()
+        == 1
+    )
 
 
 @pytest.mark.django_db

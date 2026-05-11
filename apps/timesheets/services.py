@@ -271,7 +271,7 @@ def _get_general_charge_code_for_line(
     return general_charge_code
 
 
-def _daily_limit_for_date(employee: Employee, work_date: date) -> Decimal:
+def _daily_limit_for_date(employee: Employee, business_unit_id: int, work_date: date) -> Decimal:
     if employee.assigned_calendar_id is None:
         raise AuthError(
             "TIMESHEET_CALENDAR_REQUIRED",
@@ -282,12 +282,24 @@ def _daily_limit_for_date(employee: Employee, work_date: date) -> Decimal:
     rules = list(
         CalendarPeriodRule.objects.filter(
             yearly_calendar_id=employee.assigned_calendar_id,
+            business_unit_id=business_unit_id,
             effective_from__lte=work_date,
             effective_to__gte=work_date,
             status__domain__domain_code="CALENDAR_PERIOD_STATUS",
             status__value_code="ACTIVE",
         ).order_by("effective_from", "id")
     )
+    if not rules:
+        rules = list(
+            CalendarPeriodRule.objects.filter(
+                yearly_calendar_id=employee.assigned_calendar_id,
+                business_unit_id__isnull=True,
+                effective_from__lte=work_date,
+                effective_to__gte=work_date,
+                status__domain__domain_code="CALENDAR_PERIOD_STATUS",
+                status__value_code="ACTIVE",
+            ).order_by("effective_from", "id")
+        )
     if not rules:
         raise AuthError(
             "TIMESHEET_DAY_LIMIT_NOT_FOUND",
@@ -709,10 +721,10 @@ class TimesheetService:
                     "comment_text": str(raw_line.get("comment_text", "")).strip(),
                     "billable_flag": billable_flag,
                 }
-            )
+        )
 
         for work_date, hours in hours_by_date.items():
-            max_hours = _daily_limit_for_date(employee, work_date)
+            max_hours = _daily_limit_for_date(employee, timesheet.business_unit_id, work_date)
             if hours > max_hours:
                 raise AuthError(
                     "TIMESHEET_DAILY_LIMIT_EXCEEDED",

@@ -67,11 +67,6 @@ class OfficeConfiguration(AuditFieldsModel):
 
 
 class YearlyCalendar(AuditFieldsModel):
-    business_unit = models.ForeignKey(
-        BusinessUnit,
-        on_delete=models.PROTECT,
-        related_name="yearly_calendars",
-    )
     office = models.ForeignKey(
         Office,
         on_delete=models.PROTECT,
@@ -87,16 +82,16 @@ class YearlyCalendar(AuditFieldsModel):
 
     class Meta:
         db_table = "yearly_calendar"
-        ordering = ["business_unit__bu_code", "calendar_year", "calendar_name"]
+        ordering = ["office__office_name", "calendar_year", "calendar_name"]
         constraints = [
             models.UniqueConstraint(
-                fields=["business_unit", "calendar_year", "calendar_name"],
-                name="yearly_calendar_bu_year_name_uniq",
+                fields=["office", "calendar_year"],
+                name="yearly_calendar_office_year_uniq",
             )
         ]
 
     def __str__(self) -> str:
-        return f"{self.business_unit.bu_code}:{self.calendar_year}:{self.calendar_name}"
+        return f"{self.office.office_name}:{self.calendar_year}:{self.calendar_name}"
 
 
 class Employee(AuditFieldsModel):
@@ -223,6 +218,13 @@ class CalendarPeriodRule(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="period_rules",
     )
+    business_unit = models.ForeignKey(
+        BusinessUnit,
+        on_delete=models.PROTECT,
+        related_name="calendar_period_rules",
+        null=True,
+        blank=True,
+    )
     office = models.ForeignKey(
         Office,
         on_delete=models.PROTECT,
@@ -243,7 +245,7 @@ class CalendarPeriodRule(AuditFieldsModel):
 
     class Meta:
         db_table = "calendar_period_rule"
-        ordering = ["yearly_calendar", "effective_from"]
+        ordering = ["yearly_calendar", "business_unit", "effective_from"]
         constraints = [
             models.CheckConstraint(
                 condition=Q(effective_to__gte=models.F("effective_from")),

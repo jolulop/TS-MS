@@ -84,13 +84,14 @@ def _upsert_office_configuration(office: Office) -> None:
     )
 
 
-def _upsert_calendar(business_unit: BusinessUnit, *, calendar_name: str) -> YearlyCalendar:
+def _upsert_calendar(
+    office: Office, *, business_unit: BusinessUnit, calendar_name: str
+) -> YearlyCalendar:
     calendar, _ = YearlyCalendar.objects.update_or_create(
-        business_unit=business_unit,
+        office=office,
         calendar_year=CURRENT_YEAR,
-        calendar_name=calendar_name,
         defaults={
-            "office": business_unit.office,
+            "calendar_name": calendar_name,
             "status": _ref_value("CALENDAR_STATUS", "ACTIVE"),
             "created_by": SYSTEM_ACTOR,
             "updated_by": SYSTEM_ACTOR,
@@ -98,10 +99,11 @@ def _upsert_calendar(business_unit: BusinessUnit, *, calendar_name: str) -> Year
     )
     CalendarPeriodRule.objects.update_or_create(
         yearly_calendar=calendar,
+        business_unit=business_unit,
         effective_from=date(CURRENT_YEAR, 1, 1),
         effective_to=date(CURRENT_YEAR, 12, 31),
         defaults={
-            "office": business_unit.office,
+            "office": office,
             "monday_max_hours": "8.00",
             "tuesday_max_hours": "8.00",
             "wednesday_max_hours": "8.00",
@@ -366,12 +368,9 @@ class Command(BaseCommand):
         )
 
         consulting_calendar = _upsert_calendar(
-            consulting_bu,
+            holding_country,
+            business_unit=consulting_bu,
             calendar_name="Consulting Standard 2026",
-        )
-        _upsert_calendar(
-            delivery_bu,
-            calendar_name="Delivery Standard 2026",
         )
 
         ts_admin = _upsert_employee(

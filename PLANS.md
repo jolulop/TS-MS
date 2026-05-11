@@ -2,6 +2,12 @@
 
 ## Active Plans
 
+- `2026-05-11`: `docs/plans/2026-05-11-calendar-period-rule-bu-scope.md`
+  - status: completed
+  - focus: restore Business Unit ownership for Calendar Period Rules so overlap validation and daily-hour lookup are BU-specific while Yearly Calendars remain Office-level
+- `2026-05-11`: `docs/plans/2026-05-11-office-level-yearly-calendars.md`
+  - status: completed
+  - focus: move Yearly Calendars from Business Unit ownership to Office ownership across schema, calendar services, UI, and dependent tests
 - `2026-05-10`: `docs/plans/2026-05-10-calendar-management-ui.md`
   - status: completed
   - focus: add Yearly Calendar and Calendar Special Day management UI plus reference-data updates and scoped CRUD flows

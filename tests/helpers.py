@@ -293,24 +293,33 @@ def create_general_charge_code(
 
 def create_yearly_calendar(
     *,
-    business_unit: BusinessUnit,
+    business_unit: BusinessUnit | None = None,
+    office: Office | None = None,
     calendar_year: int,
     calendar_name: str,
 ) -> YearlyCalendar:
-    return YearlyCalendar.objects.create(
-        business_unit=business_unit,
-        office=business_unit.office,
-        calendar_year=calendar_year,
-        calendar_name=calendar_name,
-        status=ref_value("CALENDAR_STATUS", "ACTIVE"),
-        created_by=SYSTEM_ACTOR,
-        updated_by=SYSTEM_ACTOR,
+    calendar_office = (
+        office or (business_unit.office if business_unit is not None else get_office())
     )
+    calendar = YearlyCalendar.objects.update_or_create(
+        office=calendar_office,
+        calendar_year=calendar_year,
+        defaults={
+            "calendar_name": calendar_name,
+            "status": ref_value("CALENDAR_STATUS", "ACTIVE"),
+            "created_by": SYSTEM_ACTOR,
+            "updated_by": SYSTEM_ACTOR,
+        },
+    )[0]
+    if business_unit is not None:
+        calendar._default_business_unit_id = business_unit.id
+    return calendar
 
 
 def create_calendar_period_rule(
     *,
     yearly_calendar: YearlyCalendar,
+    business_unit: BusinessUnit | None = None,
     effective_from: date,
     effective_to: date,
     monday_max_hours: str = "8.00",
@@ -319,20 +328,32 @@ def create_calendar_period_rule(
     thursday_max_hours: str = "8.00",
     friday_max_hours: str = "8.00",
 ) -> CalendarPeriodRule:
-    return CalendarPeriodRule.objects.create(
+    if business_unit is None:
+        default_business_unit_id = getattr(yearly_calendar, "_default_business_unit_id", None)
+        if default_business_unit_id is not None:
+            business_unit = BusinessUnit.objects.get(id=default_business_unit_id)
+        else:
+            business_unit = yearly_calendar.office.business_units.order_by("id").first()
+    if business_unit is None:
+        raise ValueError("Calendar Period Rule helper requires an Office Business Unit.")
+    return CalendarPeriodRule.objects.update_or_create(
         yearly_calendar=yearly_calendar,
-        office=yearly_calendar.office,
+        business_unit=business_unit,
         effective_from=effective_from,
         effective_to=effective_to,
-        monday_max_hours=monday_max_hours,
-        tuesday_max_hours=tuesday_max_hours,
-        wednesday_max_hours=wednesday_max_hours,
-        thursday_max_hours=thursday_max_hours,
-        friday_max_hours=friday_max_hours,
-        status=ref_value("CALENDAR_PERIOD_STATUS", "ACTIVE"),
-        created_by=SYSTEM_ACTOR,
-        updated_by=SYSTEM_ACTOR,
-    )
+        defaults={
+            "business_unit": business_unit,
+            "office": yearly_calendar.office,
+            "monday_max_hours": monday_max_hours,
+            "tuesday_max_hours": tuesday_max_hours,
+            "wednesday_max_hours": wednesday_max_hours,
+            "thursday_max_hours": thursday_max_hours,
+            "friday_max_hours": friday_max_hours,
+            "status": ref_value("CALENDAR_PERIOD_STATUS", "ACTIVE"),
+            "created_by": SYSTEM_ACTOR,
+            "updated_by": SYSTEM_ACTOR,
+        },
+    )[0]
 
 
 def create_calendar_special_day(

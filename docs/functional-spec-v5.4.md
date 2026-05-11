@@ -100,7 +100,6 @@ The following masters remain Business Unit scoped:
 - Employees and Business Unit scope
 - Internal Categories
 - General Charge Codes
-- Yearly Calendars
 - Projects
 - Project Assignments
 - Calendar Period Rules
@@ -150,8 +149,9 @@ The following masters remain Business Unit scoped:
 ### 8.7 Calendars And Special Days
 
 - Yearly Calendars are managed in System Management.
-- Yearly Calendars remain tied to a Business Unit and Office context.
+- Yearly Calendars are Office-level and shared by all Business Units in the Office.
 - A Yearly Calendar can stay active even when the current date is outside the calendar year.
+- Only one Yearly Calendar can exist for a given year in an Office.
 - Calendar detail shows:
   - year summary totals
   - month view
@@ -200,10 +200,12 @@ The following masters remain Business Unit scoped:
 ### 8.10 Calendar Period Rules
 
 - Calendar Period Rules are managed in System Management.
-- They remain tied to a Yearly Calendar and Business Unit/Office context.
+- Yearly Calendars remain Office-level, but each Calendar Period Rule belongs to one Business Unit inside that Office calendar.
 - The system enforces:
   - `effective_to >= effective_from`
-  - no overlapping rules within the same Yearly Calendar
+  - no overlapping rules within the same Business Unit and Yearly Calendar
+  - overlapping rules are allowed across different Business Units in the same Office calendar
+- Calendar Period Rules can be deleted only when no protected references depend on them.
 
 ### 8.11 Guarded Deletes
 
@@ -217,6 +219,7 @@ Guarded delete actions exist in the UI for selected administrative records:
 - Internal Category
 - Cost Center
 - Pricing Model
+- Calendar Period Rule
 
 Delete behavior:
 - proceed only when protected dependencies do not exist

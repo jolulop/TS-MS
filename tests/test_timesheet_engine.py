@@ -534,6 +534,85 @@ def test_replace_lines_rejects_weekend_or_daily_limit_exceeded() -> None:
 
 
 @pytest.mark.django_db
+def test_daily_limit_uses_business_unit_specific_period_rule() -> None:
+    seed_reference_data()
+    office = create_office(office_name="Shared Calendar Office")
+    first_business_unit = create_business_unit(
+        bu_code="BU-CAL-1",
+        name="Calendar BU 1",
+        office=office,
+    )
+    second_business_unit = create_business_unit(
+        bu_code="BU-CAL-2",
+        name="Calendar BU 2",
+        office=office,
+    )
+    employee = create_employee(
+        employee_code="EMP-CAL-BU",
+        full_name="Calendar Scoped User",
+        email="calendar-bu@example.com",
+        primary_business_unit=second_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=second_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    calendar = create_yearly_calendar(
+        business_unit=first_business_unit,
+        calendar_year=2026,
+        calendar_name="Shared 2026",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        business_unit=first_business_unit,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+        monday_max_hours="8.00",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        business_unit=second_business_unit,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+        monday_max_hours="6.00",
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+
+    general_charge_code = create_general_charge_code(
+        business_unit=second_business_unit,
+        code="GCC-CAL-2",
+        name="Calendar Scoped Code",
+        valid_from=date(2026, 1, 1),
+    )
+
+    client = Client()
+    initialize_session(client, employee.email)
+    timesheet = create_timesheet(client, "2026-05-04")
+
+    response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "general_charge_code_id": general_charge_code.id,
+                        "hours": "7.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "TIMESHEET_DAILY_LIMIT_EXCEEDED"
+
+
+@pytest.mark.django_db
 def test_replace_lines_rejects_unassigned_project() -> None:
     seed_reference_data()
     business_unit = create_business_unit(bu_code="BU-1", name="Business Unit 1")

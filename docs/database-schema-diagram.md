@@ -41,7 +41,6 @@ erDiagram
 
     YEARLY_CALENDAR {
         bigint id PK
-        bigint business_unit_id FK
         bigint office_id FK
         int calendar_year
         string calendar_name
@@ -84,6 +83,7 @@ erDiagram
     CALENDAR_PERIOD_RULE {
         bigint id PK
         bigint yearly_calendar_id FK
+        bigint business_unit_id FK
         bigint office_id FK
         date effective_from
         date effective_to

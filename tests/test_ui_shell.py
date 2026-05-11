@@ -208,3 +208,30 @@ def test_ts_admin_master_sees_country_management_only() -> None:
     assert "Office Management" in countries_response.content.decode()
     assert employees_response.status_code == 403
     assert "Access Denied" in employees_response.content.decode()
+
+
+@pytest.mark.django_db
+def test_ts_admin_navigation_includes_pricing_models_link() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-UI-PRC", name="UI Pricing BU")
+    employee = create_employee(
+        employee_code="EMP-UI-PRC",
+        full_name="Pricing Admin User",
+        email="pricing-admin@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+    assign_role(employee=employee, role_code="TS_ADMIN")
+
+    client = Client()
+    initialize_ui_session(client, employee.email)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "/system/pricing-models/" in response.content.decode()

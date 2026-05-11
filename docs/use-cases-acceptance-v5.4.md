@@ -70,8 +70,12 @@
 
 ### Acceptance
 
-- create Yearly Calendar inside a scoped Business Unit
+- create Yearly Calendar inside the active Office without assigning a Business Unit
 - open Calendar detail and browse the month view
+- create Calendar Period Rules by selecting a Business Unit inside the shared Office calendar
+- allow overlapping Calendar Period Rules for different Business Units
+- reject overlapping Calendar Period Rules inside the same Business Unit
+- delete Calendar Period Rules when no protected references exist
 - create Special Day with date and type
 - update Special Day date or type
 - delete Special Day when no protected references exist

@@ -278,7 +278,6 @@ def test_ts_admin_can_create_update_and_list_yearly_calendars_via_api() -> None:
         "/api/v1/admin/yearly-calendars/",
         data=json.dumps(
             {
-                "business_unit_id": business_unit.id,
                 "calendar_year": 2026,
                 "calendar_name": "API Calendar",
                 "status_code": "ACTIVE",
@@ -460,6 +459,15 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
         _cost_center,
         _pricing_model,
     ) = _build_admin_context()
+    second_business_unit = create_business_unit(
+        bu_code="BU-ADMIN-2",
+        name="Admin BU 2",
+        office=business_unit.office,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=second_business_unit,
+    )
     yearly_calendar = create_yearly_calendar(
         business_unit=business_unit,
         calendar_year=2026,
@@ -472,6 +480,7 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
         "/api/v1/admin/calendar-period-rules/",
         data=json.dumps(
             {
+                "business_unit_id": business_unit.id,
                 "yearly_calendar_id": yearly_calendar.id,
                 "effective_from": "2026-01-01",
                 "effective_to": "2026-03-31",
@@ -493,6 +502,7 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
         "/api/v1/admin/calendar-period-rules/",
         data=json.dumps(
             {
+                "business_unit_id": business_unit.id,
                 "yearly_calendar_id": yearly_calendar.id,
                 "effective_from": "2026-03-01",
                 "effective_to": "2026-04-30",
@@ -510,10 +520,32 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
     assert overlap_response.status_code == 400
     assert overlap_response.json()["error"]["code"] == "CALENDAR_PERIOD_RULE_OVERLAP"
 
+    cross_bu_response = client.post(
+        "/api/v1/admin/calendar-period-rules/",
+        data=json.dumps(
+            {
+                "business_unit_id": second_business_unit.id,
+                "yearly_calendar_id": yearly_calendar.id,
+                "effective_from": "2026-03-01",
+                "effective_to": "2026-04-30",
+                "monday_max_hours": "7.50",
+                "tuesday_max_hours": "7.50",
+                "wednesday_max_hours": "7.50",
+                "thursday_max_hours": "7.50",
+                "friday_max_hours": "7.50",
+                "status_code": "ACTIVE",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert cross_bu_response.status_code == 201
+
     update_response = client.patch(
         f"/api/v1/admin/calendar-period-rules/{created_period_rule['id']}/",
         data=json.dumps(
             {
+                "business_unit_id": business_unit.id,
                 "effective_to": "2026-04-30",
                 "monday_max_hours": "7.50",
                 "status_code": "INACTIVE",

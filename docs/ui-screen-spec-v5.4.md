@@ -153,7 +153,7 @@ Important UI behavior:
 ### SCR-115 Calendar Management
 
 - Access: `TS_ADMIN`
-- Scope: Business Unit
+- Scope: active Office
 - Collection:
   - status filter
   - create yearly calendar
@@ -223,11 +223,15 @@ Important UI behavior:
 ### SCR-120 Calendar Period Rule Management
 
 - Access: `TS_ADMIN`
+- Scope: active Office
 - Collection:
   - status filter
+  - Business Unit selector
   - create period rule
 - Detail:
+  - Business Unit selector
   - edit date range and daily hour limits
+  - guarded delete action
 
 ## 10. TS Management Screens
 

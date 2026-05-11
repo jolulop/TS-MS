@@ -130,6 +130,12 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         current_path=current_path,
                     ),
                     _nav_item(
+                        label="Pricing Models",
+                        href="/system/pricing-models/",
+                        summary="Office-level pricing model management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
                         label="General Charge Codes",
                         href="/system/general-charge-codes/",
                         summary="Scoped general charge code management screens.",
@@ -145,6 +151,12 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         label="Project Assignments",
                         href="/system/project-assignments/",
                         summary="Scoped project staffing and lifecycle management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Calendars",
+                        href="/system/calendars/",
+                        summary="Office-level yearly calendar and special-day management screens.",
                         current_path=current_path,
                     ),
                     _nav_item(

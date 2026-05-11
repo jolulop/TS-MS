@@ -524,11 +524,6 @@ def _serialize_yearly_calendar(yearly_calendar: YearlyCalendar) -> dict:
             "id": yearly_calendar.office_id,
             "office_name": yearly_calendar.office.office_name,
         },
-        "business_unit": {
-            "id": yearly_calendar.business_unit_id,
-            "bu_code": yearly_calendar.business_unit.bu_code,
-            "name": yearly_calendar.business_unit.name,
-        },
     }
 
 
@@ -575,6 +570,15 @@ def _serialize_calendar_period_rule(rule: CalendarPeriodRule) -> dict:
             "id": rule.office_id,
             "office_name": rule.office.office_name,
         },
+        "business_unit": (
+            {
+                "id": rule.business_unit_id,
+                "bu_code": rule.business_unit.bu_code,
+                "name": rule.business_unit.name,
+            }
+            if rule.business_unit_id is not None
+            else None
+        ),
         "yearly_calendar": _serialize_yearly_calendar(rule.yearly_calendar),
     }
 
@@ -3582,12 +3586,9 @@ class YearlyCalendarManagementService:
     ) -> list[dict]:
         _ensure_ts_admin(current_user)
         calendars = _apply_status_filter(
-            YearlyCalendar.objects.select_related("business_unit", "office", "status")
-            .filter(
-                business_unit_id__in=current_user.scoped_business_unit_ids,
-                office_id=current_user.office_id,
-            )
-            .order_by("business_unit__bu_code", "calendar_year", "calendar_name"),
+            YearlyCalendar.objects.select_related("office", "status")
+            .filter(office_id=current_user.office_id)
+            .order_by("calendar_year", "calendar_name"),
             _parse_status_filter(status_code, domain_code="CALENDAR_STATUS"),
         )
         return [_serialize_yearly_calendar(calendar) for calendar in calendars]
@@ -3607,18 +3608,11 @@ class YearlyCalendarManagementService:
         _ensure_ts_admin(current_user)
         _ensure_current_office_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
-        business_unit = _get_scoped_business_unit(
-            current_user,
-            _parse_required_int(
-                payload.get("business_unit_id"),
-                code="YEARLY_CALENDAR_BUSINESS_UNIT_REQUIRED",
-                message="business_unit_id is required.",
-            ),
-        )
+        office = _get_current_office(current_user)
         _ensure_scoped_active_office_for_write(
             current_user,
-            business_unit.office,
-            out_of_scope_message="Yearly calendar Business Unit is outside your active office.",
+            office,
+            out_of_scope_message="Yearly calendar is outside your active office.",
         )
         calendar_year = _parse_required_int(
             payload.get("calendar_year"),
@@ -3635,14 +3629,13 @@ class YearlyCalendarManagementService:
         _validate_optional_office_payload(
             payload,
             code_prefix="YEARLY_CALENDAR",
-            expected_office_id=business_unit.office_id,
-            mismatch_message="Yearly calendar office must match the selected Business Unit office.",
+            expected_office_id=office.id,
+            mismatch_message="Yearly calendar office must match the active office.",
         )
 
         try:
             yearly_calendar = YearlyCalendar.objects.create(
-                business_unit=business_unit,
-                office=business_unit.office,
+                office=office,
                 calendar_year=calendar_year,
                 calendar_name=calendar_name,
                 status=_ref_value(
@@ -3655,7 +3648,7 @@ class YearlyCalendarManagementService:
         except IntegrityError as exc:
             raise AuthError(
                 "YEARLY_CALENDAR_NOT_UNIQUE",
-                "Calendar year and name must be unique within the Business Unit.",
+                "Only one yearly calendar can exist for the same year within the Office.",
                 400,
             ) from exc
 
@@ -3665,7 +3658,6 @@ class YearlyCalendarManagementService:
             entity_id=yearly_calendar.id,
             actor_employee=actor_employee,
             actor_email=current_user.email,
-            business_unit=business_unit,
             reason_text="Yearly calendar created by Timesheet Administrator.",
         )
         return _serialize_yearly_calendar(
@@ -3699,20 +3691,6 @@ class YearlyCalendarManagementService:
             mismatch_message="Yearly calendar office must match the existing office.",
             immutable_message="Yearly calendar office cannot be changed.",
         )
-        if (
-            "business_unit_id" in payload
-            and _parse_required_int(
-                payload.get("business_unit_id"),
-                code="YEARLY_CALENDAR_BUSINESS_UNIT_REQUIRED",
-                message="business_unit_id must be a valid Business Unit identifier.",
-            )
-            != yearly_calendar.business_unit_id
-        ):
-            raise AuthError(
-                "YEARLY_CALENDAR_BUSINESS_UNIT_IMMUTABLE",
-                "Yearly calendar Business Unit cannot be changed.",
-                400,
-            )
 
         changed_fields: list[tuple[str, str, str]] = []
 
@@ -3757,7 +3735,7 @@ class YearlyCalendarManagementService:
             except IntegrityError as exc:
                 raise AuthError(
                     "YEARLY_CALENDAR_NOT_UNIQUE",
-                    "Calendar year and name must be unique within the Business Unit.",
+                    "Only one yearly calendar can exist for the same year within the Office.",
                     400,
                 ) from exc
 
@@ -3768,7 +3746,6 @@ class YearlyCalendarManagementService:
                 entity_id=yearly_calendar.id,
                 actor_employee=actor_employee,
                 actor_email=current_user.email,
-                business_unit=yearly_calendar.business_unit,
                 field_name=field_name,
                 old_value=old_value,
                 new_value=new_value,
@@ -3812,7 +3789,6 @@ class YearlyCalendarManagementService:
             entity_id=calendar_id,
             actor_employee=actor_employee,
             actor_email=current_user.email,
-            business_unit=yearly_calendar.business_unit,
             old_value=calendar_label,
             reason_text="Yearly calendar deleted by Timesheet Administrator.",
         )
@@ -3822,7 +3798,6 @@ class YearlyCalendarManagementService:
         special_days = list(
             CalendarSpecialDayRecord.objects.select_related(
                 "yearly_calendar",
-                "yearly_calendar__business_unit",
                 "yearly_calendar__office",
                 "yearly_calendar__status",
                 "day_type",
@@ -3880,14 +3855,12 @@ class YearlyCalendarManagementService:
     ) -> YearlyCalendar:
         try:
             yearly_calendar = YearlyCalendar.objects.select_related(
-                "business_unit",
                 "office",
                 "office__status",
                 "status",
             ).get(id=yearly_calendar_id)
         except YearlyCalendar.DoesNotExist as exc:
             raise AuthError("YEARLY_CALENDAR_NOT_FOUND", "Yearly calendar not found.", 404) from exc
-        _ensure_business_units_in_scope(current_user, {yearly_calendar.business_unit_id})
         _ensure_office_in_scope(
             current_user,
             yearly_calendar.office_id,
@@ -3897,9 +3870,7 @@ class YearlyCalendarManagementService:
 
     @staticmethod
     def _refresh_yearly_calendar(yearly_calendar_id: int) -> YearlyCalendar:
-        return YearlyCalendar.objects.select_related("business_unit", "office", "status").get(
-            id=yearly_calendar_id
-        )
+        return YearlyCalendar.objects.select_related("office", "status").get(id=yearly_calendar_id)
 
 
 class CalendarSpecialDayManagementService:
@@ -3912,23 +3883,15 @@ class CalendarSpecialDayManagementService:
         _ensure_ts_admin(current_user)
         special_days = CalendarSpecialDayRecord.objects.select_related(
             "yearly_calendar",
-            "yearly_calendar__business_unit",
             "yearly_calendar__office",
             "yearly_calendar__status",
             "day_type",
             "default_general_charge_code",
             "status",
-        ).filter(
-            yearly_calendar__business_unit_id__in=current_user.scoped_business_unit_ids,
-            yearly_calendar__office_id=current_user.office_id,
-        )
+        ).filter(yearly_calendar__office_id=current_user.office_id)
         if yearly_calendar_id is not None:
             special_days = special_days.filter(yearly_calendar_id=yearly_calendar_id)
-        special_days = special_days.order_by(
-            "yearly_calendar__business_unit__bu_code",
-            "yearly_calendar__calendar_year",
-            "special_date",
-        )
+        special_days = special_days.order_by("yearly_calendar__calendar_year", "special_date")
         return [_serialize_calendar_special_day(special_day) for special_day in special_days]
 
     @staticmethod
@@ -4005,7 +3968,6 @@ class CalendarSpecialDayManagementService:
             entity_id=special_day.id,
             actor_employee=actor_employee,
             actor_email=current_user.email,
-            business_unit=yearly_calendar.business_unit,
             reason_text="Calendar special day created by Timesheet Administrator.",
         )
         return _serialize_calendar_special_day(
@@ -4140,7 +4102,6 @@ class CalendarSpecialDayManagementService:
                 entity_id=special_day.id,
                 actor_employee=actor_employee,
                 actor_email=current_user.email,
-                business_unit=yearly_calendar.business_unit,
                 field_name=field_name,
                 old_value=old_value,
                 new_value=new_value,
@@ -4185,7 +4146,6 @@ class CalendarSpecialDayManagementService:
             entity_id=special_day_record_id,
             actor_employee=actor_employee,
             actor_email=current_user.email,
-            business_unit=special_day.yearly_calendar.business_unit,
             old_value=special_day_label,
             reason_text="Calendar special day deleted by Timesheet Administrator.",
         )
@@ -4218,10 +4178,10 @@ class CalendarSpecialDayManagementService:
                 ),
             ),
         )
-        if general_charge_code.business_unit_id != yearly_calendar.business_unit_id:
+        if general_charge_code.office_id != yearly_calendar.office_id:
             raise AuthError(
-                "CALENDAR_SPECIAL_DAY_GENERAL_CHARGE_CODE_BU_MISMATCH",
-                "Default general charge code must belong to the same Business Unit.",
+                "CALENDAR_SPECIAL_DAY_GENERAL_CHARGE_CODE_OFFICE_MISMATCH",
+                "Default general charge code must belong to the same Office.",
                 400,
             )
         return general_charge_code
@@ -4234,7 +4194,6 @@ class CalendarSpecialDayManagementService:
         try:
             special_day = CalendarSpecialDayRecord.objects.select_related(
                 "yearly_calendar",
-                "yearly_calendar__business_unit",
                 "yearly_calendar__office",
                 "yearly_calendar__status",
                 "day_type",
@@ -4247,10 +4206,6 @@ class CalendarSpecialDayManagementService:
                 "Calendar special day not found.",
                 404,
             ) from exc
-        _ensure_business_units_in_scope(
-            current_user,
-            {special_day.yearly_calendar.business_unit_id},
-        )
         _ensure_office_in_scope(
             current_user,
             special_day.yearly_calendar.office_id,
@@ -4262,7 +4217,6 @@ class CalendarSpecialDayManagementService:
     def _refresh_special_day(special_day_id: int) -> CalendarSpecialDayRecord:
         return CalendarSpecialDayRecord.objects.select_related(
             "yearly_calendar",
-            "yearly_calendar__business_unit",
             "yearly_calendar__office",
             "yearly_calendar__status",
             "day_type",
@@ -4281,21 +4235,22 @@ class CalendarPeriodRuleManagementService:
         _ensure_ts_admin(current_user)
         period_rules = _apply_status_filter(
             CalendarPeriodRule.objects.select_related(
+                "business_unit",
                 "office",
                 "yearly_calendar",
                 "yearly_calendar__office",
-                "yearly_calendar__business_unit",
                 "yearly_calendar__status",
                 "status",
             )
+            .filter(office_id=current_user.office_id)
             .filter(
-                yearly_calendar__business_unit_id__in=current_user.scoped_business_unit_ids,
-                office_id=current_user.office_id,
+                Q(business_unit_id__in=current_user.scoped_business_unit_ids)
+                | Q(business_unit_id__isnull=True)
             )
             .order_by(
-                "yearly_calendar__business_unit__bu_code",
                 "yearly_calendar__calendar_year",
                 "yearly_calendar__calendar_name",
+                "business_unit__bu_code",
                 "effective_from",
             ),
             _parse_status_filter(status_code, domain_code="CALENDAR_PERIOD_STATUS"),
@@ -4317,6 +4272,47 @@ class CalendarPeriodRuleManagementService:
 
     @staticmethod
     @transaction.atomic
+    def delete_period_rule(current_user: CurrentUser, period_rule_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        period_rule = CalendarPeriodRuleManagementService._get_scoped_period_rule(
+            current_user,
+            period_rule_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            period_rule.office,
+            out_of_scope_message="Calendar Period Rule is outside your active office.",
+        )
+
+        try:
+            period_rule_label = (
+                f"{period_rule.yearly_calendar.calendar_name} "
+                f"{period_rule.effective_from.isoformat()} - {period_rule.effective_to.isoformat()}"
+            )
+            period_rule_record_id = period_rule.id
+            period_rule.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "CALENDAR_PERIOD_RULE_DELETE_BLOCKED",
+                "Calendar Period Rule cannot be deleted because it is still referenced by "
+                "other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="calendar_period_rule",
+            entity_id=period_rule_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            old_value=period_rule_label,
+            reason_text="Calendar period rule deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
+    @transaction.atomic
     def create_period_rule(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
         _ensure_current_office_active_for_write(current_user)
@@ -4334,6 +4330,20 @@ class CalendarPeriodRuleManagementService:
             yearly_calendar.office,
             out_of_scope_message="Yearly calendar is outside your active office.",
         )
+        business_unit = _get_scoped_business_unit(
+            current_user,
+            _parse_required_int(
+                payload.get("business_unit_id"),
+                code="CALENDAR_PERIOD_RULE_BUSINESS_UNIT_REQUIRED",
+                message="business_unit_id is required.",
+            ),
+        )
+        if business_unit.office_id != yearly_calendar.office_id:
+            raise AuthError(
+                "CALENDAR_PERIOD_RULE_BUSINESS_UNIT_OFFICE_MISMATCH",
+                "Business Unit must belong to the same Office as the selected yearly calendar.",
+                400,
+            )
         effective_from = _parse_iso_date(
             payload.get("effective_from"),
             code="CALENDAR_PERIOD_RULE_EFFECTIVE_FROM_REQUIRED",
@@ -4347,6 +4357,7 @@ class CalendarPeriodRuleManagementService:
         CalendarPeriodRuleManagementService._validate_date_range(effective_from, effective_to)
         CalendarPeriodRuleManagementService._ensure_no_overlap(
             yearly_calendar.id,
+            business_unit.id,
             effective_from=effective_from,
             effective_to=effective_to,
         )
@@ -4360,6 +4371,7 @@ class CalendarPeriodRuleManagementService:
         )
         period_rule = CalendarPeriodRule.objects.create(
             yearly_calendar=yearly_calendar,
+            business_unit=business_unit,
             office=yearly_calendar.office,
             effective_from=effective_from,
             effective_to=effective_to,
@@ -4401,7 +4413,6 @@ class CalendarPeriodRuleManagementService:
             entity_id=period_rule.id,
             actor_employee=actor_employee,
             actor_email=current_user.email,
-            business_unit=yearly_calendar.business_unit,
             reason_text="Calendar period rule created by Timesheet Administrator.",
         )
         return _serialize_calendar_period_rule(
@@ -4445,6 +4456,28 @@ class CalendarPeriodRuleManagementService:
                 "Calendar Period Rule calendar cannot be changed.",
                 400,
             )
+        proposed_business_unit = period_rule.business_unit
+        if "business_unit_id" in payload:
+            proposed_business_unit = _get_scoped_business_unit(
+                current_user,
+                _parse_required_int(
+                    payload.get("business_unit_id"),
+                    code="CALENDAR_PERIOD_RULE_BUSINESS_UNIT_REQUIRED",
+                    message="business_unit_id must be a valid Business Unit identifier.",
+                ),
+            )
+        if proposed_business_unit is None:
+            raise AuthError(
+                "CALENDAR_PERIOD_RULE_BUSINESS_UNIT_REQUIRED",
+                "business_unit_id is required.",
+                400,
+            )
+        if proposed_business_unit.office_id != period_rule.office_id:
+            raise AuthError(
+                "CALENDAR_PERIOD_RULE_BUSINESS_UNIT_OFFICE_MISMATCH",
+                "Business Unit must belong to the same Office as the selected yearly calendar.",
+                400,
+            )
         proposed_effective_from = period_rule.effective_from
         proposed_effective_to = period_rule.effective_to
         if "effective_from" in payload:
@@ -4465,11 +4498,21 @@ class CalendarPeriodRuleManagementService:
         )
         CalendarPeriodRuleManagementService._ensure_no_overlap(
             period_rule.yearly_calendar_id,
+            proposed_business_unit.id,
             effective_from=proposed_effective_from,
             effective_to=proposed_effective_to,
             exclude_rule_id=period_rule.id,
         )
         changed_fields: list[tuple[str, str, str]] = []
+        if period_rule.business_unit_id != proposed_business_unit.id:
+            changed_fields.append(
+                (
+                    "business_unit",
+                    period_rule.business_unit.bu_code if period_rule.business_unit_id else "",
+                    proposed_business_unit.bu_code,
+                )
+            )
+            period_rule.business_unit = proposed_business_unit
         for field_name, code, message in (
             (
                 "monday_max_hours",
@@ -4542,7 +4585,6 @@ class CalendarPeriodRuleManagementService:
                 entity_id=period_rule.id,
                 actor_employee=actor_employee,
                 actor_email=current_user.email,
-                business_unit=period_rule.yearly_calendar.business_unit,
                 field_name=field_name,
                 old_value=old_value,
                 new_value=new_value,
@@ -4564,6 +4606,7 @@ class CalendarPeriodRuleManagementService:
     @staticmethod
     def _ensure_no_overlap(
         yearly_calendar_id: int,
+        business_unit_id: int | None,
         *,
         effective_from: date,
         effective_to: date,
@@ -4574,12 +4617,19 @@ class CalendarPeriodRuleManagementService:
             effective_from__lte=effective_to,
             effective_to__gte=effective_from,
         )
+        if business_unit_id is None:
+            overlaps = overlaps.filter(business_unit_id__isnull=True)
+        else:
+            overlaps = overlaps.filter(business_unit_id=business_unit_id)
         if exclude_rule_id is not None:
             overlaps = overlaps.exclude(id=exclude_rule_id)
         if overlaps.exists():
             raise AuthError(
                 "CALENDAR_PERIOD_RULE_OVERLAP",
-                "Calendar Period Rules cannot overlap within the same yearly calendar.",
+                (
+                    "Calendar Period Rules cannot overlap within the same "
+                    "Business Unit and yearly calendar."
+                ),
                 400,
             )
 
@@ -4598,10 +4648,10 @@ class CalendarPeriodRuleManagementService:
     ) -> CalendarPeriodRule:
         try:
             period_rule = CalendarPeriodRule.objects.select_related(
+                "business_unit",
                 "office",
                 "yearly_calendar",
                 "yearly_calendar__office",
-                "yearly_calendar__business_unit",
                 "yearly_calendar__status",
                 "status",
             ).get(id=period_rule_id)
@@ -4609,23 +4659,22 @@ class CalendarPeriodRuleManagementService:
             raise AuthError(
                 "CALENDAR_PERIOD_RULE_NOT_FOUND", "Calendar Period Rule not found.", 404
             ) from exc
-        _ensure_business_units_in_scope(
-            current_user, {period_rule.yearly_calendar.business_unit_id}
-        )
         _ensure_office_in_scope(
             current_user,
             period_rule.office_id,
             message="Calendar Period Rule is outside your active office.",
         )
+        if period_rule.business_unit_id is not None:
+            _ensure_business_units_in_scope(current_user, {period_rule.business_unit_id})
         return period_rule
 
     @staticmethod
     def _refresh_period_rule(period_rule_id: int) -> CalendarPeriodRule:
         return CalendarPeriodRule.objects.select_related(
+            "business_unit",
             "office",
             "yearly_calendar",
             "yearly_calendar__office",
-            "yearly_calendar__business_unit",
             "yearly_calendar__status",
             "status",
         ).get(id=period_rule_id)
