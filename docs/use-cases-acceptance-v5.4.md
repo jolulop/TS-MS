@@ -62,7 +62,22 @@
 - guarded delete succeeds when no project references exist
 - guarded delete fails when a project still references the Pricing Model
 
-## 6. Project Creation
+## 6. Calendar Management
+
+### Use Case
+
+`TS_ADMIN` manages a Yearly Calendar and its Special Days inside System Management.
+
+### Acceptance
+
+- create Yearly Calendar inside a scoped Business Unit
+- open Calendar detail and browse the month view
+- create Special Day with date and type
+- update Special Day date or type
+- delete Special Day when no protected references exist
+- guarded delete fails with an error when a Calendar still has protected dependencies
+
+## 7. Project Creation
 
 ### Use Case
 
@@ -78,7 +93,7 @@
 - Pricing Model belongs to the same Office
 - Internal Category belongs to the same Business Unit
 
-## 7. Project Assignment Creation
+## 8. Project Assignment Creation
 
 ### Use Case
 
@@ -91,7 +106,7 @@
 - project is not closed
 - assignment window respects project dates
 
-## 8. Employee Self-Service Timesheet
+## 9. Employee Self-Service Timesheet
 
 ### Use Case
 
@@ -104,7 +119,7 @@ An authenticated employee edits and submits a weekly timesheet.
 - line target is Project xor General Charge Code
 - submit is blocked when validation fails
 
-## 9. Approval Workflow
+## 10. Approval Workflow
 
 ### Use Case
 
@@ -116,7 +131,7 @@ A Project Manager processes approval items.
 - only assigned approval items are actionable
 - approve and reject actions are audited
 
-## 10. Project Time Inquiry
+## 11. Project Time Inquiry
 
 ### Use Case
 
@@ -127,7 +142,7 @@ A Project Owner or Project Manager views live project time.
 - inquiry screen is available to `PROJECT_OWNER` and `PROJECT_MANAGER`
 - only owned or managed project scope is visible
 
-## 11. Guarded Deletes
+## 12. Guarded Deletes
 
 ### Use Case
 

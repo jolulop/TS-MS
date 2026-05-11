@@ -46,7 +46,19 @@
 - General Charge Codes are Business Unit-level.
 - Validity windows and behavior flags are enforced in the domain layer.
 
-## 5. Project Rules
+## 5. Calendar Rules
+
+- Yearly Calendars are Business Unit-level inside the active Office.
+- A Yearly Calendar can remain active outside its calendar year.
+- Calendar Special Day date must belong to the selected Yearly Calendar year.
+- Only one Calendar Special Day can exist per date inside a Yearly Calendar.
+- Supported Calendar Special Day types are:
+  - `NATIONAL_HOLIDAY`
+  - `LOCAL_HOLIDAY`
+  - `TIMIA_DAY`
+  - `OTHER`
+
+## 6. Project Rules
 
 - Projects belong to one Business Unit and one Office.
 - Project Owner is mandatory and must hold `PROJECT_OWNER`.
@@ -60,13 +72,13 @@
 - `close_date` must not be before `start_date`.
 - Closed projects cannot receive new assignments or new time after close.
 
-## 6. Project Assignment Rules
+## 7. Project Assignment Rules
 
 - Assignment employee must be active.
 - Assignment employee must be in the project Business Unit scope.
 - Assignment date range must stay inside the allowed project window.
 
-## 7. Timesheet Rules
+## 8. Timesheet Rules
 
 - One employee can have at most one weekly timesheet per week.
 - Timesheet week is Monday to Friday.
@@ -78,25 +90,25 @@
 - Approved timesheets are locked.
 - Archived timesheets are not editable.
 
-## 8. Approval Rules
+## 9. Approval Rules
 
 - Approval worklist is currently a `PROJECT_MANAGER` workflow.
 - A Project Manager can act only on approval items assigned to them.
 - An approver cannot approve their own submitted timesheet as the acting approver for that item.
 
-## 9. Period Lock And Retention Rules
+## 10. Period Lock And Retention Rules
 
 - Office `timesheet_cutoff_date` locks older employee edits/submissions by Business Unit inheritance.
 - `TS_ADMIN` may override a specific lock with audit.
 - Retention/archive behavior is driven by Office configuration.
 
-## 10. Delete Rules
+## 11. Delete Rules
 
 - Administrative deletes are guarded by referential integrity.
 - No cascade business deletion is performed from UI delete actions.
 - When a dependency exists, the system must block the delete and show an error.
 
-## 11. Audit Rules
+## 12. Audit Rules
 
 Audit is required for:
 - employee identity changes

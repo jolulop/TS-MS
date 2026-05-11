@@ -258,6 +258,127 @@ def test_ts_admin_can_create_and_update_pricing_models_via_api() -> None:
 
 
 @pytest.mark.django_db
+def test_ts_admin_can_create_update_and_list_yearly_calendars_via_api() -> None:
+    seed_reference_data()
+    (
+        business_unit,
+        admin_employee,
+        _project_owner,
+        _project_manager,
+        _worker,
+        _project_client,
+        _category,
+        _cost_center,
+        _pricing_model,
+    ) = _build_admin_context()
+    client = Client()
+    initialize_session(client, admin_employee.email)
+
+    create_response = client.post(
+        "/api/v1/admin/yearly-calendars/",
+        data=json.dumps(
+            {
+                "business_unit_id": business_unit.id,
+                "calendar_year": 2026,
+                "calendar_name": "API Calendar",
+                "status_code": "ACTIVE",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 201
+    yearly_calendar = create_response.json()["yearly_calendar"]
+    assert yearly_calendar["calendar_name"] == "API Calendar"
+
+    update_response = client.patch(
+        f"/api/v1/admin/yearly-calendars/{yearly_calendar['id']}/",
+        data=json.dumps(
+            {
+                "calendar_name": "API Calendar Updated",
+                "status_code": "INACTIVE",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["yearly_calendar"]["status"] == "INACTIVE"
+
+    list_response = client.get("/api/v1/admin/yearly-calendars/?status=ALL")
+
+    assert list_response.status_code == 200
+    assert [item["calendar_name"] for item in list_response.json()["yearly_calendars"]] == [
+        "API Calendar Updated"
+    ]
+
+
+@pytest.mark.django_db
+def test_ts_admin_can_create_and_update_calendar_special_days_via_api() -> None:
+    seed_reference_data()
+    (
+        business_unit,
+        admin_employee,
+        _project_owner,
+        _project_manager,
+        _worker,
+        _project_client,
+        _category,
+        _cost_center,
+        _pricing_model,
+    ) = _build_admin_context()
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="API Holiday Calendar",
+    )
+    client = Client()
+    initialize_session(client, admin_employee.email)
+
+    create_response = client.post(
+        "/api/v1/admin/calendar-special-days/",
+        data=json.dumps(
+            {
+                "yearly_calendar_id": yearly_calendar.id,
+                "special_date": "2026-05-01",
+                "day_type_code": "NATIONAL_HOLIDAY",
+                "status_code": "ACTIVE",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 201
+    special_day = create_response.json()["calendar_special_day"]
+    assert special_day["day_type"]["value_code"] == "NATIONAL_HOLIDAY"
+
+    update_response = client.patch(
+        f"/api/v1/admin/calendar-special-days/{special_day['id']}/",
+        data=json.dumps(
+            {
+                "special_date": "2026-05-04",
+                "day_type_code": "LOCAL_HOLIDAY",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert update_response.status_code == 200
+    updated_special_day = update_response.json()["calendar_special_day"]
+    assert updated_special_day["special_date"] == "2026-05-04"
+    assert updated_special_day["day_type"]["value_code"] == "LOCAL_HOLIDAY"
+
+    list_response = client.get(
+        f"/api/v1/admin/calendar-special-days/?yearly_calendar_id={yearly_calendar.id}"
+    )
+
+    assert list_response.status_code == 200
+    assert [item["id"] for item in list_response.json()["calendar_special_days"]] == [
+        special_day["id"]
+    ]
+
+
+@pytest.mark.django_db
 def test_ts_admin_can_create_and_update_project_assignment_via_api() -> None:
     seed_reference_data()
     (

@@ -82,8 +82,17 @@ REFERENCE_DATA = {
         "name": "Special Day Type",
         "description": "Special day classifications from the ERD.",
         "values": [
-            {"code": "HOLIDAY", "label": "Holiday", "sort_order": 10},
-            {"code": "COMPANY_DAY", "label": "Company Day", "sort_order": 20},
+            {"code": "NATIONAL_HOLIDAY", "label": "National Holiday", "sort_order": 10},
+            {"code": "LOCAL_HOLIDAY", "label": "Local Holiday", "sort_order": 20},
+            {"code": "TIMIA_DAY", "label": "Timia Day", "sort_order": 30},
+            {"code": "OTHER", "label": "Other", "sort_order": 40},
+            {"code": "HOLIDAY", "label": "Holiday", "sort_order": 90, "active_flag": False},
+            {
+                "code": "COMPANY_DAY",
+                "label": "Company Day",
+                "sort_order": 100,
+                "active_flag": False,
+            },
         ],
     },
     "CLIENT_STATUS": {

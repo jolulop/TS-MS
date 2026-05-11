@@ -27,6 +27,7 @@ Visible section:
 Visible sections:
 - Business Units
 - Employees
+- Calendars
 - Clients
 - Internal Categories
 - Cost Centers
@@ -148,6 +149,38 @@ Important UI behavior:
   - create general charge code
 - Detail:
   - edit lifecycle, validity, and behavior flags
+
+### SCR-115 Calendar Management
+
+- Access: `TS_ADMIN`
+- Scope: Business Unit
+- Collection:
+  - status filter
+  - create yearly calendar
+- Detail:
+  - edit yearly calendar year, name, and status
+  - show year summary
+  - show month navigation and month view
+  - show special-day list
+  - create special day from the calendar detail
+  - guarded delete action
+
+### SCR-117 Special Day Creation
+
+- Access: `TS_ADMIN`
+- Scope: selected Yearly Calendar
+- Create:
+  - select special day date
+  - select special day type
+  - save inside the selected Yearly Calendar
+
+### SCR-118 Special Day Detail
+
+- Access: `TS_ADMIN`
+- Scope: selected Yearly Calendar
+- Detail:
+  - edit special day date and type
+  - guarded delete action
 
 ## 9. Project Screens
 

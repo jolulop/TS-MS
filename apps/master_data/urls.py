@@ -46,6 +46,26 @@ urlpatterns = [
         name="admin-pricing-model-detail",
     ),
     path(
+        "admin/yearly-calendars/",
+        views.yearly_calendars_collection,
+        name="admin-yearly-calendar-collection",
+    ),
+    path(
+        "admin/yearly-calendars/<int:yearly_calendar_id>/",
+        views.yearly_calendar_detail,
+        name="admin-yearly-calendar-detail",
+    ),
+    path(
+        "admin/calendar-special-days/",
+        views.calendar_special_days_collection,
+        name="admin-calendar-special-day-collection",
+    ),
+    path(
+        "admin/calendar-special-days/<int:special_day_id>/",
+        views.calendar_special_day_detail,
+        name="admin-calendar-special-day-detail",
+    ),
+    path(
         "admin/general-charge-codes/",
         views.general_charge_codes_collection,
         name="admin-general-charge-code-collection",

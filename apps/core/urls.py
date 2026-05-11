@@ -91,6 +91,22 @@ urlpatterns = [
         system_views.project_assignment_detail,
         name="system-project-assignment-detail",
     ),
+    path("system/calendars/", system_views.yearly_calendars_collection, name="system-calendars"),
+    path(
+        "system/calendars/<int:yearly_calendar_id>/",
+        system_views.yearly_calendar_detail,
+        name="system-calendar-detail",
+    ),
+    path(
+        "system/calendars/<int:yearly_calendar_id>/special-days/new/",
+        system_views.calendar_special_day_create,
+        name="system-calendar-special-day-create",
+    ),
+    path(
+        "system/calendar-special-days/<int:special_day_id>/",
+        system_views.calendar_special_day_detail,
+        name="system-calendar-special-day-detail",
+    ),
     path(
         "system/calendar-period-rules/",
         system_views.calendar_period_rules_collection,

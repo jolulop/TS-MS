@@ -15,6 +15,7 @@ from apps.master_data.models import (
     OfficeConfiguration,
     Project,
     ProjectAssignment,
+    YearlyCalendar,
 )
 from apps.master_data.models import (
     Client as ClientRecord,
@@ -38,6 +39,7 @@ from tests.helpers import (
     create_business_unit,
     create_business_unit_configuration,
     create_calendar_period_rule,
+    create_calendar_special_day,
     create_client,
     create_cost_center,
     create_employee,
@@ -174,6 +176,7 @@ def test_system_management_hub_shows_real_admin_screen_links() -> None:
     assert "/system/business-units/" in content
     assert "/system/employees/" in content
     assert "/system/clients/" in content
+    assert "/system/calendars/" in content
     assert "/system/pricing-models/" in content
     assert "/system/general-charge-codes/" in content
     assert "/system/projects/" in content
@@ -1417,6 +1420,168 @@ def test_calendar_period_rule_management_all_filter_shows_active_and_inactive_re
     assert 'href="/system/calendar-period-rules/?status=ALL"' in content
     assert f"/system/calendar-period-rules/{active_rule.id}/" in content
     assert f"/system/calendar-period-rules/{inactive_rule.id}/" in content
+
+
+@pytest.mark.django_db
+def test_calendar_management_create_update_and_filter_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+
+    create_response = client.post(
+        "/system/calendars/",
+        data={
+            "business_unit_id": str(business_units[0].id),
+            "calendar_year": "2027",
+            "calendar_name": "Delivery Calendar",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    yearly_calendar = YearlyCalendar.objects.get(
+        business_unit=business_units[0],
+        calendar_year=2027,
+        calendar_name="Delivery Calendar",
+    )
+
+    detail_response = client.get(f"/system/calendars/{yearly_calendar.id}/?month=5")
+
+    assert detail_response.status_code == 200
+    detail_content = detail_response.content.decode()
+    assert "Year Summary" in detail_content
+    assert "Month View" in detail_content
+    assert "May 2027" in detail_content
+    assert "Create Special Day" in detail_content
+
+    update_response = client.post(
+        f"/system/calendars/{yearly_calendar.id}/",
+        data={
+            "form_name": "general",
+            "calendar_year": "2027",
+            "calendar_name": "Delivery Calendar Updated",
+            "status_code": "INACTIVE",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    yearly_calendar.refresh_from_db()
+    assert yearly_calendar.calendar_name == "Delivery Calendar Updated"
+    assert yearly_calendar.status.value_code == "INACTIVE"
+
+    filtered_response = client.get("/system/calendars/?status=ALL")
+
+    assert filtered_response.status_code == 200
+    filtered_content = filtered_response.content.decode()
+    assert 'href="/system/calendars/?status=ALL"' in filtered_content
+    assert f"/system/calendars/{yearly_calendar.id}/" in filtered_content
+
+
+@pytest.mark.django_db
+def test_calendar_special_day_management_create_update_and_delete_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_units[0],
+        calendar_year=2026,
+        calendar_name="Holiday Calendar",
+    )
+
+    create_response = client.post(
+        f"/system/calendars/{yearly_calendar.id}/special-days/new/",
+        data={
+            "special_date": date(2026, 5, 1).isoformat(),
+            "day_type_code": "NATIONAL_HOLIDAY",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    special_day = yearly_calendar.special_days.get(special_date=date(2026, 5, 1))
+    assert special_day.day_type.value_code == "NATIONAL_HOLIDAY"
+
+    calendar_detail_response = client.get(f"/system/calendars/{yearly_calendar.id}/?month=5")
+
+    assert calendar_detail_response.status_code == 200
+    calendar_content = calendar_detail_response.content.decode()
+    assert "National Holiday" in calendar_content
+    assert "2026-05-01" in calendar_content
+    assert f"/system/calendar-special-days/{special_day.id}/" in calendar_content
+
+    update_response = client.post(
+        f"/system/calendar-special-days/{special_day.id}/",
+        data={
+            "form_name": "edit",
+            "special_date": date(2026, 5, 4).isoformat(),
+            "day_type_code": "LOCAL_HOLIDAY",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    special_day.refresh_from_db()
+    assert special_day.special_date == date(2026, 5, 4)
+    assert special_day.day_type.value_code == "LOCAL_HOLIDAY"
+
+    delete_response = client.post(
+        f"/system/calendar-special-days/{special_day.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert delete_response.status_code == 302
+    assert delete_response.headers["Location"] == f"/system/calendars/{yearly_calendar.id}/"
+    assert yearly_calendar.special_days.filter(id=special_day.id).exists() is False
+
+
+@pytest.mark.django_db
+def test_calendar_special_day_create_rejects_dates_outside_the_calendar_year() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_units[0],
+        calendar_year=2026,
+        calendar_name="Year Bound Calendar",
+    )
+
+    response = client.post(
+        f"/system/calendars/{yearly_calendar.id}/special-days/new/",
+        data={
+            "special_date": date(2027, 1, 1).isoformat(),
+            "day_type_code": "OTHER",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Special day date must belong to the selected calendar year." in content
+    assert yearly_calendar.special_days.exists() is False
+
+
+@pytest.mark.django_db
+def test_calendar_delete_is_blocked_when_special_days_still_reference_it() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_units[0],
+        calendar_year=2026,
+        calendar_name="Protected Calendar",
+    )
+    create_calendar_special_day(
+        yearly_calendar=yearly_calendar,
+        special_date=date(2026, 6, 15),
+        day_type_code="TIMIA_DAY",
+    )
+
+    response = client.post(
+        f"/system/calendars/{yearly_calendar.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete Calendar" in content
+    assert "Yearly calendar cannot be deleted because it is still referenced" in content
+    assert YearlyCalendar.objects.filter(id=yearly_calendar.id).exists()
 
 
 @pytest.mark.django_db

@@ -15,6 +15,7 @@ Primary diagram:
 - `Employee` belongs to `Office` and has a primary Business Unit plus scoped Business Unit assignments.
 - `Client`, `CostCenter`, and `PricingModel` are Office-level masters.
 - `InternalCategory`, `GeneralChargeCode`, `Project`, `ProjectAssignment`, and `YearlyCalendar` remain Business Unit linked.
+- `CalendarSpecialDay` belongs to `YearlyCalendar`.
 - `Project` now requires `pricing_model_id`.
 
 ## 3. Relationship Summary
@@ -24,6 +25,7 @@ Primary diagram:
 - Business Units
 - Employees
 - Yearly Calendars
+- Calendar Special Days
 - Calendar Period Rules
 - Clients
 - Cost Centers

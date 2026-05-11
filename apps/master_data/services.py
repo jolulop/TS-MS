@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
@@ -15,6 +15,7 @@ from apps.auth.services import canonicalize_email
 from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
+    CalendarSpecialDay,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -23,6 +24,9 @@ from apps.master_data.models import (
     Project,
     ProjectAssignment,
     YearlyCalendar,
+)
+from apps.master_data.models import (
+    CalendarSpecialDay as CalendarSpecialDayRecord,
 )
 from apps.master_data.models import (
     Client as ClientRecord,
@@ -528,6 +532,30 @@ def _serialize_yearly_calendar(yearly_calendar: YearlyCalendar) -> dict:
     }
 
 
+def _serialize_calendar_special_day(special_day: CalendarSpecialDayRecord) -> dict:
+    return {
+        "id": special_day.id,
+        "special_date": special_day.special_date.isoformat(),
+        "name": special_day.name,
+        "status": special_day.status.value_code,
+        "day_type": {
+            "id": special_day.day_type_id,
+            "value_code": special_day.day_type.value_code,
+            "value_label": special_day.day_type.value_label,
+        },
+        "yearly_calendar": _serialize_yearly_calendar(special_day.yearly_calendar),
+        "default_general_charge_code": (
+            {
+                "id": special_day.default_general_charge_code_id,
+                "code": special_day.default_general_charge_code.code,
+                "name": special_day.default_general_charge_code.name,
+            }
+            if special_day.default_general_charge_code_id is not None
+            else None
+        ),
+    }
+
+
 def _serialize_calendar_period_rule(rule: CalendarPeriodRule) -> dict:
     return {
         "id": rule.id,
@@ -549,6 +577,10 @@ def _serialize_calendar_period_rule(rule: CalendarPeriodRule) -> dict:
         },
         "yearly_calendar": _serialize_yearly_calendar(rule.yearly_calendar),
     }
+
+
+def _build_special_day_name(day_type: RefValue, special_date: date) -> str:
+    return f"{day_type.value_label} {special_date.isoformat()}"
 
 
 def _serialize_project(project: Project) -> dict:
@@ -3541,6 +3573,704 @@ class GeneralChargeCodeManagementService:
         ).get(id=general_charge_code_id)
 
 
+class YearlyCalendarManagementService:
+    @staticmethod
+    def list_yearly_calendars(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+    ) -> list[dict]:
+        _ensure_ts_admin(current_user)
+        calendars = _apply_status_filter(
+            YearlyCalendar.objects.select_related("business_unit", "office", "status")
+            .filter(
+                business_unit_id__in=current_user.scoped_business_unit_ids,
+                office_id=current_user.office_id,
+            )
+            .order_by("business_unit__bu_code", "calendar_year", "calendar_name"),
+            _parse_status_filter(status_code, domain_code="CALENDAR_STATUS"),
+        )
+        return [_serialize_yearly_calendar(calendar) for calendar in calendars]
+
+    @staticmethod
+    def get_yearly_calendar(current_user: CurrentUser, yearly_calendar_id: int) -> dict:
+        _ensure_ts_admin(current_user)
+        yearly_calendar = YearlyCalendarManagementService._get_scoped_yearly_calendar(
+            current_user,
+            yearly_calendar_id,
+        )
+        return YearlyCalendarManagementService._serialize_yearly_calendar_detail(yearly_calendar)
+
+    @staticmethod
+    @transaction.atomic
+    def create_yearly_calendar(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        business_unit = _get_scoped_business_unit(
+            current_user,
+            _parse_required_int(
+                payload.get("business_unit_id"),
+                code="YEARLY_CALENDAR_BUSINESS_UNIT_REQUIRED",
+                message="business_unit_id is required.",
+            ),
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            business_unit.office,
+            out_of_scope_message="Yearly calendar Business Unit is outside your active office.",
+        )
+        calendar_year = _parse_required_int(
+            payload.get("calendar_year"),
+            code="YEARLY_CALENDAR_YEAR_REQUIRED",
+            message="calendar_year is required.",
+        )
+        calendar_name = str(payload.get("calendar_name", "")).strip()
+        if not calendar_name:
+            raise AuthError(
+                "YEARLY_CALENDAR_NAME_REQUIRED",
+                "Calendar name is required.",
+                400,
+            )
+        _validate_optional_office_payload(
+            payload,
+            code_prefix="YEARLY_CALENDAR",
+            expected_office_id=business_unit.office_id,
+            mismatch_message="Yearly calendar office must match the selected Business Unit office.",
+        )
+
+        try:
+            yearly_calendar = YearlyCalendar.objects.create(
+                business_unit=business_unit,
+                office=business_unit.office,
+                calendar_year=calendar_year,
+                calendar_name=calendar_name,
+                status=_ref_value(
+                    "CALENDAR_STATUS",
+                    str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE",
+                ),
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+        except IntegrityError as exc:
+            raise AuthError(
+                "YEARLY_CALENDAR_NOT_UNIQUE",
+                "Calendar year and name must be unique within the Business Unit.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="yearly_calendar",
+            entity_id=yearly_calendar.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=business_unit,
+            reason_text="Yearly calendar created by Timesheet Administrator.",
+        )
+        return _serialize_yearly_calendar(
+            YearlyCalendarManagementService._refresh_yearly_calendar(yearly_calendar.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def update_yearly_calendar(
+        current_user: CurrentUser,
+        yearly_calendar_id: int,
+        payload: dict,
+    ) -> dict:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        yearly_calendar = YearlyCalendarManagementService._get_scoped_yearly_calendar(
+            current_user,
+            yearly_calendar_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            yearly_calendar.office,
+            out_of_scope_message="Yearly calendar is outside your active office.",
+        )
+        _validate_optional_office_payload(
+            payload,
+            code_prefix="YEARLY_CALENDAR",
+            expected_office_id=yearly_calendar.office_id,
+            immutable_office_id=yearly_calendar.office_id,
+            mismatch_message="Yearly calendar office must match the existing office.",
+            immutable_message="Yearly calendar office cannot be changed.",
+        )
+        if (
+            "business_unit_id" in payload
+            and _parse_required_int(
+                payload.get("business_unit_id"),
+                code="YEARLY_CALENDAR_BUSINESS_UNIT_REQUIRED",
+                message="business_unit_id must be a valid Business Unit identifier.",
+            )
+            != yearly_calendar.business_unit_id
+        ):
+            raise AuthError(
+                "YEARLY_CALENDAR_BUSINESS_UNIT_IMMUTABLE",
+                "Yearly calendar Business Unit cannot be changed.",
+                400,
+            )
+
+        changed_fields: list[tuple[str, str, str]] = []
+
+        if "calendar_year" in payload:
+            new_calendar_year = _parse_required_int(
+                payload.get("calendar_year"),
+                code="YEARLY_CALENDAR_YEAR_REQUIRED",
+                message="calendar_year is required.",
+            )
+            if new_calendar_year != yearly_calendar.calendar_year:
+                changed_fields.append(
+                    ("calendar_year", str(yearly_calendar.calendar_year), str(new_calendar_year))
+                )
+                yearly_calendar.calendar_year = new_calendar_year
+
+        if "calendar_name" in payload:
+            new_calendar_name = str(payload.get("calendar_name", "")).strip()
+            if not new_calendar_name:
+                raise AuthError(
+                    "YEARLY_CALENDAR_NAME_REQUIRED",
+                    "Calendar name is required.",
+                    400,
+                )
+            if new_calendar_name != yearly_calendar.calendar_name:
+                changed_fields.append(
+                    ("calendar_name", yearly_calendar.calendar_name, new_calendar_name)
+                )
+                yearly_calendar.calendar_name = new_calendar_name
+
+        if "status_code" in payload:
+            new_status = _ref_value("CALENDAR_STATUS", str(payload.get("status_code", "")).strip())
+            if new_status.id != yearly_calendar.status_id:
+                changed_fields.append(
+                    ("status", yearly_calendar.status.value_code, new_status.value_code)
+                )
+                yearly_calendar.status = new_status
+
+        if changed_fields:
+            try:
+                yearly_calendar.updated_by = current_user.email
+                yearly_calendar.save()
+            except IntegrityError as exc:
+                raise AuthError(
+                    "YEARLY_CALENDAR_NOT_UNIQUE",
+                    "Calendar year and name must be unique within the Business Unit.",
+                    400,
+                ) from exc
+
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="yearly_calendar",
+                entity_id=yearly_calendar.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=yearly_calendar.business_unit,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="Yearly calendar updated by Timesheet Administrator.",
+            )
+        return _serialize_yearly_calendar(
+            YearlyCalendarManagementService._refresh_yearly_calendar(yearly_calendar.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def delete_yearly_calendar(current_user: CurrentUser, yearly_calendar_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        yearly_calendar = YearlyCalendarManagementService._get_scoped_yearly_calendar(
+            current_user,
+            yearly_calendar_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            yearly_calendar.office,
+            out_of_scope_message="Yearly calendar is outside your active office.",
+        )
+
+        try:
+            calendar_label = f"{yearly_calendar.calendar_year} - {yearly_calendar.calendar_name}"
+            calendar_id = yearly_calendar.id
+            yearly_calendar.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "YEARLY_CALENDAR_DELETE_BLOCKED",
+                "Yearly calendar cannot be deleted because it is still referenced by "
+                "employees, period rules, special days, or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="yearly_calendar",
+            entity_id=calendar_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=yearly_calendar.business_unit,
+            old_value=calendar_label,
+            reason_text="Yearly calendar deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
+    def _serialize_yearly_calendar_detail(yearly_calendar: YearlyCalendar) -> dict:
+        special_days = list(
+            CalendarSpecialDayRecord.objects.select_related(
+                "yearly_calendar",
+                "yearly_calendar__business_unit",
+                "yearly_calendar__office",
+                "yearly_calendar__status",
+                "day_type",
+                "default_general_charge_code",
+                "status",
+            )
+            .filter(yearly_calendar_id=yearly_calendar.id)
+            .order_by("special_date")
+        )
+        active_special_days = [
+            special_day for special_day in special_days if special_day.status.value_code == "ACTIVE"
+        ]
+        active_holiday_codes = {"NATIONAL_HOLIDAY", "LOCAL_HOLIDAY"}
+        weekday_count = 0
+        week_starts: set[date] = set()
+        first_day = date(yearly_calendar.calendar_year, 1, 1)
+        last_day = date(yearly_calendar.calendar_year, 12, 31)
+        current_day = first_day
+        while current_day <= last_day:
+            if current_day.weekday() < 5:
+                weekday_count += 1
+                week_starts.add(current_day - timedelta(days=current_day.weekday()))
+            current_day += timedelta(days=1)
+
+        active_weekday_special_days = sum(
+            1 for special_day in active_special_days if special_day.special_date.weekday() < 5
+        )
+
+        return {
+            **_serialize_yearly_calendar(yearly_calendar),
+            "special_days": [
+                _serialize_calendar_special_day(special_day) for special_day in special_days
+            ],
+            "summary": {
+                "week_count": len(week_starts),
+                "weekday_count": weekday_count,
+                "active_holiday_count": sum(
+                    1
+                    for special_day in active_special_days
+                    if special_day.day_type.value_code in active_holiday_codes
+                ),
+                "active_timia_other_count": sum(
+                    1
+                    for special_day in active_special_days
+                    if special_day.day_type.value_code not in active_holiday_codes
+                ),
+                "net_working_day_count": weekday_count - active_weekday_special_days,
+            },
+            "period_rule_count": yearly_calendar.period_rules.count(),
+        }
+
+    @staticmethod
+    def _get_scoped_yearly_calendar(
+        current_user: CurrentUser, yearly_calendar_id: int
+    ) -> YearlyCalendar:
+        try:
+            yearly_calendar = YearlyCalendar.objects.select_related(
+                "business_unit",
+                "office",
+                "office__status",
+                "status",
+            ).get(id=yearly_calendar_id)
+        except YearlyCalendar.DoesNotExist as exc:
+            raise AuthError("YEARLY_CALENDAR_NOT_FOUND", "Yearly calendar not found.", 404) from exc
+        _ensure_business_units_in_scope(current_user, {yearly_calendar.business_unit_id})
+        _ensure_office_in_scope(
+            current_user,
+            yearly_calendar.office_id,
+            message="Yearly calendar is outside your active office.",
+        )
+        return yearly_calendar
+
+    @staticmethod
+    def _refresh_yearly_calendar(yearly_calendar_id: int) -> YearlyCalendar:
+        return YearlyCalendar.objects.select_related("business_unit", "office", "status").get(
+            id=yearly_calendar_id
+        )
+
+
+class CalendarSpecialDayManagementService:
+    @staticmethod
+    def list_special_days(
+        current_user: CurrentUser,
+        *,
+        yearly_calendar_id: int | None = None,
+    ) -> list[dict]:
+        _ensure_ts_admin(current_user)
+        special_days = CalendarSpecialDayRecord.objects.select_related(
+            "yearly_calendar",
+            "yearly_calendar__business_unit",
+            "yearly_calendar__office",
+            "yearly_calendar__status",
+            "day_type",
+            "default_general_charge_code",
+            "status",
+        ).filter(
+            yearly_calendar__business_unit_id__in=current_user.scoped_business_unit_ids,
+            yearly_calendar__office_id=current_user.office_id,
+        )
+        if yearly_calendar_id is not None:
+            special_days = special_days.filter(yearly_calendar_id=yearly_calendar_id)
+        special_days = special_days.order_by(
+            "yearly_calendar__business_unit__bu_code",
+            "yearly_calendar__calendar_year",
+            "special_date",
+        )
+        return [_serialize_calendar_special_day(special_day) for special_day in special_days]
+
+    @staticmethod
+    def get_special_day(current_user: CurrentUser, special_day_id: int) -> dict:
+        _ensure_ts_admin(current_user)
+        special_day = CalendarSpecialDayManagementService._get_scoped_special_day(
+            current_user,
+            special_day_id,
+        )
+        return _serialize_calendar_special_day(special_day)
+
+    @staticmethod
+    @transaction.atomic
+    def create_special_day(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        yearly_calendar = YearlyCalendarManagementService._get_scoped_yearly_calendar(
+            current_user,
+            _parse_required_int(
+                payload.get("yearly_calendar_id"),
+                code="CALENDAR_SPECIAL_DAY_CALENDAR_REQUIRED",
+                message="yearly_calendar_id is required.",
+            ),
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            yearly_calendar.office,
+            out_of_scope_message="Yearly calendar is outside your active office.",
+        )
+        special_date = _parse_iso_date(
+            payload.get("special_date"),
+            code="CALENDAR_SPECIAL_DAY_DATE_REQUIRED",
+            message="special_date must be a valid ISO date.",
+        )
+        CalendarSpecialDayManagementService._validate_calendar_year(
+            yearly_calendar.calendar_year,
+            special_date=special_date,
+        )
+        day_type = _ref_value(
+            "SPECIAL_DAY_TYPE",
+            str(payload.get("day_type_code", "")).strip(),
+        )
+        default_general_charge_code = (
+            CalendarSpecialDayManagementService._resolve_default_general_charge_code(
+                current_user,
+                yearly_calendar=yearly_calendar,
+                default_general_charge_code_id=payload.get("default_general_charge_code_id"),
+            )
+        )
+        try:
+            special_day = CalendarSpecialDay.objects.create(
+                yearly_calendar=yearly_calendar,
+                special_date=special_date,
+                day_type=day_type,
+                name=_build_special_day_name(day_type, special_date),
+                default_general_charge_code=default_general_charge_code,
+                status=_ref_value(
+                    "SPECIAL_DAY_STATUS",
+                    str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE",
+                ),
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+        except IntegrityError as exc:
+            raise AuthError(
+                "CALENDAR_SPECIAL_DAY_NOT_UNIQUE",
+                "A special day already exists for that date in the selected calendar.",
+                400,
+            ) from exc
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="calendar_special_day",
+            entity_id=special_day.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=yearly_calendar.business_unit,
+            reason_text="Calendar special day created by Timesheet Administrator.",
+        )
+        return _serialize_calendar_special_day(
+            CalendarSpecialDayManagementService._refresh_special_day(special_day.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def update_special_day(current_user: CurrentUser, special_day_id: int, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        special_day = CalendarSpecialDayManagementService._get_scoped_special_day(
+            current_user,
+            special_day_id,
+        )
+        yearly_calendar = special_day.yearly_calendar
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            yearly_calendar.office,
+            out_of_scope_message="Calendar special day is outside your active office.",
+        )
+        if (
+            "yearly_calendar_id" in payload
+            and _parse_required_int(
+                payload.get("yearly_calendar_id"),
+                code="CALENDAR_SPECIAL_DAY_CALENDAR_REQUIRED",
+                message="yearly_calendar_id must be a valid calendar identifier.",
+            )
+            != special_day.yearly_calendar_id
+        ):
+            raise AuthError(
+                "CALENDAR_SPECIAL_DAY_CALENDAR_IMMUTABLE",
+                "Calendar special day calendar cannot be changed.",
+                400,
+            )
+
+        changed_fields: list[tuple[str, str, str]] = []
+        updated_day_type = special_day.day_type
+        updated_special_date = special_day.special_date
+
+        if "special_date" in payload:
+            updated_special_date = _parse_iso_date(
+                payload.get("special_date"),
+                code="CALENDAR_SPECIAL_DAY_DATE_REQUIRED",
+                message="special_date must be a valid ISO date.",
+            )
+            CalendarSpecialDayManagementService._validate_calendar_year(
+                yearly_calendar.calendar_year,
+                special_date=updated_special_date,
+            )
+            if updated_special_date != special_day.special_date:
+                changed_fields.append(
+                    (
+                        "special_date",
+                        special_day.special_date.isoformat(),
+                        updated_special_date.isoformat(),
+                    )
+                )
+                special_day.special_date = updated_special_date
+
+        if "day_type_code" in payload:
+            updated_day_type = _ref_value(
+                "SPECIAL_DAY_TYPE",
+                str(payload.get("day_type_code", "")).strip(),
+            )
+            if updated_day_type.id != special_day.day_type_id:
+                changed_fields.append(
+                    (
+                        "day_type",
+                        special_day.day_type.value_code,
+                        updated_day_type.value_code,
+                    )
+                )
+                special_day.day_type = updated_day_type
+
+        if "status_code" in payload:
+            new_status = _ref_value(
+                "SPECIAL_DAY_STATUS",
+                str(payload.get("status_code", "")).strip(),
+            )
+            if new_status.id != special_day.status_id:
+                changed_fields.append(
+                    ("status", special_day.status.value_code, new_status.value_code)
+                )
+                special_day.status = new_status
+
+        if "default_general_charge_code_id" in payload:
+            new_default_general_charge_code = (
+                CalendarSpecialDayManagementService._resolve_default_general_charge_code(
+                    current_user,
+                    yearly_calendar=yearly_calendar,
+                    default_general_charge_code_id=payload.get("default_general_charge_code_id"),
+                )
+            )
+            old_code = (
+                special_day.default_general_charge_code.code
+                if special_day.default_general_charge_code_id is not None
+                else ""
+            )
+            new_code = (
+                new_default_general_charge_code.code
+                if new_default_general_charge_code is not None
+                else ""
+            )
+            if special_day.default_general_charge_code_id != (
+                new_default_general_charge_code.id if new_default_general_charge_code else None
+            ):
+                changed_fields.append(("default_general_charge_code", old_code, new_code))
+                special_day.default_general_charge_code = new_default_general_charge_code
+
+        updated_name = _build_special_day_name(updated_day_type, updated_special_date)
+        if updated_name != special_day.name:
+            changed_fields.append(("name", special_day.name, updated_name))
+            special_day.name = updated_name
+
+        if changed_fields:
+            try:
+                special_day.updated_by = current_user.email
+                special_day.save()
+            except IntegrityError as exc:
+                raise AuthError(
+                    "CALENDAR_SPECIAL_DAY_NOT_UNIQUE",
+                    "A special day already exists for that date in the selected calendar.",
+                    400,
+                ) from exc
+
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="calendar_special_day",
+                entity_id=special_day.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=yearly_calendar.business_unit,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="Calendar special day updated by Timesheet Administrator.",
+            )
+        return _serialize_calendar_special_day(
+            CalendarSpecialDayManagementService._refresh_special_day(special_day.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def delete_special_day(current_user: CurrentUser, special_day_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        special_day = CalendarSpecialDayManagementService._get_scoped_special_day(
+            current_user,
+            special_day_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            special_day.yearly_calendar.office,
+            out_of_scope_message="Calendar special day is outside your active office.",
+        )
+        try:
+            special_day_label = (
+                f"{special_day.special_date.isoformat()} {special_day.day_type.value_code}"
+            )
+            special_day_record_id = special_day.id
+            special_day.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "CALENDAR_SPECIAL_DAY_DELETE_BLOCKED",
+                "Calendar special day cannot be deleted because it is still referenced by "
+                "other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="calendar_special_day",
+            entity_id=special_day_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=special_day.yearly_calendar.business_unit,
+            old_value=special_day_label,
+            reason_text="Calendar special day deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
+    def _validate_calendar_year(calendar_year: int, *, special_date: date) -> None:
+        if special_date.year != calendar_year:
+            raise AuthError(
+                "CALENDAR_SPECIAL_DAY_YEAR_MISMATCH",
+                "Special day date must belong to the selected calendar year.",
+                400,
+            )
+
+    @staticmethod
+    def _resolve_default_general_charge_code(
+        current_user: CurrentUser,
+        *,
+        yearly_calendar: YearlyCalendar,
+        default_general_charge_code_id: object,
+    ) -> GeneralChargeCodeRecord | None:
+        if default_general_charge_code_id in (None, ""):
+            return None
+        general_charge_code = GeneralChargeCodeManagementService._get_scoped_general_charge_code(
+            current_user,
+            _parse_required_int(
+                default_general_charge_code_id,
+                code="CALENDAR_SPECIAL_DAY_GENERAL_CHARGE_CODE_INVALID",
+                message=(
+                    "default_general_charge_code_id must be a valid general charge code identifier."
+                ),
+            ),
+        )
+        if general_charge_code.business_unit_id != yearly_calendar.business_unit_id:
+            raise AuthError(
+                "CALENDAR_SPECIAL_DAY_GENERAL_CHARGE_CODE_BU_MISMATCH",
+                "Default general charge code must belong to the same Business Unit.",
+                400,
+            )
+        return general_charge_code
+
+    @staticmethod
+    def _get_scoped_special_day(
+        current_user: CurrentUser,
+        special_day_id: int,
+    ) -> CalendarSpecialDayRecord:
+        try:
+            special_day = CalendarSpecialDayRecord.objects.select_related(
+                "yearly_calendar",
+                "yearly_calendar__business_unit",
+                "yearly_calendar__office",
+                "yearly_calendar__status",
+                "day_type",
+                "default_general_charge_code",
+                "status",
+            ).get(id=special_day_id)
+        except CalendarSpecialDayRecord.DoesNotExist as exc:
+            raise AuthError(
+                "CALENDAR_SPECIAL_DAY_NOT_FOUND",
+                "Calendar special day not found.",
+                404,
+            ) from exc
+        _ensure_business_units_in_scope(
+            current_user,
+            {special_day.yearly_calendar.business_unit_id},
+        )
+        _ensure_office_in_scope(
+            current_user,
+            special_day.yearly_calendar.office_id,
+            message="Calendar special day is outside your active office.",
+        )
+        return special_day
+
+    @staticmethod
+    def _refresh_special_day(special_day_id: int) -> CalendarSpecialDayRecord:
+        return CalendarSpecialDayRecord.objects.select_related(
+            "yearly_calendar",
+            "yearly_calendar__business_unit",
+            "yearly_calendar__office",
+            "yearly_calendar__status",
+            "day_type",
+            "default_general_charge_code",
+            "status",
+        ).get(id=special_day_id)
+
+
 class CalendarPeriodRuleManagementService:
     @staticmethod
     def list_period_rules(
@@ -3574,16 +4304,7 @@ class CalendarPeriodRuleManagementService:
 
     @staticmethod
     def list_yearly_calendars(current_user: CurrentUser) -> list[dict]:
-        _ensure_ts_admin(current_user)
-        calendars = (
-            YearlyCalendar.objects.select_related("business_unit", "office", "status")
-            .filter(
-                business_unit_id__in=current_user.scoped_business_unit_ids,
-                office_id=current_user.office_id,
-            )
-            .order_by("business_unit__bu_code", "calendar_year", "calendar_name")
-        )
-        return [_serialize_yearly_calendar(calendar) for calendar in calendars]
+        return YearlyCalendarManagementService.list_yearly_calendars(current_user)
 
     @staticmethod
     def get_period_rule(current_user: CurrentUser, period_rule_id: int) -> dict:
@@ -3866,22 +4587,10 @@ class CalendarPeriodRuleManagementService:
     def _get_scoped_yearly_calendar(
         current_user: CurrentUser, yearly_calendar_id: int
     ) -> YearlyCalendar:
-        try:
-            yearly_calendar = YearlyCalendar.objects.select_related(
-                "business_unit",
-                "office",
-                "office__status",
-                "status",
-            ).get(id=yearly_calendar_id)
-        except YearlyCalendar.DoesNotExist as exc:
-            raise AuthError("YEARLY_CALENDAR_NOT_FOUND", "Yearly calendar not found.", 404) from exc
-        _ensure_business_units_in_scope(current_user, {yearly_calendar.business_unit_id})
-        _ensure_office_in_scope(
+        return YearlyCalendarManagementService._get_scoped_yearly_calendar(
             current_user,
-            yearly_calendar.office_id,
-            message="Yearly calendar is outside your active office.",
+            yearly_calendar_id,
         )
-        return yearly_calendar
 
     @staticmethod
     def _get_scoped_period_rule(

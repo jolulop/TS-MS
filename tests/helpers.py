@@ -6,6 +6,7 @@ from django.test import Client
 from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
+    CalendarSpecialDay,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -329,6 +330,24 @@ def create_calendar_period_rule(
         thursday_max_hours=thursday_max_hours,
         friday_max_hours=friday_max_hours,
         status=ref_value("CALENDAR_PERIOD_STATUS", "ACTIVE"),
+        created_by=SYSTEM_ACTOR,
+        updated_by=SYSTEM_ACTOR,
+    )
+
+
+def create_calendar_special_day(
+    *,
+    yearly_calendar: YearlyCalendar,
+    special_date: date,
+    day_type_code: str = "NATIONAL_HOLIDAY",
+    active: bool = True,
+) -> CalendarSpecialDay:
+    return CalendarSpecialDay.objects.create(
+        yearly_calendar=yearly_calendar,
+        special_date=special_date,
+        day_type=ref_value("SPECIAL_DAY_TYPE", day_type_code),
+        name=f"{day_type_code} {special_date.isoformat()}",
+        status=ref_value("SPECIAL_DAY_STATUS", "ACTIVE" if active else "INACTIVE"),
         created_by=SYSTEM_ACTOR,
         updated_by=SYSTEM_ACTOR,
     )

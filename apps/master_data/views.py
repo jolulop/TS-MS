@@ -6,6 +6,7 @@ from apps.auth.services import CurrentUserService, error_response, parse_json_re
 from apps.master_data.services import (
     BusinessUnitManagementService,
     CalendarPeriodRuleManagementService,
+    CalendarSpecialDayManagementService,
     ClientManagementService,
     CostCenterManagementService,
     EmployeeManagementService,
@@ -14,6 +15,7 @@ from apps.master_data.services import (
     PricingModelManagementService,
     ProjectAssignmentManagementService,
     ProjectManagementService,
+    YearlyCalendarManagementService,
 )
 
 
@@ -257,6 +259,99 @@ def general_charge_code_detail(
         return error_response(exc.code, exc.message, exc.status)
 
     return JsonResponse({"general_charge_code": general_charge_code})
+
+
+@require_http_methods(["GET", "POST"])
+def yearly_calendars_collection(request: HttpRequest) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            yearly_calendars = YearlyCalendarManagementService.list_yearly_calendars(
+                current_user,
+                status_code=request.GET.get("status"),
+            )
+            return JsonResponse({"yearly_calendars": yearly_calendars})
+
+        payload = parse_json_request(request)
+        yearly_calendar = YearlyCalendarManagementService.create_yearly_calendar(
+            current_user,
+            payload,
+        )
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"yearly_calendar": yearly_calendar}, status=201)
+
+
+@require_http_methods(["GET", "PATCH"])
+def yearly_calendar_detail(request: HttpRequest, yearly_calendar_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            yearly_calendar = YearlyCalendarManagementService.get_yearly_calendar(
+                current_user,
+                yearly_calendar_id,
+            )
+            return JsonResponse({"yearly_calendar": yearly_calendar})
+
+        payload = parse_json_request(request)
+        yearly_calendar = YearlyCalendarManagementService.update_yearly_calendar(
+            current_user,
+            yearly_calendar_id,
+            payload,
+        )
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"yearly_calendar": yearly_calendar})
+
+
+@require_http_methods(["GET", "POST"])
+def calendar_special_days_collection(request: HttpRequest) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            yearly_calendar_id = request.GET.get("yearly_calendar_id")
+            special_days = CalendarSpecialDayManagementService.list_special_days(
+                current_user,
+                yearly_calendar_id=int(yearly_calendar_id)
+                if yearly_calendar_id and yearly_calendar_id.isdigit()
+                else None,
+            )
+            return JsonResponse({"calendar_special_days": special_days})
+
+        payload = parse_json_request(request)
+        special_day = CalendarSpecialDayManagementService.create_special_day(
+            current_user,
+            payload,
+        )
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"calendar_special_day": special_day}, status=201)
+
+
+@require_http_methods(["GET", "PATCH"])
+def calendar_special_day_detail(request: HttpRequest, special_day_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            special_day = CalendarSpecialDayManagementService.get_special_day(
+                current_user,
+                special_day_id,
+            )
+            return JsonResponse({"calendar_special_day": special_day})
+
+        payload = parse_json_request(request)
+        special_day = CalendarSpecialDayManagementService.update_special_day(
+            current_user,
+            special_day_id,
+            payload,
+        )
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"calendar_special_day": special_day})
 
 
 @require_http_methods(["POST"])

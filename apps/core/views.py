@@ -162,10 +162,11 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                     {
                         "title": "Calendars",
                         "summary": (
-                            "Manage calendar period rules and daily hour limits by calendar."
+                            "Manage yearly calendars, month views, special days, and the "
+                            "period rules attached to those calendars."
                         ),
                         "status": "Ready now",
-                        "href": "/system/calendar-period-rules/",
+                        "href": "/system/calendars/",
                     },
                     {
                         "title": "Clients",

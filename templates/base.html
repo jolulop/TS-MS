@@ -520,6 +520,145 @@
         background: rgba(138, 75, 22, 0.08);
         color: var(--warning);
       }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+
+      .summary-grid {
+        display: grid;
+        gap: 0.9rem;
+      }
+
+      @media (min-width: 760px) {
+        .summary-grid {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+      }
+
+      .summary-card {
+        padding: 0.9rem 1rem;
+        border: 1px solid var(--line);
+        background: rgba(239, 228, 205, 0.2);
+      }
+
+      .summary-label,
+      .summary-note {
+        margin: 0;
+      }
+
+      .summary-label {
+        font-size: 0.78rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .summary-value {
+        display: block;
+        margin-top: 0.35rem;
+        font-size: 1.7rem;
+        line-height: 1.1;
+        color: var(--accent-strong);
+      }
+
+      .summary-note {
+        margin-top: 0.35rem;
+        font-size: 0.84rem;
+        color: var(--muted);
+      }
+
+      .calendar-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+
+      .calendar-legend {
+        display: flex;
+        gap: 0.65rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+      }
+
+      .legend-chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2rem;
+        padding: 0.35rem 0.7rem;
+        border: 1px solid var(--line);
+        font-size: 0.84rem;
+        background: white;
+      }
+
+      .legend-chip.working,
+      .calendar-day.working {
+        background: #f8f5ec;
+      }
+
+      .legend-chip.weekend,
+      .calendar-day.weekend {
+        background: #e9eef2;
+      }
+
+      .legend-chip.national-holiday,
+      .calendar-day.national-holiday {
+        background: #f8ddd1;
+      }
+
+      .legend-chip.local-holiday,
+      .calendar-day.local-holiday {
+        background: #fde9b9;
+      }
+
+      .legend-chip.timia-day,
+      .calendar-day.timia-day {
+        background: #d9ece1;
+      }
+
+      .legend-chip.other-day,
+      .calendar-day.other-day {
+        background: #e6dcf3;
+      }
+
+      .calendar-table th,
+      .calendar-table td {
+        min-width: 7rem;
+      }
+
+      .calendar-cell {
+        padding: 0.35rem;
+      }
+
+      .calendar-day {
+        display: grid;
+        gap: 0.2rem;
+        min-height: 7rem;
+        padding: 0.65rem;
+        border: 1px solid rgba(24, 33, 43, 0.08);
+      }
+
+      .calendar-day strong {
+        font-size: 1rem;
+      }
+
+      .calendar-day span,
+      .calendar-day small {
+        color: var(--ink);
+      }
+
+      .calendar-day small {
+        font-size: 0.78rem;
+      }
+
+      .calendar-day.empty {
+        min-height: 7rem;
+        background: transparent;
+        border: none;
+      }
     </style>
   </head>
   <body>

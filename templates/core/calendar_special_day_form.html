@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | TS Management{% endblock %}
+
+{% block content %}
+  <div class="content-stack">
+    {% if system_section_links %}
+      <nav class="subnav" aria-label="System Management Sections">
+        {% for link in system_section_links %}
+          <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+
+    <div class="page-header">
+      <p class="eyebrow">{{ page_eyebrow }}</p>
+      <h1>{{ page_title }}</h1>
+      <p>{{ page_intro }}</p>
+    </div>
+
+    <div class="split-grid">
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>Calendar Context</h2>
+          <p><a href="{{ back_href }}">{{ back_label }}</a></p>
+        </div>
+        <dl class="meta-grid">
+          {% for label, value in detail_rows %}
+            <div class="meta-row">
+              <dt>{{ label }}</dt>
+              <dd>{{ value }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
+      </section>
+
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>{{ form_title }}</h2>
+          <p>{{ form_intro }}</p>
+        </div>
+        {% if form_error %}
+          <div class="banner error">{{ form_error }}</div>
+        {% endif %}
+        <form class="form-stack" method="post" action="">
+          {% csrf_token %}
+          {% include "core/partials/form_fields.html" with fields=form_fields %}
+          <div>
+            <button class="button" type="submit">{{ submit_label }}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </div>
+{% endblock %}

@@ -100,6 +100,7 @@ The following masters remain Business Unit scoped:
 - Employees and Business Unit scope
 - Internal Categories
 - General Charge Codes
+- Yearly Calendars
 - Projects
 - Project Assignments
 - Calendar Period Rules
@@ -146,7 +147,26 @@ The following masters remain Business Unit scoped:
 - General Charge Codes remain Business Unit scoped.
 - They keep lifecycle, approval, billing, and validity-window behavior.
 
-### 8.7 Projects
+### 8.7 Calendars And Special Days
+
+- Yearly Calendars are managed in System Management.
+- Yearly Calendars remain tied to a Business Unit and Office context.
+- A Yearly Calendar can stay active even when the current date is outside the calendar year.
+- Calendar detail shows:
+  - year summary totals
+  - month view
+  - special-day list
+- Calendar Special Days are created, edited, and deleted inside the selected Yearly Calendar.
+- Supported Special Day types are:
+  - `NATIONAL_HOLIDAY`
+  - `LOCAL_HOLIDAY`
+  - `TIMIA_DAY`
+  - `OTHER`
+- The system enforces:
+  - a Special Day date must belong to the selected calendar year
+  - one Special Day per date inside a Yearly Calendar
+
+### 8.8 Projects
 
 - Projects remain Business Unit scoped.
 - The following fields are mandatory for project setup:
@@ -170,14 +190,14 @@ The following masters remain Business Unit scoped:
   - `end_date >= start_date`
   - `close_date >= start_date`
 
-### 8.8 Project Assignments
+### 8.9 Project Assignments
 
 - Project Assignments remain Business Unit scoped through the Project.
 - Assignment creation is blocked for closed projects.
 - The assigned employee must be active and in the project Business Unit scope.
 - Assignment dates must stay inside the allowed project date window.
 
-### 8.9 Calendar Period Rules
+### 8.10 Calendar Period Rules
 
 - Calendar Period Rules are managed in System Management.
 - They remain tied to a Yearly Calendar and Business Unit/Office context.
@@ -185,12 +205,14 @@ The following masters remain Business Unit scoped:
   - `effective_to >= effective_from`
   - no overlapping rules within the same Yearly Calendar
 
-### 8.10 Guarded Deletes
+### 8.11 Guarded Deletes
 
 Guarded delete actions exist in the UI for selected administrative records:
 - Office
 - Business Unit
 - Employee
+- Yearly Calendar
+- Calendar Special Day
 - Client
 - Internal Category
 - Cost Center

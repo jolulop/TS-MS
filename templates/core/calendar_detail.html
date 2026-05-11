@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | TS Management{% endblock %}
+
+{% block content %}
+  <div class="content-stack">
+    {% if system_section_links %}
+      <nav class="subnav" aria-label="System Management Sections">
+        {% for link in system_section_links %}
+          <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+
+    <div class="page-header">
+      <p class="eyebrow">{{ page_eyebrow }}</p>
+      <div class="detail-header">
+        <div>
+          <h1>{{ page_title }}</h1>
+          <p>{{ page_intro }}</p>
+        </div>
+        <span class="chip">{{ entity_status }}</span>
+      </div>
+    </div>
+
+    <div class="split-grid">
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>Current State</h2>
+          <p><a href="{{ back_href }}">{{ back_label }}</a></p>
+        </div>
+        <dl class="meta-grid">
+          {% for label, value in detail_rows %}
+            <div class="meta-row">
+              <dt>{{ label }}</dt>
+              <dd>{{ value }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
+      </section>
+
+      <div class="content-stack">
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>Edit Calendar</h2>
+            <p>Update the selected yearly calendar without leaving System Management.</p>
+          </div>
+          {% if general_form_error %}
+            <div class="banner error">{{ general_form_error }}</div>
+          {% endif %}
+          <form class="form-stack" method="post" action="">
+            {% csrf_token %}
+            <input type="hidden" name="form_name" value="general">
+            {% include "core/partials/form_fields.html" with fields=general_fields %}
+            <div>
+              <button class="button" type="submit">Save Calendar</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>Year Summary</h2>
+            <p>Calendar totals stay available even when you are working in a different year.</p>
+          </div>
+          <div class="summary-grid">
+            {% for item in summary_items %}
+              <article class="summary-card">
+                <p class="summary-label">{{ item.label }}</p>
+                <strong class="summary-value">{{ item.value }}</strong>
+                {% if item.note %}
+                  <p class="summary-note">{{ item.note }}</p>
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="surface-card">
+          <div class="section-header">
+            <div>
+              <h2>Month View</h2>
+              <p>Browse the selected month and review weekends and active special days by color.</p>
+            </div>
+            <div class="calendar-toolbar">
+              <a class="button ghost" href="?month={{ month_state.prev_month }}" aria-label="Previous month">&larr;</a>
+              <strong>{{ month_state.month_name }} {{ month_state.year }}</strong>
+              <a class="button ghost" href="?month={{ month_state.next_month }}" aria-label="Next month">&rarr;</a>
+            </div>
+          </div>
+
+          <div class="calendar-legend" aria-label="Calendar legend">
+            <span class="legend-chip working">Working Day</span>
+            <span class="legend-chip weekend">Weekend</span>
+            <span class="legend-chip national-holiday">National Holiday</span>
+            <span class="legend-chip local-holiday">Local Holiday</span>
+            <span class="legend-chip timia-day">Timia Day</span>
+            <span class="legend-chip other-day">Other</span>
+          </div>
+
+          <div class="table-wrap">
+            <table class="data-table calendar-table">
+              <thead>
+                <tr>
+                  {% for weekday in month_state.weekday_headers %}
+                    <th>{{ weekday }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for week in month_state.weeks %}
+                  <tr>
+                    {% for cell in week %}
+                      <td class="calendar-cell">
+                        {% if cell.empty %}
+                          <div class="calendar-day empty"></div>
+                        {% else %}
+                          <div class="calendar-day {{ cell.day_class }}">
+                            <strong>{{ cell.day_number }}</strong>
+                            <span>{{ cell.label }}</span>
+                            {% if cell.note %}
+                              <small>{{ cell.note }}</small>
+                            {% endif %}
+                          </div>
+                        {% endif %}
+                      </td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="surface-card">
+          <div class="section-header">
+            <div>
+              <h2>Special Days</h2>
+              <p>Open an existing special day to edit or delete it, or create a new one.</p>
+            </div>
+            <div class="button-row">
+              <a class="button secondary" href="{{ special_day_create_href }}">Create Special Day</a>
+              <a class="button ghost" href="{{ period_rule_href }}">Open Period Rules</a>
+            </div>
+          </div>
+          {% if special_day_rows %}
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in special_day_rows %}
+                    <tr>
+                      {% for cell in row.cells %}
+                        <td>
+                          {% if forloop.first %}
+                            <a href="{{ row.href }}">{{ cell }}</a>
+                          {% else %}
+                            {{ cell }}
+                          {% endif %}
+                        </td>
+                      {% endfor %}
+                      <td><a href="{{ row.href }}">Open / Edit</a></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="empty-state">{{ special_day_empty_message }}</div>
+          {% endif %}
+        </section>
+
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>Delete Calendar</h2>
+            <p>Delete this calendar only when no employees, special days, period rules, or other records still reference it.</p>
+          </div>
+          {% if delete_form_error %}
+            <div class="banner error">{{ delete_form_error }}</div>
+          {% endif %}
+          <form class="form-stack" method="post" action="">
+            {% csrf_token %}
+            <input type="hidden" name="form_name" value="delete">
+            <div>
+              <button class="button" type="submit">Delete Calendar</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+  </div>
+{% endblock %}

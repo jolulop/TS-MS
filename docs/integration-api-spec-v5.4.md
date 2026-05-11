@@ -82,6 +82,33 @@ Request fields:
 - `name`
 - `description`
 
+### Yearly Calendars
+
+- `GET /api/v1/admin/yearly-calendars/`
+- `POST /api/v1/admin/yearly-calendars/`
+- `GET /api/v1/admin/yearly-calendars/{yearlyCalendarId}/`
+- `PATCH /api/v1/admin/yearly-calendars/{yearlyCalendarId}/`
+
+Request fields:
+- `business_unit_id`
+- `calendar_year`
+- `calendar_name`
+- `status_code`
+
+### Calendar Special Days
+
+- `GET /api/v1/admin/calendar-special-days/`
+- `POST /api/v1/admin/calendar-special-days/`
+- `GET /api/v1/admin/calendar-special-days/{specialDayId}/`
+- `PATCH /api/v1/admin/calendar-special-days/{specialDayId}/`
+
+Request fields:
+- `yearly_calendar_id`
+- `special_date`
+- `day_type_code`
+- `status_code`
+- `default_general_charge_code_id`
+
 ### General Charge Codes
 
 - `GET /api/v1/admin/general-charge-codes/`
@@ -138,6 +165,7 @@ Applied collections include:
 - clients
 - internal categories
 - cost centers
+- yearly calendars
 - general charge codes
 - projects
 - project assignments
@@ -214,8 +242,17 @@ Admin timesheet actions:
 - `CALENDAR_PERIOD_RULE_DATE_RANGE_INVALID`
 - `CALENDAR_PERIOD_RULE_OVERLAP`
 
+### Calendar Special Days
+
+- `CALENDAR_SPECIAL_DAY_CALENDAR_REQUIRED`
+- `CALENDAR_SPECIAL_DAY_CALENDAR_IMMUTABLE`
+- `CALENDAR_SPECIAL_DAY_DATE_REQUIRED`
+- `CALENDAR_SPECIAL_DAY_YEAR_MISMATCH`
+- `CALENDAR_SPECIAL_DAY_NOT_UNIQUE`
+- `CALENDAR_SPECIAL_DAY_GENERAL_CHARGE_CODE_BU_MISMATCH`
+
 ## 11. Explicit Non-Endpoints
 
 The following actions currently exist in the server-rendered UI but are not documented here as JSON endpoints:
 - Office create/update/delete
-- guarded delete actions for Business Units, Employees, Clients, Internal Categories, Cost Centers, and Pricing Models
+- guarded delete actions for Business Units, Employees, Yearly Calendars, Calendar Special Days, Clients, Internal Categories, Cost Centers, and Pricing Models

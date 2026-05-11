@@ -1,4 +1,6 @@
+import calendar as month_calendar
 from dataclasses import dataclass
+from datetime import date
 
 from django.http import HttpRequest, HttpResponse, QueryDict
 from django.shortcuts import redirect, render
@@ -7,7 +9,12 @@ from django.views.decorators.http import require_http_methods
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
 from apps.core.views import _page_context, _render_access_denied, _require_user
-from apps.master_data.models import BusinessUnit, Employee, Project, YearlyCalendar
+from apps.master_data.models import (
+    BusinessUnit,
+    Employee,
+    Project,
+    YearlyCalendar,
+)
 from apps.master_data.models import Client as ClientRecord
 from apps.master_data.models import CostCenter as CostCenterRecord
 from apps.master_data.models import InternalCategory as InternalCategoryRecord
@@ -15,6 +22,7 @@ from apps.master_data.models import PricingModel as PricingModelRecord
 from apps.master_data.services import (
     BusinessUnitManagementService,
     CalendarPeriodRuleManagementService,
+    CalendarSpecialDayManagementService,
     ClientManagementService,
     CostCenterManagementService,
     EmployeeManagementService,
@@ -24,6 +32,7 @@ from apps.master_data.services import (
     PricingModelManagementService,
     ProjectAssignmentManagementService,
     ProjectManagementService,
+    YearlyCalendarManagementService,
 )
 from apps.reference_data.models import RefValue
 
@@ -84,6 +93,7 @@ def _system_section_links(current_user: CurrentUser, current_path: str) -> list[
                 ("clients", "Clients", "/system/clients/"),
                 ("internal-categories", "Internal Categories", "/system/internal-categories/"),
                 ("cost-centers", "Cost Centers", "/system/cost-centers/"),
+                ("calendars", "Calendars", "/system/calendars/"),
                 ("pricing-models", "Pricing Models", "/system/pricing-models/"),
                 (
                     "general-charge-codes",
@@ -99,16 +109,20 @@ def _system_section_links(current_user: CurrentUser, current_path: str) -> list[
                 ),
             ]
         )
-    return [
-        {
-            "key": key,
-            "label": label,
-            "href": href,
-            "active": current_path == href
-            or (href != "/system/" and current_path.startswith(href)),
-        }
-        for key, label, href in sections
-    ]
+    links = []
+    for key, label, href in sections:
+        is_active = current_path == href or (href != "/system/" and current_path.startswith(href))
+        if key == "calendars" and current_path.startswith("/system/calendar-special-days/"):
+            is_active = True
+        links.append(
+            {
+                "key": key,
+                "label": label,
+                "href": href,
+                "active": is_active,
+            }
+        )
+    return links
 
 
 def _system_context(
@@ -919,6 +933,139 @@ def _cost_center_fields(
     ]
 
 
+def _yearly_calendar_fields(
+    current_user: CurrentUser,
+    *,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    selected_business_unit = submitted_data.get("business_unit_id", "")
+    if entity is not None and post_data is None:
+        selected_business_unit = str(entity["business_unit"]["id"])
+
+    fields = [
+        _office_display_field(
+            entity["office"]["office_name"] if entity else current_user.office_name
+        )
+    ]
+    if entity is None:
+        fields.append(
+            _field(
+                name="business_unit_id",
+                label="Business Unit",
+                kind="select",
+                options=_scoped_business_unit_options(
+                    current_user,
+                    selected=selected_business_unit,
+                    include_blank=True,
+                ),
+                required=True,
+            )
+        )
+    else:
+        fields.append(
+            _field(
+                name="business_unit_display",
+                label="Business Unit",
+                kind="text",
+                value=f"{entity['business_unit']['bu_code']} - {entity['business_unit']['name']}",
+                readonly=True,
+            )
+        )
+
+    fields.extend(
+        [
+            _field(
+                name="calendar_year",
+                label="Calendar Year",
+                kind="number",
+                value=submitted_data.get(
+                    "calendar_year",
+                    str(entity["calendar_year"]) if entity else str(date.today().year),
+                )
+                if post_data is not None or entity is not None
+                else str(date.today().year),
+                required=True,
+            ),
+            _field(
+                name="calendar_name",
+                label="Calendar Name",
+                kind="text",
+                value=submitted_data.get("calendar_name", entity["calendar_name"] if entity else "")
+                if post_data is not None or entity is not None
+                else "",
+                required=True,
+            ),
+            _field(
+                name="status_code",
+                label="Status",
+                kind="select",
+                options=_ref_options(
+                    "CALENDAR_STATUS",
+                    selected=submitted_data.get(
+                        "status_code",
+                        entity["status"] if entity else "ACTIVE",
+                    )
+                    if post_data is not None or entity is not None
+                    else "ACTIVE",
+                ),
+                required=True,
+            ),
+        ]
+    )
+    return fields
+
+
+def _calendar_special_day_fields(
+    current_user: CurrentUser,
+    *,
+    yearly_calendar: dict,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    return [
+        _office_display_field(yearly_calendar["office"]["office_name"]),
+        _field(
+            name="yearly_calendar_display",
+            label="Yearly Calendar",
+            kind="text",
+            value=f"{yearly_calendar['calendar_year']} - {yearly_calendar['calendar_name']}",
+            readonly=True,
+        ),
+        _field(
+            name="special_date",
+            label="Special Day Date",
+            kind="date",
+            value=submitted_data.get(
+                "special_date",
+                entity["special_date"] if entity else "",
+            )
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="day_type_code",
+            label="Special Day Type",
+            kind="select",
+            options=_ref_options(
+                "SPECIAL_DAY_TYPE",
+                selected=submitted_data.get(
+                    "day_type_code",
+                    entity["day_type"]["value_code"] if entity else "",
+                )
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+                blank_label="Select a special day type",
+            ),
+            required=True,
+        ),
+    ]
+
+
 def _pricing_model_fields(
     current_user: CurrentUser,
     *,
@@ -1686,6 +1833,140 @@ def _cost_center_detail_rows(cost_center: dict) -> list[tuple[str, str]]:
     ]
 
 
+def _yearly_calendar_rows(calendars: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/calendars/{calendar['id']}/",
+            "cells": [
+                calendar["business_unit"]["bu_code"],
+                str(calendar["calendar_year"]),
+                calendar["calendar_name"],
+                calendar["status"],
+            ],
+        }
+        for calendar in calendars
+    ]
+
+
+def _yearly_calendar_detail_rows(yearly_calendar: dict) -> list[tuple[str, str]]:
+    return [
+        ("Business Unit", yearly_calendar["business_unit"]["bu_code"]),
+        ("Calendar Year", str(yearly_calendar["calendar_year"])),
+        ("Calendar Name", yearly_calendar["calendar_name"]),
+        ("Status", yearly_calendar["status"]),
+        ("Period Rules", str(yearly_calendar.get("period_rule_count", 0))),
+    ]
+
+
+def _calendar_special_day_detail_rows(special_day: dict) -> list[tuple[str, str]]:
+    return [
+        ("Special Day Date", special_day["special_date"]),
+        ("Special Day Type", special_day["day_type"]["value_label"]),
+        ("Status", special_day["status"]),
+    ]
+
+
+def _calendar_special_day_rows(special_days: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/calendar-special-days/{special_day['id']}/",
+            "cells": [
+                special_day["special_date"],
+                special_day["day_type"]["value_label"],
+                special_day["status"],
+            ],
+        }
+        for special_day in special_days
+    ]
+
+
+def _calendar_month_state(yearly_calendar: dict, selected_month: int) -> dict:
+    year = yearly_calendar["calendar_year"]
+    month = min(12, max(1, selected_month))
+    special_days_by_date = {
+        special_day["special_date"]: special_day
+        for special_day in yearly_calendar["special_days"]
+        if special_day["status"] == "ACTIVE"
+    }
+    weekday_headers = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    month_matrix = month_calendar.Calendar(firstweekday=0).monthdayscalendar(year, month)
+    month_name = month_calendar.month_name[month]
+    weeks = []
+    for week in month_matrix:
+        week_cells = []
+        for weekday_index, day_number in enumerate(week):
+            if day_number == 0:
+                week_cells.append({"empty": True})
+                continue
+            current_day = date(year, month, day_number)
+            current_day_key = current_day.isoformat()
+            special_day = special_days_by_date.get(current_day_key)
+            day_class = "working"
+            label = "Working day"
+            note = ""
+            if special_day is not None:
+                day_type_code = special_day["day_type"]["value_code"]
+                if day_type_code == "NATIONAL_HOLIDAY":
+                    day_class = "national-holiday"
+                elif day_type_code == "LOCAL_HOLIDAY":
+                    day_class = "local-holiday"
+                elif day_type_code == "TIMIA_DAY":
+                    day_class = "timia-day"
+                else:
+                    day_class = "other-day"
+                label = special_day["day_type"]["value_label"]
+                note = special_day["day_type"]["value_label"]
+            elif weekday_index >= 5:
+                day_class = "weekend"
+                label = "Weekend"
+                note = "Weekend"
+            week_cells.append(
+                {
+                    "empty": False,
+                    "day_number": day_number,
+                    "iso_date": current_day_key,
+                    "day_class": day_class,
+                    "label": label,
+                    "note": note,
+                }
+            )
+        weeks.append(week_cells)
+
+    prev_month = 12 if month == 1 else month - 1
+    next_month = 1 if month == 12 else month + 1
+    return {
+        "year": year,
+        "month": month,
+        "month_name": month_name,
+        "weekday_headers": weekday_headers,
+        "weeks": weeks,
+        "prev_month": prev_month,
+        "next_month": next_month,
+    }
+
+
+def _calendar_summary_items(yearly_calendar: dict) -> list[dict]:
+    summary = yearly_calendar["summary"]
+    return [
+        {"label": "Number of Weeks", "value": str(summary["week_count"])},
+        {"label": "Weekday Working Days", "value": str(summary["weekday_count"])},
+        {
+            "label": "Active Holidays",
+            "value": str(summary["active_holiday_count"]),
+            "note": "National + local holidays",
+        },
+        {
+            "label": "Timia Days / Other",
+            "value": str(summary["active_timia_other_count"]),
+        },
+        {
+            "label": "Net Working Days",
+            "value": str(summary["net_working_day_count"]),
+            "note": "Weekdays after active special days",
+        },
+    ]
+
+
 def _pricing_model_rows(pricing_models: list[dict]) -> list[dict]:
     return [
         {
@@ -2376,6 +2657,24 @@ PROJECT_ASSIGNMENT_CONFIG = MasterUiConfig(
     detail_path_prefix="/system/project-assignments/",
     table_headers=("Business Unit", "Project", "Employee", "Start", "End", "Status"),
     empty_message="No project assignments are available in your assigned Business Units yet.",
+)
+
+YEARLY_CALENDAR_CONFIG = MasterUiConfig(
+    section_key="calendars",
+    list_title="Calendar Management",
+    list_eyebrow="SCR-115",
+    list_intro=(
+        "Manage yearly calendars and navigate into each calendar's special-day workspace."
+    ),
+    detail_title="Calendar Detail",
+    detail_eyebrow="SCR-116",
+    detail_intro="Review yearly calendar summary, month view, and special-day configuration.",
+    singular_label="Calendar",
+    plural_label="Calendars",
+    collection_path="/system/calendars/",
+    detail_path_prefix="/system/calendars/",
+    table_headers=("Business Unit", "Year", "Calendar", "Status"),
+    empty_message="No yearly calendars are available in your assigned Business Units yet.",
 )
 
 CALENDAR_PERIOD_RULE_CONFIG = MasterUiConfig(
@@ -3967,6 +4266,314 @@ def project_assignment_detail(request: HttpRequest, assignment_id: int) -> HttpR
             entity=assignment,
         ),
         form_error=form_error,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def yearly_calendars_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            yearly_calendar = YearlyCalendarManagementService.create_yearly_calendar(
+                current_user,
+                {
+                    "business_unit_id": request.POST.get("business_unit_id", ""),
+                    "calendar_year": request.POST.get("calendar_year", ""),
+                    "calendar_name": request.POST.get("calendar_name", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/calendars/{yearly_calendar['id']}/")
+
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="CALENDAR_STATUS",
+        default_code="ACTIVE",
+    )
+    yearly_calendars = YearlyCalendarManagementService.list_yearly_calendars(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
+    return _render_master_collection(
+        request,
+        current_user,
+        config=YEARLY_CALENDAR_CONFIG,
+        entities=yearly_calendars,
+        form_fields=_yearly_calendar_fields(current_user, post_data=post_data),
+        table_rows=_yearly_calendar_rows(yearly_calendars),
+        form_error=form_error,
+        filter_links=filter_links,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def yearly_calendar_detail(request: HttpRequest, yearly_calendar_id: int) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    active_form = "general"
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        active_form = request.POST.get("form_name", "general")
+        try:
+            if active_form == "general":
+                YearlyCalendarManagementService.update_yearly_calendar(
+                    current_user,
+                    yearly_calendar_id,
+                    {
+                        "calendar_year": request.POST.get("calendar_year", ""),
+                        "calendar_name": request.POST.get("calendar_name", ""),
+                        "status_code": request.POST.get("status_code", ""),
+                    },
+                )
+            elif active_form == "delete":
+                YearlyCalendarManagementService.delete_yearly_calendar(
+                    current_user,
+                    yearly_calendar_id,
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown calendar form submission.",
+                    400,
+                )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            if active_form == "delete":
+                return redirect(YEARLY_CALENDAR_CONFIG.collection_path)
+            return redirect(f"/system/calendars/{yearly_calendar_id}/")
+
+    try:
+        yearly_calendar = YearlyCalendarManagementService.get_yearly_calendar(
+            current_user,
+            yearly_calendar_id,
+        )
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=YEARLY_CALENDAR_CONFIG.detail_title,
+            eyebrow=YEARLY_CALENDAR_CONFIG.detail_eyebrow,
+            intro=YEARLY_CALENDAR_CONFIG.detail_intro,
+            error=error,
+        )
+
+    default_month = (
+        date.today().month if yearly_calendar["calendar_year"] == date.today().year else 1
+    )
+    try:
+        selected_month = int(request.GET.get("month", default_month))
+    except (TypeError, ValueError):
+        selected_month = default_month
+    selected_month = min(12, max(1, selected_month))
+
+    context = _system_context(
+        request,
+        current_user,
+        title=yearly_calendar["name"],
+        eyebrow=YEARLY_CALENDAR_CONFIG.detail_eyebrow,
+        intro=YEARLY_CALENDAR_CONFIG.detail_intro,
+    )
+    context.update(
+        {
+            "detail_rows": _yearly_calendar_detail_rows(yearly_calendar),
+            "entity_status": yearly_calendar["status"],
+            "back_href": YEARLY_CALENDAR_CONFIG.collection_path,
+            "back_label": "Back to Calendars",
+            "summary_items": _calendar_summary_items(yearly_calendar),
+            "month_state": _calendar_month_state(yearly_calendar, selected_month),
+            "special_day_rows": _calendar_special_day_rows(yearly_calendar["special_days"]),
+            "special_day_empty_message": (
+                "No special days have been created for this calendar yet."
+            ),
+            "special_day_create_href": (
+                f"/system/calendars/{yearly_calendar['id']}/special-days/new/"
+            ),
+            "period_rule_href": "/system/calendar-period-rules/",
+            "general_fields": _yearly_calendar_fields(
+                current_user,
+                post_data=post_data if active_form == "general" else None,
+                entity=yearly_calendar,
+            ),
+            "general_form_error": form_error if active_form == "general" else "",
+            "delete_form_error": form_error if active_form == "delete" else "",
+        }
+    )
+    return render(request, "core/calendar_detail.html", context)
+
+
+@require_http_methods(["GET", "POST"])
+def calendar_special_day_create(
+    request: HttpRequest,
+    yearly_calendar_id: int,
+) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    try:
+        yearly_calendar = YearlyCalendarManagementService.get_yearly_calendar(
+            current_user,
+            yearly_calendar_id,
+        )
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title="Create Special Day",
+            eyebrow="SCR-117",
+            intro="Create a special day inside the selected yearly calendar.",
+            error=error,
+        )
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            special_day = CalendarSpecialDayManagementService.create_special_day(
+                current_user,
+                {
+                    "yearly_calendar_id": yearly_calendar_id,
+                    "special_date": request.POST.get("special_date", ""),
+                    "day_type_code": request.POST.get("day_type_code", ""),
+                    "status_code": "ACTIVE",
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/calendar-special-days/{special_day['id']}/")
+
+    context = _system_context(
+        request,
+        current_user,
+        title="Create Special Day",
+        eyebrow="SCR-117",
+        intro="Add a new special day to the selected yearly calendar.",
+    )
+    context.update(
+        {
+            "detail_rows": _yearly_calendar_detail_rows(yearly_calendar),
+            "back_href": f"/system/calendars/{yearly_calendar_id}/",
+            "back_label": "Back to Calendar Detail",
+            "form_title": "New Special Day",
+            "form_intro": (
+                "Choose a date inside the calendar year and assign one of the supported "
+                "special-day types."
+            ),
+            "form_fields": _calendar_special_day_fields(
+                current_user,
+                yearly_calendar=yearly_calendar,
+                post_data=post_data,
+            ),
+            "form_error": form_error,
+            "submit_label": "Create Special Day",
+        }
+    )
+    return render(request, "core/calendar_special_day_form.html", context)
+
+
+@require_http_methods(["GET", "POST"])
+def calendar_special_day_detail(request: HttpRequest, special_day_id: int) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    try:
+        special_day = CalendarSpecialDayManagementService.get_special_day(
+            current_user,
+            special_day_id,
+        )
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title="Calendar Special Day Detail",
+            eyebrow="SCR-118",
+            intro="Review or update the selected special day.",
+            error=error,
+        )
+
+    active_form = "edit"
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
+        try:
+            if active_form == "edit":
+                CalendarSpecialDayManagementService.update_special_day(
+                    current_user,
+                    special_day_id,
+                    {
+                        "special_date": request.POST.get("special_date", ""),
+                        "day_type_code": request.POST.get("day_type_code", ""),
+                    },
+                )
+            elif active_form == "delete":
+                CalendarSpecialDayManagementService.delete_special_day(
+                    current_user,
+                    special_day_id,
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown special day form submission.",
+                    400,
+                )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            if active_form == "delete":
+                return redirect(f"/system/calendars/{special_day['yearly_calendar']['id']}/")
+            return redirect(f"/system/calendar-special-days/{special_day_id}/")
+
+    return _render_detail_page(
+        request,
+        current_user,
+        title=special_day["name"],
+        eyebrow="SCR-118",
+        intro="Update the selected special day inside the shared calendar management shell.",
+        detail_rows=_calendar_special_day_detail_rows(special_day),
+        form_sections=[
+            {
+                "form_name": "edit",
+                "title": "Edit Special Day",
+                "intro": "Update the selected date and special-day type.",
+                "submit_label": "Save Special Day",
+                "form_error": form_error if active_form == "edit" else "",
+                "fields": _calendar_special_day_fields(
+                    current_user,
+                    yearly_calendar=special_day["yearly_calendar"],
+                    post_data=post_data if active_form == "edit" else None,
+                    entity=special_day,
+                ),
+            },
+            {
+                "form_name": "delete",
+                "title": "Delete Special Day",
+                "intro": (
+                    "Delete this special day only if nothing else references it. "
+                    "No cascade cleanup is performed."
+                ),
+                "submit_label": "Delete Special Day",
+                "form_error": form_error if active_form == "delete" else "",
+                "fields": [],
+            },
+        ],
+        back_href=f"/system/calendars/{special_day['yearly_calendar']['id']}/",
+        back_label="Back to Calendar Detail",
+        entity_status=special_day["status"],
     )
 
 

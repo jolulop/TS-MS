@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-10`: `docs/plans/2026-05-10-calendar-management-ui.md`
+  - status: completed
+  - focus: add Yearly Calendar and Calendar Special Day management UI plus reference-data updates and scoped CRUD flows
 - `2026-05-09`: `docs/plans/2026-05-09-docs-v5.4-refresh.md`
   - status: completed
   - focus: publish a complete v5.4 markdown specification set aligned with the implemented Office-based model and expanded System Management behavior
