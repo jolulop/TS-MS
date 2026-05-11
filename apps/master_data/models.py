@@ -237,6 +237,10 @@ class CalendarPeriodRule(AuditFieldsModel):
     wednesday_max_hours = models.DecimalField(max_digits=5, decimal_places=2)
     thursday_max_hours = models.DecimalField(max_digits=5, decimal_places=2)
     friday_max_hours = models.DecimalField(max_digits=5, decimal_places=2)
+    working_on_saturdays_flag = models.BooleanField(default=False)
+    working_on_sundays_flag = models.BooleanField(default=False)
+    saturday_max_hours = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    sunday_max_hours = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     status = models.ForeignKey(
         "reference_data.RefValue",
         on_delete=models.PROTECT,

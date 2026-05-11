@@ -88,6 +88,10 @@ erDiagram
         date effective_from
         date effective_to
         decimal monday_max_hours
+        boolean working_on_saturdays_flag
+        boolean working_on_sundays_flag
+        decimal saturday_max_hours
+        decimal sunday_max_hours
         decimal friday_max_hours
         bigint status_id FK
     }
@@ -416,7 +420,7 @@ erDiagram
 
 - `reference_data`: shared domains and values used for roles, statuses, action types, day types, and approval modes.
 - `master_data`: office, business units, employees, calendars, clients, classifications, charge codes, projects, assignments, and configurable rules.
-- `timesheets`: weekly timesheets, lines, submission cycles, approval items, approval actions, and custom attribute values.
+- `timesheets`: Monday-starting weekly timesheets, lines, submission cycles, approval items, approval actions, and custom attribute values.
 - `audit`: application audit trail.
 - `integrations`: tracked import/export jobs and row-level errors.
 

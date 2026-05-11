@@ -75,6 +75,7 @@
 - create Calendar Period Rules by selecting a Business Unit inside the shared Office calendar
 - allow overlapping Calendar Period Rules for different Business Units
 - reject overlapping Calendar Period Rules inside the same Business Unit
+- save Working On Saturdays and Working On Sundays flags plus their max-hours on a Calendar Period Rule
 - delete Calendar Period Rules when no protected references exist
 - create Special Day with date and type
 - update Special Day date or type
@@ -119,7 +120,10 @@ An authenticated employee edits and submits a weekly timesheet.
 ### Acceptance
 
 - only one timesheet exists per employee/week
-- lines are limited to valid weekdays
+- lines are limited to chargeable working dates for the week
+- weekend lines are allowed only when the active Business Unit Calendar Period Rule enables them
+- weekend daily limits use the configured Saturday/Sunday max-hours from the active Calendar Period Rule
+- active Special Days override working weekends and remain non-working
 - line target is Project xor General Charge Code
 - submit is blocked when validation fails
 

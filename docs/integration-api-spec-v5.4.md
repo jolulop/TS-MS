@@ -153,6 +153,8 @@ Request fields:
 - `GET /api/v1/admin/calendar-period-rules/{periodRuleId}/`
 - `PATCH /api/v1/admin/calendar-period-rules/{periodRuleId}/`
 - `business_unit_id` is required on create and update payloads
+- `working_on_saturdays_flag` and `working_on_sundays_flag` are supported on create and update payloads
+- `saturday_max_hours` and `sunday_max_hours` are supported on create and update payloads
 
 ## 6. Collection Filtering
 

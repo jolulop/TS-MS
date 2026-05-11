@@ -28,6 +28,7 @@ Primary diagram:
 - Calendar Special Days
 - Calendar Period Rules
   - Each rule belongs to one Business Unit plus the shared Office-level Yearly Calendar
+  - Each rule can mark Saturdays and Sundays as working days and store weekend max-hours
 - Clients
 - Cost Centers
 - Pricing Models

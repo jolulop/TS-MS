@@ -228,9 +228,17 @@ Important UI behavior:
   - status filter
   - Business Unit selector
   - create period rule
+  - Working On Saturdays checkbox
+  - Saturday Max Hours input
+  - Working On Sundays checkbox
+  - Sunday Max Hours input
 - Detail:
   - Business Unit selector
   - edit date range and daily hour limits
+  - Working On Saturdays checkbox
+  - Saturday Max Hours input
+  - Working On Sundays checkbox
+  - Sunday Max Hours input
   - guarded delete action
 
 ## 10. TS Management Screens

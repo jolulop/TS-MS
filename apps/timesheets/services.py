@@ -13,6 +13,7 @@ from apps.auth.policies import AuthorizationPolicyService
 from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
+    CalendarSpecialDay,
     Employee,
     GeneralChargeCode,
     OfficeConfiguration,
@@ -178,7 +179,7 @@ def _validate_week_start_date(week_start_date: date) -> tuple[date, date]:
             "week_start_date must be a Monday.",
             400,
         )
-    return week_start_date, week_start_date + timedelta(days=4)
+    return week_start_date, week_start_date + timedelta(days=6)
 
 
 def _get_project_for_line(employee: Employee, work_date: date, project_id: int) -> Project:
@@ -271,7 +272,11 @@ def _get_general_charge_code_for_line(
     return general_charge_code
 
 
-def _daily_limit_for_date(employee: Employee, business_unit_id: int, work_date: date) -> Decimal:
+def _period_rule_for_date(
+    employee: Employee,
+    business_unit_id: int,
+    work_date: date,
+) -> CalendarPeriodRule:
     if employee.assigned_calendar_id is None:
         raise AuthError(
             "TIMESHEET_CALENDAR_REQUIRED",
@@ -313,13 +318,62 @@ def _daily_limit_for_date(employee: Employee, business_unit_id: int, work_date: 
             400,
         )
 
-    rule = rules[0]
+    return rules[0]
+
+
+def _is_active_special_day(employee: Employee, work_date: date) -> bool:
+    if employee.assigned_calendar_id is None:
+        return False
+    return CalendarSpecialDay.objects.filter(
+        yearly_calendar_id=employee.assigned_calendar_id,
+        special_date=work_date,
+        status__domain__domain_code="SPECIAL_DAY_STATUS",
+        status__value_code="ACTIVE",
+    ).exists()
+
+
+def _is_chargeable_work_date(employee: Employee, business_unit_id: int, work_date: date) -> bool:
+    if _is_active_special_day(employee, work_date):
+        return False
+    if work_date.weekday() < 5:
+        return True
+    try:
+        rule = _period_rule_for_date(employee, business_unit_id, work_date)
+    except AuthError as error:
+        if error.code == "TIMESHEET_DAY_LIMIT_NOT_FOUND":
+            return False
+        raise
+    if work_date.weekday() == 5:
+        return rule.working_on_saturdays_flag
+    if work_date.weekday() == 6:
+        return rule.working_on_sundays_flag
+    return False
+
+
+def _available_work_dates_for_week(
+    employee: Employee,
+    business_unit_id: int,
+    week_start_date: date,
+) -> list[date]:
+    return [
+        current_day
+        for current_day in (
+            week_start_date + timedelta(days=offset) for offset in range(7)
+        )
+        if _is_chargeable_work_date(employee, business_unit_id, current_day)
+    ]
+
+
+def _daily_limit_for_date(employee: Employee, business_unit_id: int, work_date: date) -> Decimal:
+    rule = _period_rule_for_date(employee, business_unit_id, work_date)
     weekday_fields = {
         0: rule.monday_max_hours,
         1: rule.tuesday_max_hours,
         2: rule.wednesday_max_hours,
         3: rule.thursday_max_hours,
         4: rule.friday_max_hours,
+        5: rule.saturday_max_hours,
+        6: rule.sunday_max_hours,
     }
     return Decimal(weekday_fields[work_date.weekday()])
 
@@ -591,6 +645,14 @@ class TimesheetService:
             },
             "available_projects": _available_projects_for_week(timesheet),
             "available_general_charge_codes": _available_general_charge_codes_for_week(timesheet),
+            "available_work_dates": [
+                work_date.isoformat()
+                for work_date in _available_work_dates_for_week(
+                    employee,
+                    timesheet.business_unit_id,
+                    timesheet.week_start_date,
+                )
+            ],
             "can_edit": AuthorizationPolicyService.can_edit_timesheet(current_user, timesheet),
             "can_submit": AuthorizationPolicyService.can_submit_timesheet(current_user, timesheet),
             "can_withdraw": AuthorizationPolicyService.can_withdraw_timesheet(
@@ -670,16 +732,31 @@ class TimesheetService:
                 code="TIMESHEET_WORK_DATE_REQUIRED",
                 message="work_date must be a valid ISO date.",
             )
-            if work_date < timesheet.week_start_date or work_date > timesheet.week_end_date:
+            if (
+                work_date < timesheet.week_start_date
+                or work_date > timesheet.week_start_date + timedelta(days=6)
+            ):
                 raise AuthError(
                     "TIMESHEET_WORK_DATE_OUT_OF_RANGE",
-                    "work_date must be inside the Monday-Friday timesheet week.",
+                    "work_date must be inside the weekly timesheet window.",
                     400,
                 )
-            if work_date.weekday() > 4:
+            if _is_active_special_day(employee, work_date):
+                raise AuthError(
+                    "TIMESHEET_NON_WORKING_DAY",
+                    (
+                        "Special Day entries are non-working and cannot receive "
+                        "standard timesheet time."
+                    ),
+                    400,
+                )
+            if not _is_chargeable_work_date(employee, timesheet.business_unit_id, work_date):
                 raise AuthError(
                     "TIMESHEET_WEEKEND_NOT_ALLOWED",
-                    "Weekend entry is not allowed in the standard timesheet.",
+                    (
+                        "Weekend entry is not allowed unless the active Calendar "
+                        "Period Rule marks that day as working."
+                    ),
                     400,
                 )
 

@@ -130,6 +130,7 @@ def _line_options(items: list[dict], *, id_key: str, label_keys: tuple[str, ...]
 def _line_rows(
     *,
     timesheet: dict,
+    available_work_dates: list[str],
     available_projects: list[dict],
     available_general_charge_codes: list[dict],
     post_data=None,
@@ -148,14 +149,10 @@ def _line_rows(
     )
     date_options = [
         {
-            "value": (
-                date.fromisoformat(timesheet["week_start_date"]) + timedelta(days=offset)
-            ).isoformat(),
-            "label": (
-                date.fromisoformat(timesheet["week_start_date"]) + timedelta(days=offset)
-            ).strftime("%a %Y-%m-%d"),
+            "value": work_date,
+            "label": date.fromisoformat(work_date).strftime("%a %Y-%m-%d"),
         }
-        for offset in range(5)
+        for work_date in available_work_dates
     ]
 
     rows = []
@@ -388,6 +385,7 @@ def timesheet_detail(request: HttpRequest, timesheet_id: int) -> HttpResponse:
             "employee": editor_context["employee"],
             "line_rows": _line_rows(
                 timesheet=timesheet,
+                available_work_dates=editor_context["available_work_dates"],
                 available_projects=editor_context["available_projects"],
                 available_general_charge_codes=editor_context["available_general_charge_codes"],
                 post_data=request.POST

@@ -489,6 +489,9 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
                 "wednesday_max_hours": "8.00",
                 "thursday_max_hours": "8.00",
                 "friday_max_hours": "6.00",
+                "working_on_saturdays_flag": True,
+                "saturday_max_hours": "5.00",
+                "sunday_max_hours": "0.00",
                 "status_code": "ACTIVE",
             }
         ),
@@ -497,6 +500,10 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
 
     assert first_response.status_code == 201
     created_period_rule = first_response.json()["calendar_period_rule"]
+    assert created_period_rule["working_on_saturdays_flag"] is True
+    assert created_period_rule["working_on_sundays_flag"] is False
+    assert created_period_rule["saturday_max_hours"] == "5.00"
+    assert created_period_rule["sunday_max_hours"] == "0.00"
 
     overlap_response = client.post(
         "/api/v1/admin/calendar-period-rules/",
@@ -548,6 +555,9 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
                 "business_unit_id": business_unit.id,
                 "effective_to": "2026-04-30",
                 "monday_max_hours": "7.50",
+                "working_on_sundays_flag": True,
+                "saturday_max_hours": "5.50",
+                "sunday_max_hours": "4.50",
                 "status_code": "INACTIVE",
             }
         ),
@@ -559,3 +569,7 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
     assert updated_period_rule["effective_to"] == "2026-04-30"
     assert updated_period_rule["monday_max_hours"] == "7.50"
     assert updated_period_rule["status"] == "INACTIVE"
+    assert updated_period_rule["working_on_saturdays_flag"] is True
+    assert updated_period_rule["working_on_sundays_flag"] is True
+    assert updated_period_rule["saturday_max_hours"] == "5.50"
+    assert updated_period_rule["sunday_max_hours"] == "4.50"

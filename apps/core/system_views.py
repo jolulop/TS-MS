@@ -1621,6 +1621,58 @@ def _calendar_period_rule_fields(
             required=True,
         ),
         _field(
+            name="working_on_saturdays_flag",
+            label="Working On Saturdays",
+            kind="checkbox",
+            checked=(
+                _bool_from_post(submitted_data, "working_on_saturdays_flag")
+                if post_data is not None
+                else (
+                    entity["working_on_saturdays_flag"]
+                    if entity is not None
+                    else False
+                )
+            ),
+            help_text="Treat Saturdays as normal working days for this Business Unit period.",
+        ),
+        _field(
+            name="saturday_max_hours",
+            label="Saturday Max Hours",
+            kind="number",
+            value=submitted_data.get(
+                "saturday_max_hours", entity["saturday_max_hours"] if entity else "0.00"
+            )
+            if post_data is not None or entity is not None
+            else "0.00",
+            required=True,
+        ),
+        _field(
+            name="working_on_sundays_flag",
+            label="Working On Sundays",
+            kind="checkbox",
+            checked=(
+                _bool_from_post(submitted_data, "working_on_sundays_flag")
+                if post_data is not None
+                else (
+                    entity["working_on_sundays_flag"]
+                    if entity is not None
+                    else False
+                )
+            ),
+            help_text="Treat Sundays as normal working days for this Business Unit period.",
+        ),
+        _field(
+            name="sunday_max_hours",
+            label="Sunday Max Hours",
+            kind="number",
+            value=submitted_data.get(
+                "sunday_max_hours", entity["sunday_max_hours"] if entity else "0.00"
+            )
+            if post_data is not None or entity is not None
+            else "0.00",
+            required=True,
+        ),
+        _field(
             name="status_code",
             label="Status",
             kind="select",
@@ -2121,6 +2173,16 @@ def _calendar_period_rule_detail_rows(period_rule: dict) -> list[tuple[str, str]
         ("Wednesday Max Hours", period_rule["wednesday_max_hours"]),
         ("Thursday Max Hours", period_rule["thursday_max_hours"]),
         ("Friday Max Hours", period_rule["friday_max_hours"]),
+        (
+            "Working On Saturdays",
+            "Yes" if period_rule["working_on_saturdays_flag"] else "No",
+        ),
+        ("Saturday Max Hours", period_rule["saturday_max_hours"]),
+        (
+            "Working On Sundays",
+            "Yes" if period_rule["working_on_sundays_flag"] else "No",
+        ),
+        ("Sunday Max Hours", period_rule["sunday_max_hours"]),
         ("Status", period_rule["status"]),
     ]
 
@@ -4597,6 +4659,16 @@ def calendar_period_rules_collection(request: HttpRequest) -> HttpResponse:
                     "wednesday_max_hours": request.POST.get("wednesday_max_hours", ""),
                     "thursday_max_hours": request.POST.get("thursday_max_hours", ""),
                     "friday_max_hours": request.POST.get("friday_max_hours", ""),
+                    "working_on_saturdays_flag": _bool_from_post(
+                        request.POST,
+                        "working_on_saturdays_flag",
+                    ),
+                    "saturday_max_hours": request.POST.get("saturday_max_hours", ""),
+                    "working_on_sundays_flag": _bool_from_post(
+                        request.POST,
+                        "working_on_sundays_flag",
+                    ),
+                    "sunday_max_hours": request.POST.get("sunday_max_hours", ""),
                     "status_code": request.POST.get("status_code", "ACTIVE"),
                 },
             )
@@ -4653,9 +4725,19 @@ def calendar_period_rule_detail(request: HttpRequest, period_rule_id: int) -> Ht
                         "effective_to": request.POST.get("effective_to", ""),
                         "monday_max_hours": request.POST.get("monday_max_hours", ""),
                         "tuesday_max_hours": request.POST.get("tuesday_max_hours", ""),
-                        "wednesday_max_hours": request.POST.get("wednesday_max_hours", ""),
-                        "thursday_max_hours": request.POST.get("thursday_max_hours", ""),
+                    "wednesday_max_hours": request.POST.get("wednesday_max_hours", ""),
+                    "thursday_max_hours": request.POST.get("thursday_max_hours", ""),
                         "friday_max_hours": request.POST.get("friday_max_hours", ""),
+                        "working_on_saturdays_flag": _bool_from_post(
+                            request.POST,
+                            "working_on_saturdays_flag",
+                        ),
+                        "saturday_max_hours": request.POST.get("saturday_max_hours", ""),
+                        "working_on_sundays_flag": _bool_from_post(
+                            request.POST,
+                            "working_on_sundays_flag",
+                        ),
+                        "sunday_max_hours": request.POST.get("sunday_max_hours", ""),
                         "status_code": request.POST.get("status_code", ""),
                     },
                 )

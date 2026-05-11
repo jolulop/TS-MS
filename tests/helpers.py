@@ -327,6 +327,10 @@ def create_calendar_period_rule(
     wednesday_max_hours: str = "8.00",
     thursday_max_hours: str = "8.00",
     friday_max_hours: str = "8.00",
+    working_on_saturdays_flag: bool = False,
+    working_on_sundays_flag: bool = False,
+    saturday_max_hours: str = "0.00",
+    sunday_max_hours: str = "0.00",
 ) -> CalendarPeriodRule:
     if business_unit is None:
         default_business_unit_id = getattr(yearly_calendar, "_default_business_unit_id", None)
@@ -349,6 +353,10 @@ def create_calendar_period_rule(
             "wednesday_max_hours": wednesday_max_hours,
             "thursday_max_hours": thursday_max_hours,
             "friday_max_hours": friday_max_hours,
+            "working_on_saturdays_flag": working_on_saturdays_flag,
+            "working_on_sundays_flag": working_on_sundays_flag,
+            "saturday_max_hours": saturday_max_hours,
+            "sunday_max_hours": sunday_max_hours,
             "status": ref_value("CALENDAR_PERIOD_STATUS", "ACTIVE"),
             "created_by": SYSTEM_ACTOR,
             "updated_by": SYSTEM_ACTOR,

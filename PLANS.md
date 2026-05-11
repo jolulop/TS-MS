@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-11`: `docs/plans/2026-05-11-working-weekends-calendar-period-rules.md`
+  - status: completed
+  - focus: add Saturday/Sunday working-day flags to Calendar Period Rules and use them in timesheet date validation plus weekend chargeability
 - `2026-05-11`: `docs/plans/2026-05-11-calendar-period-rule-bu-scope.md`
   - status: completed
   - focus: restore Business Unit ownership for Calendar Period Rules so overlap validation and daily-hour lookup are BU-specific while Yearly Calendars remain Office-level

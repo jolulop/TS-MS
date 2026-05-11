@@ -20,6 +20,7 @@ from tests.helpers import (
     create_business_unit,
     create_business_unit_configuration,
     create_calendar_period_rule,
+    create_calendar_special_day,
     create_client,
     create_cost_center,
     create_employee,
@@ -306,7 +307,7 @@ def test_user_can_create_list_and_view_own_weekly_timesheet() -> None:
     detail_response = client.get(f"/api/v1/timesheets/{created['id']}/")
 
     assert created["week_start_date"] == "2026-05-04"
-    assert created["week_end_date"] == "2026-05-08"
+    assert created["week_end_date"] == "2026-05-10"
     assert created["status"] == "CREATED"
     assert list_response.status_code == 200
     assert len(list_response.json()["timesheets"]) == 1
@@ -528,9 +529,235 @@ def test_replace_lines_rejects_weekend_or_daily_limit_exceeded() -> None:
     )
 
     assert weekend_response.status_code == 400
-    assert weekend_response.json()["error"]["code"] == "TIMESHEET_WORK_DATE_OUT_OF_RANGE"
+    assert weekend_response.json()["error"]["code"] == "TIMESHEET_WEEKEND_NOT_ALLOWED"
     assert limit_response.status_code == 400
     assert limit_response.json()["error"]["code"] == "TIMESHEET_DAILY_LIMIT_EXCEEDED"
+
+
+@pytest.mark.django_db
+def test_replace_lines_allows_working_saturday_when_period_rule_enables_it() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-SAT", name="Saturday BU")
+    employee = create_employee(
+        employee_code="EMP-SAT-1",
+        full_name="Saturday User",
+        email="saturday-user@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee, business_unit=business_unit, is_primary_flag=True
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="Saturday Calendar",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        business_unit=business_unit,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+        working_on_saturdays_flag=True,
+        saturday_max_hours="4.00",
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+
+    general_charge_code = create_general_charge_code(
+        business_unit=business_unit,
+        code="GCC-SAT",
+        name="Saturday Code",
+        valid_from=date(2026, 1, 1),
+    )
+
+    client = Client()
+    initialize_session(client, "saturday-user@example.com")
+    timesheet = create_timesheet(client, "2026-05-04")
+
+    response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-09",
+                        "general_charge_code_id": general_charge_code.id,
+                        "hours": "4.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["timesheet"]["lines"][0]["work_date"] == "2026-05-09"
+
+    over_limit_response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-09",
+                        "general_charge_code_id": general_charge_code.id,
+                        "hours": "4.50",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert over_limit_response.status_code == 400
+    assert over_limit_response.json()["error"]["code"] == "TIMESHEET_DAILY_LIMIT_EXCEEDED"
+
+
+@pytest.mark.django_db
+def test_replace_lines_allows_working_sunday_when_period_rule_enables_it() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-SUN", name="Sunday BU")
+    employee = create_employee(
+        employee_code="EMP-SUN-1",
+        full_name="Sunday User",
+        email="sunday-user@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee, business_unit=business_unit, is_primary_flag=True
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="Sunday Calendar",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        business_unit=business_unit,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+        working_on_sundays_flag=True,
+        sunday_max_hours="3.50",
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+
+    general_charge_code = create_general_charge_code(
+        business_unit=business_unit,
+        code="GCC-SUN",
+        name="Sunday Code",
+        valid_from=date(2026, 1, 1),
+    )
+
+    client = Client()
+    initialize_session(client, "sunday-user@example.com")
+    timesheet = create_timesheet(client, "2026-05-04")
+
+    response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-10",
+                        "general_charge_code_id": general_charge_code.id,
+                        "hours": "3.50",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["timesheet"]["lines"][0]["work_date"] == "2026-05-10"
+
+    over_limit_response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-10",
+                        "general_charge_code_id": general_charge_code.id,
+                        "hours": "4.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert over_limit_response.status_code == 400
+    assert over_limit_response.json()["error"]["code"] == "TIMESHEET_DAILY_LIMIT_EXCEEDED"
+
+
+@pytest.mark.django_db
+def test_special_day_overrides_working_weekend_and_blocks_time_entry() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-SPD", name="Special Day BU")
+    employee = create_employee(
+        employee_code="EMP-SPD-1",
+        full_name="Special Day User",
+        email="special-day-user@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee, business_unit=business_unit, is_primary_flag=True
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="Special Day Calendar",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        business_unit=business_unit,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+        working_on_saturdays_flag=True,
+        working_on_sundays_flag=True,
+    )
+    create_calendar_special_day(
+        yearly_calendar=calendar,
+        special_date=date(2026, 5, 10),
+        day_type_code="OTHER",
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+
+    general_charge_code = create_general_charge_code(
+        business_unit=business_unit,
+        code="GCC-SPD",
+        name="Special Day Code",
+        valid_from=date(2026, 1, 1),
+    )
+
+    client = Client()
+    initialize_session(client, "special-day-user@example.com")
+    timesheet = create_timesheet(client, "2026-05-04")
+
+    response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-10",
+                        "general_charge_code_id": general_charge_code.id,
+                        "hours": "4.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "TIMESHEET_NON_WORKING_DAY"
 
 
 @pytest.mark.django_db
@@ -1568,7 +1795,7 @@ def test_period_cutoff_blocks_edit_and_submit_until_admin_override() -> None:
     assert save_response.status_code == 200
 
     configuration = context["business_unit"].office.configuration
-    configuration.timesheet_cutoff_date = date(2026, 5, 10)
+    configuration.timesheet_cutoff_date = date(2026, 5, 11)
     configuration.updated_by = "system@test.local"
     configuration.save(update_fields=["timesheet_cutoff_date", "updated_by", "updated_at"])
 

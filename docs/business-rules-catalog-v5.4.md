@@ -53,6 +53,10 @@
 - Only one Yearly Calendar can exist for a given year in an Office.
 - Calendar Period Rules are Business Unit-level inside the shared Office Yearly Calendar.
 - Calendar Period Rules may overlap across different Business Units, but not within the same Business Unit and Yearly Calendar.
+- Weekends are non-working by default.
+- `working_on_saturdays_flag` and `working_on_sundays_flag` make those weekend days chargeable for the matching Business Unit period.
+- `saturday_max_hours` and `sunday_max_hours` define the daily limit for enabled weekend working days.
+- Active Special Days override working weekends and remain non-working.
 - Calendar Special Day date must belong to the selected Yearly Calendar year.
 - Only one Calendar Special Day can exist per date inside a Yearly Calendar.
 - Supported Calendar Special Day types are:
@@ -84,8 +88,8 @@
 ## 8. Timesheet Rules
 
 - One employee can have at most one weekly timesheet per week.
-- Timesheet week is Monday to Friday.
-- Weekend entry is not supported in the standard editor.
+- Timesheet week starts on Monday and may include configured working weekend days.
+- Weekend entry is allowed only when the active Business Unit Calendar Period Rule enables it and no active Special Day overrides it.
 - A line charges exactly one target:
   - Project
   - General Charge Code

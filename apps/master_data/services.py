@@ -565,6 +565,10 @@ def _serialize_calendar_period_rule(rule: CalendarPeriodRule) -> dict:
         "wednesday_max_hours": str(rule.wednesday_max_hours),
         "thursday_max_hours": str(rule.thursday_max_hours),
         "friday_max_hours": str(rule.friday_max_hours),
+        "working_on_saturdays_flag": rule.working_on_saturdays_flag,
+        "working_on_sundays_flag": rule.working_on_sundays_flag,
+        "saturday_max_hours": str(rule.saturday_max_hours),
+        "sunday_max_hours": str(rule.sunday_max_hours),
         "status": rule.status.value_code,
         "office": {
             "id": rule.office_id,
@@ -585,6 +589,57 @@ def _serialize_calendar_period_rule(rule: CalendarPeriodRule) -> dict:
 
 def _build_special_day_name(day_type: RefValue, special_date: date) -> str:
     return f"{day_type.value_label} {special_date.isoformat()}"
+
+
+def _validate_weekend_hours(
+    period_rule: CalendarPeriodRule | None,
+    payload: dict,
+) -> tuple[Decimal, Decimal]:
+    saturday_max_hours = (
+        _parse_decimal(
+            payload.get("saturday_max_hours"),
+            code="CALENDAR_PERIOD_RULE_SATURDAY_REQUIRED",
+            message="saturday_max_hours must be a valid decimal value.",
+        )
+        if payload.get("saturday_max_hours") not in (None, "")
+        else (
+            period_rule.saturday_max_hours if period_rule is not None else Decimal("0")
+        )
+    )
+    sunday_max_hours = (
+        _parse_decimal(
+            payload.get("sunday_max_hours"),
+            code="CALENDAR_PERIOD_RULE_SUNDAY_REQUIRED",
+            message="sunday_max_hours must be a valid decimal value.",
+        )
+        if payload.get("sunday_max_hours") not in (None, "")
+        else (
+            period_rule.sunday_max_hours if period_rule is not None else Decimal("0")
+        )
+    )
+    working_on_saturdays_flag = (
+        _parse_bool(payload.get("working_on_saturdays_flag"))
+        if "working_on_saturdays_flag" in payload or period_rule is None
+        else period_rule.working_on_saturdays_flag
+    )
+    working_on_sundays_flag = (
+        _parse_bool(payload.get("working_on_sundays_flag"))
+        if "working_on_sundays_flag" in payload or period_rule is None
+        else period_rule.working_on_sundays_flag
+    )
+    if working_on_saturdays_flag and saturday_max_hours <= 0:
+        raise AuthError(
+            "CALENDAR_PERIOD_RULE_SATURDAY_HOURS_INVALID",
+            "saturday_max_hours must be greater than zero when Saturdays are working days.",
+            400,
+        )
+    if working_on_sundays_flag and sunday_max_hours <= 0:
+        raise AuthError(
+            "CALENDAR_PERIOD_RULE_SUNDAY_HOURS_INVALID",
+            "sunday_max_hours must be greater than zero when Sundays are working days.",
+            400,
+        )
+    return saturday_max_hours, sunday_max_hours
 
 
 def _serialize_project(project: Project) -> dict:
@@ -4361,6 +4416,7 @@ class CalendarPeriodRuleManagementService:
             effective_from=effective_from,
             effective_to=effective_to,
         )
+        saturday_max_hours, sunday_max_hours = _validate_weekend_hours(None, payload)
         _validate_optional_office_payload(
             payload,
             code_prefix="CALENDAR_PERIOD_RULE",
@@ -4400,6 +4456,10 @@ class CalendarPeriodRuleManagementService:
                 code="CALENDAR_PERIOD_RULE_FRIDAY_REQUIRED",
                 message="friday_max_hours is required.",
             ),
+            working_on_saturdays_flag=_parse_bool(payload.get("working_on_saturdays_flag")),
+            working_on_sundays_flag=_parse_bool(payload.get("working_on_sundays_flag")),
+            saturday_max_hours=saturday_max_hours,
+            sunday_max_hours=sunday_max_hours,
             status=_ref_value(
                 "CALENDAR_PERIOD_STATUS",
                 str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE",
@@ -4503,6 +4563,7 @@ class CalendarPeriodRuleManagementService:
             effective_to=proposed_effective_to,
             exclude_rule_id=period_rule.id,
         )
+        saturday_max_hours, sunday_max_hours = _validate_weekend_hours(period_rule, payload)
         changed_fields: list[tuple[str, str, str]] = []
         if period_rule.business_unit_id != proposed_business_unit.id:
             changed_fields.append(
@@ -4565,6 +4626,27 @@ class CalendarPeriodRuleManagementService:
                 )
             )
             period_rule.effective_to = proposed_effective_to
+        for flag_name in ("working_on_saturdays_flag", "working_on_sundays_flag"):
+            if flag_name in payload:
+                new_flag_value = _parse_bool(payload.get(flag_name))
+                if getattr(period_rule, flag_name) != new_flag_value:
+                    changed_fields.append(
+                        (
+                            flag_name,
+                            str(getattr(period_rule, flag_name)),
+                            str(new_flag_value),
+                        )
+                    )
+                    setattr(period_rule, flag_name, new_flag_value)
+        for field_name, new_value in (
+            ("saturday_max_hours", saturday_max_hours),
+            ("sunday_max_hours", sunday_max_hours),
+        ):
+            if getattr(period_rule, field_name) != new_value:
+                changed_fields.append(
+                    (field_name, str(getattr(period_rule, field_name)), str(new_value))
+                )
+                setattr(period_rule, field_name, new_value)
         if "status_code" in payload:
             new_status = _ref_value(
                 "CALENDAR_PERIOD_STATUS",

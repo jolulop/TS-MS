@@ -12,6 +12,7 @@ from tests.helpers import (
     assign_role,
     create_business_unit,
     create_calendar_period_rule,
+    create_calendar_special_day,
     create_client,
     create_cost_center,
     create_employee,
@@ -209,6 +210,39 @@ def test_timesheet_editor_saves_lines_and_submits_via_html() -> None:
     assert "Timesheet Lines" in content
     assert "Withdraw Timesheet" in content
     assert "Weekly Timesheet Editor" not in content
+
+
+@pytest.mark.django_db
+def test_timesheet_editor_shows_working_weekend_dates_only() -> None:
+    client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="weekend-ui@example.com",
+        employee_code="EMP-TS-WEEKEND",
+    )
+    employee.assigned_calendar.period_rules.all().update(
+        working_on_saturdays_flag=True,
+        working_on_sundays_flag=True,
+        saturday_max_hours="4.00",
+        sunday_max_hours="4.00",
+    )
+    create_calendar_special_day(
+        yearly_calendar=employee.assigned_calendar,
+        special_date=fixtures["week_start"] + timedelta(days=6),
+        day_type_code="OTHER",
+    )
+
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": fixtures["week_start"].isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    detail_response = client.get(create_response.headers["Location"])
+    content = detail_response.content.decode()
+
+    assert detail_response.status_code == 200
+    assert f'value="{(fixtures["week_start"] + timedelta(days=5)).isoformat()}"' in content
+    assert f'value="{(fixtures["week_start"] + timedelta(days=6)).isoformat()}"' not in content
 
 
 @pytest.mark.django_db

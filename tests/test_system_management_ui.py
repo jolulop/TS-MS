@@ -1345,6 +1345,9 @@ def test_calendar_period_rule_management_create_and_update_via_html() -> None:
             "wednesday_max_hours": "8.00",
             "thursday_max_hours": "8.00",
             "friday_max_hours": "6.00",
+            "working_on_saturdays_flag": "on",
+            "saturday_max_hours": "5.00",
+            "sunday_max_hours": "0.00",
             "status_code": "ACTIVE",
         },
         follow=False,
@@ -1357,6 +1360,10 @@ def test_calendar_period_rule_management_create_and_update_via_html() -> None:
         effective_from=date(2026, 1, 1),
     )
     assert period_rule.business_unit_id == business_units[0].id
+    assert period_rule.working_on_saturdays_flag is True
+    assert period_rule.working_on_sundays_flag is False
+    assert str(period_rule.saturday_max_hours) == "5.00"
+    assert str(period_rule.sunday_max_hours) == "0.00"
 
     detail_response = client.get(f"/system/calendar-period-rules/{period_rule.id}/")
     assert detail_response.status_code == 200
@@ -1373,6 +1380,10 @@ def test_calendar_period_rule_management_create_and_update_via_html() -> None:
             "wednesday_max_hours": "7.50",
             "thursday_max_hours": "7.50",
             "friday_max_hours": "6.00",
+            "working_on_saturdays_flag": "on",
+            "saturday_max_hours": "5.50",
+            "working_on_sundays_flag": "on",
+            "sunday_max_hours": "4.50",
             "status_code": "INACTIVE",
         },
         follow=False,
@@ -1384,6 +1395,10 @@ def test_calendar_period_rule_management_create_and_update_via_html() -> None:
     assert str(period_rule.monday_max_hours) == "7.50"
     assert period_rule.status.value_code == "INACTIVE"
     assert period_rule.business_unit_id == business_units[0].id
+    assert period_rule.working_on_saturdays_flag is True
+    assert period_rule.working_on_sundays_flag is True
+    assert str(period_rule.saturday_max_hours) == "5.50"
+    assert str(period_rule.sunday_max_hours) == "4.50"
 
 
 @pytest.mark.django_db

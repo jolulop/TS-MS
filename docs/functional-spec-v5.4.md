@@ -205,6 +205,9 @@ The following masters remain Business Unit scoped:
   - `effective_to >= effective_from`
   - no overlapping rules within the same Business Unit and Yearly Calendar
   - overlapping rules are allowed across different Business Units in the same Office calendar
+- Calendar Period Rules can optionally mark Saturdays, Sundays, or both as normal working days for that Business Unit period.
+- When weekend work is enabled, Saturday and Sunday max-hours are configured explicitly on the same Calendar Period Rule.
+- Active Special Days still override a weekend working flag and keep the overlapping date non-working.
 - Calendar Period Rules can be deleted only when no protected references depend on them.
 
 ### 8.11 Guarded Deletes
@@ -230,12 +233,13 @@ Delete behavior:
 
 ### 9.1 My Timesheets
 
-- Employees manage their own weekly Monday-to-Friday timesheets.
+- Employees manage their own weekly Monday-starting timesheets.
 - One employee can have at most one weekly timesheet per week.
 - Timesheet lines charge either:
   - a Project
   - a General Charge Code
-- Weekend entry is not supported in the standard editor.
+- Weekend entry is blocked by default.
+- Saturday and Sunday become chargeable only when the active Business Unit Calendar Period Rule marks them as working and no active Special Day overrides them.
 
 ### 9.2 History
 
