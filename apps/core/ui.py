@@ -138,7 +138,10 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                     _nav_item(
                         label="General Charge Codes",
                         href="/system/general-charge-codes/",
-                        summary="Scoped general charge code management screens.",
+                        summary=(
+                            "Scoped general charge code management with "
+                            "Office Cost Center assignment."
+                        ),
                         current_path=current_path,
                     ),
                     _nav_item(

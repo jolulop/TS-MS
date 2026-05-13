@@ -115,6 +115,19 @@ Request fields:
 - `GET /api/v1/admin/general-charge-codes/{generalChargeCodeId}/`
 - `PATCH /api/v1/admin/general-charge-codes/{generalChargeCodeId}/`
 
+Request fields:
+- `business_unit_id`
+- `code`
+- `name`
+- `charge_type_code`
+- `cost_center_id`
+- `billable_flag`
+- `requires_approval_flag`
+- `description_required_flag`
+- `valid_from`
+- `valid_to`
+- `status_code`
+
 ### Projects
 
 - `GET /api/v1/admin/projects/`
@@ -243,6 +256,11 @@ Admin timesheet actions:
 - `CALENDAR_PERIOD_RULE_EFFECTIVE_TO_REQUIRED`
 - `CALENDAR_PERIOD_RULE_DATE_RANGE_INVALID`
 - `CALENDAR_PERIOD_RULE_OVERLAP`
+
+### General Charge Codes
+
+- `GENERAL_CHARGE_CODE_COST_CENTER_REQUIRED`
+- `GENERAL_CHARGE_CODE_COST_CENTER_OFFICE_MISMATCH`
 
 ### Calendar Special Days
 

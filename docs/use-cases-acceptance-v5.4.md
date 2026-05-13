@@ -128,7 +128,8 @@
 
 ### Acceptance
 
-- create and update a General Charge Code with lifecycle and validity fields
+- create and update a General Charge Code with mandatory Cost Center, lifecycle, and validity fields
+- reject create or edit when Cost Center is empty
 - guarded delete succeeds when no timesheet lines, approval items, or other protected references exist
 - guarded delete fails when dependent records still reference the General Charge Code
 

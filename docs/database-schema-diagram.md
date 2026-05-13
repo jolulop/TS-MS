@@ -145,8 +145,8 @@ erDiagram
         string code
         string name
         bigint charge_type_id FK
+        bigint cost_center_id FK
         bool billable_flag
-        bool common_code_flag
         bool requires_approval_flag
         date valid_from
         date valid_to

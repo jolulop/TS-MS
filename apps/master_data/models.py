@@ -385,8 +385,12 @@ class GeneralChargeCode(AuditFieldsModel):
         on_delete=models.PROTECT,
         related_name="+",
     )
+    cost_center = models.ForeignKey(
+        CostCenter,
+        on_delete=models.PROTECT,
+        related_name="general_charge_codes",
+    )
     billable_flag = models.BooleanField(default=False)
-    common_code_flag = models.BooleanField(default=False)
     requires_approval_flag = models.BooleanField(default=False)
     description_required_flag = models.BooleanField(default=False)
     valid_from = models.DateField()

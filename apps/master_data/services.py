@@ -519,8 +519,12 @@ def _serialize_general_charge_code(general_charge_code: GeneralChargeCodeRecord)
         "code": general_charge_code.code,
         "name": general_charge_code.name,
         "charge_type": general_charge_code.charge_type.value_code,
+        "cost_center": {
+            "id": general_charge_code.cost_center_id,
+            "cost_center_code": general_charge_code.cost_center.cost_center_code,
+            "name": general_charge_code.cost_center.name,
+        },
         "billable_flag": general_charge_code.billable_flag,
-        "common_code_flag": general_charge_code.common_code_flag,
         "requires_approval_flag": general_charge_code.requires_approval_flag,
         "description_required_flag": general_charge_code.description_required_flag,
         "valid_from": general_charge_code.valid_from.isoformat(),
@@ -3364,6 +3368,7 @@ class GeneralChargeCodeManagementService:
                 "business_unit",
                 "office",
                 "charge_type",
+                "cost_center",
                 "status",
             )
             .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
@@ -3438,6 +3443,12 @@ class GeneralChargeCodeManagementService:
                 "General charge code office must match the selected Business Unit office."
             ),
         )
+        cost_center = GeneralChargeCodeManagementService._resolve_cost_center(
+            current_user,
+            business_unit=business_unit,
+            cost_center_id=payload.get("cost_center_id"),
+            required=True,
+        )
 
         try:
             general_charge_code = GeneralChargeCodeRecord.objects.create(
@@ -3446,8 +3457,8 @@ class GeneralChargeCodeManagementService:
                 code=code,
                 name=name,
                 charge_type=_ref_value("GENERAL_CHARGE_CODE_TYPE", charge_type_code),
+                cost_center=cost_center,
                 billable_flag=bool(payload.get("billable_flag", False)),
-                common_code_flag=bool(payload.get("common_code_flag", False)),
                 requires_approval_flag=bool(payload.get("requires_approval_flag", False)),
                 description_required_flag=bool(payload.get("description_required_flag", False)),
                 valid_from=valid_from,
@@ -3558,9 +3569,25 @@ class GeneralChargeCodeManagementService:
                 )
                 general_charge_code.charge_type = new_charge_type
 
+        if "cost_center_id" in payload:
+            new_cost_center = GeneralChargeCodeManagementService._resolve_cost_center(
+                current_user,
+                business_unit=general_charge_code.business_unit,
+                cost_center_id=payload.get("cost_center_id"),
+                required=True,
+            )
+            if new_cost_center.id != general_charge_code.cost_center_id:
+                changed_fields.append(
+                    (
+                        "cost_center",
+                        general_charge_code.cost_center.cost_center_code,
+                        new_cost_center.cost_center_code,
+                    )
+                )
+                general_charge_code.cost_center = new_cost_center
+
         for field_name in (
             "billable_flag",
-            "common_code_flag",
             "requires_approval_flag",
             "description_required_flag",
         ):
@@ -3709,7 +3736,7 @@ class GeneralChargeCodeManagementService:
     ) -> GeneralChargeCodeRecord:
         try:
             general_charge_code = GeneralChargeCodeRecord.objects.select_related(
-                "business_unit", "office", "charge_type", "status"
+                "business_unit", "office", "charge_type", "cost_center", "status"
             ).get(id=general_charge_code_id)
         except GeneralChargeCodeRecord.DoesNotExist as exc:
             raise AuthError(
@@ -3731,8 +3758,40 @@ class GeneralChargeCodeManagementService:
         general_charge_code_id: int,
     ) -> GeneralChargeCodeRecord:
         return GeneralChargeCodeRecord.objects.select_related(
-            "business_unit", "office", "charge_type", "status"
+            "business_unit", "office", "charge_type", "cost_center", "status"
         ).get(id=general_charge_code_id)
+
+    @staticmethod
+    def _resolve_cost_center(
+        current_user: CurrentUser,
+        *,
+        business_unit: BusinessUnit,
+        cost_center_id: object,
+        required: bool,
+    ) -> CostCenterRecord:
+        if not required and cost_center_id in (None, ""):
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_COST_CENTER_REQUIRED",
+                "cost_center_id is required.",
+                400,
+            )
+        parsed_cost_center_id = _parse_required_int(
+            cost_center_id,
+            code="GENERAL_CHARGE_CODE_COST_CENTER_REQUIRED",
+            message="cost_center_id is required.",
+        )
+
+        cost_center = CostCenterManagementService._get_scoped_cost_center(
+            current_user,
+            parsed_cost_center_id,
+        )
+        if cost_center.office_id != business_unit.office_id:
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_COST_CENTER_OFFICE_MISMATCH",
+                "Cost Center must belong to the same Office as the selected Business Unit.",
+                400,
+            )
+        return cost_center
 
 
 class YearlyCalendarManagementService:

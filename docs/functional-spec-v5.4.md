@@ -147,6 +147,8 @@ The following masters remain Business Unit scoped:
 ### 8.6 General Charge Codes
 
 - General Charge Codes remain Business Unit scoped.
+- Each General Charge Code must be linked to one Cost Center from the same active Office.
+- The `Common Code` attribute is no longer part of the model.
 - They keep lifecycle, approval, billing, and validity-window behavior.
 - General Charge Code deletion is guarded by referential integrity.
 

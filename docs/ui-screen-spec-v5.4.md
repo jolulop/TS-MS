@@ -147,8 +147,9 @@ Important UI behavior:
 - Collection:
   - status filter
   - create general charge code
+  - mandatory Cost Center dropdown populated from the active Office
 - Detail:
-  - edit lifecycle, validity, and behavior flags
+  - edit Cost Center assignment, lifecycle, validity, and behavior flags
 
 ### SCR-115 Calendar Management
 

@@ -404,7 +404,39 @@ def test_employee_create_form_does_not_preselect_business_unit_scope() -> None:
         re.S,
     )
     assert match is not None
+    assert "required" not in match.group(0)
     assert "selected" not in match.group(1)
+    assert "Additional Business Units" in content
+    assert "The selected primary Business Unit is always included automatically" in content
+
+
+@pytest.mark.django_db
+def test_employee_detail_business_unit_form_explains_primary_scope_is_automatic() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    managed_employee = create_employee(
+        employee_code="EMP-MANAGED-SCOPE-1",
+        full_name="Managed Scope User",
+        email="managed-scope@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=managed_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+
+    response = client.get(f"/system/employees/{managed_employee.id}/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    match = re.search(
+        r'<select\s+id="business_unit_ids"\s+name="business_unit_ids"\s+multiple.*?>(.*?)</select>',
+        content,
+        re.S,
+    )
+    assert match is not None
+    assert "required" not in match.group(0)
+    assert "so leaving this empty keeps only the primary Business Unit" in content
 
 
 @pytest.mark.django_db
@@ -1016,6 +1048,18 @@ def test_internal_category_and_cost_center_create_pages_work_through_html() -> N
 @pytest.mark.django_db
 def test_general_charge_code_management_create_and_update_via_html() -> None:
     client, _, business_units = _build_ts_admin_client()
+    cost_center = create_cost_center(
+        business_unit=business_units[0],
+        cost_center_code="CC-GCC-HTML",
+        name="HTML Cost Center",
+        description="Cost center for General Charge Code HTML tests.",
+    )
+    replacement_cost_center = create_cost_center(
+        business_unit=business_units[1],
+        cost_center_code="CC-GCC-HTML-2",
+        name="Replacement HTML Cost Center",
+        description="Replacement cost center for General Charge Code HTML tests.",
+    )
 
     create_response = client.post(
         "/system/general-charge-codes/",
@@ -1024,8 +1068,8 @@ def test_general_charge_code_management_create_and_update_via_html() -> None:
             "code": "GCC-NEW",
             "name": "New General Charge Code",
             "charge_type_code": "STANDARD",
+            "cost_center_id": str(cost_center.id),
             "billable_flag": "on",
-            "common_code_flag": "on",
             "valid_from": date(2026, 4, 1).isoformat(),
             "valid_to": date(2026, 12, 31).isoformat(),
             "status_code": "ACTIVE",
@@ -1036,7 +1080,7 @@ def test_general_charge_code_management_create_and_update_via_html() -> None:
     assert create_response.status_code == 302
     general_charge_code = GeneralChargeCodeRecord.objects.get(code="GCC-NEW")
     assert general_charge_code.billable_flag is True
-    assert general_charge_code.common_code_flag is True
+    assert general_charge_code.cost_center_id == cost_center.id
 
     update_response = client.post(
         f"/system/general-charge-codes/{general_charge_code.id}/",
@@ -1044,6 +1088,7 @@ def test_general_charge_code_management_create_and_update_via_html() -> None:
             "code": "GCC-UPDATED",
             "name": "Updated General Charge Code",
             "charge_type_code": "STANDARD",
+            "cost_center_id": str(replacement_cost_center.id),
             "requires_approval_flag": "on",
             "description_required_flag": "on",
             "valid_from": date(2026, 5, 1).isoformat(),
@@ -1056,10 +1101,34 @@ def test_general_charge_code_management_create_and_update_via_html() -> None:
     assert update_response.status_code == 302
     general_charge_code.refresh_from_db()
     assert general_charge_code.code == "GCC-UPDATED"
+    assert general_charge_code.cost_center_id == replacement_cost_center.id
     assert general_charge_code.requires_approval_flag is True
     assert general_charge_code.description_required_flag is True
     assert general_charge_code.valid_to is None
     assert general_charge_code.status.value_code == "INACTIVE"
+
+
+@pytest.mark.django_db
+def test_general_charge_code_management_requires_cost_center_via_html() -> None:
+    client, _, business_units = _build_ts_admin_client()
+
+    response = client.post(
+        "/system/general-charge-codes/",
+        data={
+            "business_unit_id": str(business_units[0].id),
+            "code": "GCC-NO-CC",
+            "name": "No Cost Center",
+            "charge_type_code": "STANDARD",
+            "valid_from": date(2026, 4, 1).isoformat(),
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "cost_center_id is required." in content
+    assert not GeneralChargeCodeRecord.objects.filter(code="GCC-NO-CC").exists()
 
 
 @pytest.mark.django_db

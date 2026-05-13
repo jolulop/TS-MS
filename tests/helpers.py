@@ -264,23 +264,33 @@ def create_general_charge_code(
     business_unit: BusinessUnit,
     code: str,
     name: str,
+    cost_center: CostCenterRecord | None = None,
     valid_from: date,
     valid_to: date | None = None,
     charge_type_code: str = "STANDARD",
     billable_flag: bool = False,
-    common_code_flag: bool = False,
     requires_approval_flag: bool = False,
     description_required_flag: bool = False,
     active: bool = True,
 ) -> GeneralChargeCodeRecord:
+    resolved_cost_center = cost_center or CostCenterRecord.objects.filter(
+        office=business_unit.office
+    ).order_by("cost_center_code", "id").first()
+    if resolved_cost_center is None:
+        resolved_cost_center = create_cost_center(
+            business_unit=business_unit,
+            cost_center_code=f"CC-{business_unit.bu_code}",
+            name=f"{business_unit.name} Cost Center",
+            description="Auto-generated test cost center for General Charge Code helpers.",
+        )
     return GeneralChargeCodeRecord.objects.create(
         business_unit=business_unit,
         office=business_unit.office,
         code=code,
         name=name,
         charge_type=ref_value("GENERAL_CHARGE_CODE_TYPE", charge_type_code),
+        cost_center=resolved_cost_center,
         billable_flag=billable_flag,
-        common_code_flag=common_code_flag,
         requires_approval_flag=requires_approval_flag,
         description_required_flag=description_required_flag,
         valid_from=valid_from,

@@ -211,7 +211,8 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                     {
                         "title": "General Charge Codes",
                         "summary": (
-                            "Maintain general charge code validity, flags, and lifecycle fields."
+                            "Maintain general charge code Cost Center assignment, "
+                            "validity, flags, and lifecycle fields."
                         ),
                         "status": "Ready now",
                         "href": "/system/general-charge-codes/",

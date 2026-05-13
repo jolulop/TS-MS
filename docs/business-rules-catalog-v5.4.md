@@ -46,6 +46,8 @@
 ### General Charge Codes
 
 - General Charge Codes are Business Unit-level.
+- Each General Charge Code must reference a Cost Center from the same active Office.
+- `Common Code` is not part of the current General Charge Code model.
 - Validity windows and behavior flags are enforced in the domain layer.
 
 ## 5. Calendar Rules

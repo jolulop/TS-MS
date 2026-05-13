@@ -618,18 +618,18 @@ def _employee_create_fields(
         ),
         _field(
             name="business_unit_ids",
-            label="Business Unit Scope",
+            label="Additional Business Units",
             kind="multiselect",
             options=_scoped_business_unit_options(
                 current_user,
                 selected=selected_business_units,
             ),
             help_text=(
-                "Select every additional Business Unit this employee may operate in. "
-                "The selected primary Business Unit is always included automatically. "
+                "Select any additional Business Units this employee may operate in. "
+                "The selected primary Business Unit is always included automatically, "
+                "so you can leave this empty when no extra scope is needed. "
                 "Employees with an active TS_ADMIN role keep full Office Business Unit scope."
             ),
-            required=True,
         ),
         _field(
             name="role_codes",
@@ -718,6 +718,12 @@ def _employee_business_unit_fields(
             "Employees with an active TS_ADMIN role always keep all Business Units in the "
             "active Office scope. Saving this form can still change the primary Business Unit."
         )
+    else:
+        help_text = (
+            "Select any additional Business Units this employee may operate in. "
+            "The selected primary Business Unit is always included automatically, "
+            "so leaving this empty keeps only the primary Business Unit."
+        )
     return [
         _field(
             name="primary_business_unit_id",
@@ -732,7 +738,6 @@ def _employee_business_unit_fields(
             kind="multiselect",
             options=_scoped_business_unit_options(current_user, selected=selected_scope),
             help_text=help_text,
-            required=True,
         ),
     ]
 
@@ -1144,6 +1149,22 @@ def _general_charge_code_fields(
             required=True,
         ),
         _field(
+            name="cost_center_id",
+            label="Cost Center",
+            kind="select",
+            options=_scoped_cost_center_options(
+                current_user,
+                selected=submitted_data.get(
+                    "cost_center_id",
+                    entity["cost_center"]["id"] if entity else "",
+                )
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+            ),
+            required=True,
+        ),
+        _field(
             name="valid_from",
             label="Valid From",
             kind="date",
@@ -1163,16 +1184,6 @@ def _general_charge_code_fields(
             checked=_bool_from_post(post_data, "billable_flag")
             if post_data is not None
             else bool(entity["billable_flag"])
-            if entity is not None
-            else False,
-        ),
-        _field(
-            name="common_code_flag",
-            label="Common Code",
-            kind="checkbox",
-            checked=_bool_from_post(post_data, "common_code_flag")
-            if post_data is not None
-            else bool(entity["common_code_flag"])
             if entity is not None
             else False,
         ),
@@ -2052,6 +2063,7 @@ def _general_charge_code_rows(general_charge_codes: list[dict]) -> list[dict]:
                 general_charge_code["business_unit"]["bu_code"],
                 general_charge_code["code"],
                 general_charge_code["name"],
+                general_charge_code["cost_center"]["cost_center_code"],
                 general_charge_code["charge_type"],
                 general_charge_code["status"],
             ],
@@ -2065,6 +2077,13 @@ def _general_charge_code_detail_rows(general_charge_code: dict) -> list[tuple[st
         ("Business Unit", general_charge_code["business_unit"]["bu_code"]),
         ("Code", general_charge_code["code"]),
         ("Name", general_charge_code["name"]),
+        (
+            "Cost Center",
+            (
+                f"{general_charge_code['cost_center']['cost_center_code']} - "
+                f"{general_charge_code['cost_center']['name']}"
+            ),
+        ),
         ("Charge Type", general_charge_code["charge_type"]),
         (
             "Flags",
@@ -2072,7 +2091,6 @@ def _general_charge_code_detail_rows(general_charge_code: dict) -> list[tuple[st
                 label
                 for label, enabled in (
                     ("Billable", general_charge_code["billable_flag"]),
-                    ("Common Code", general_charge_code["common_code_flag"]),
                     ("Requires Approval", general_charge_code["requires_approval_flag"]),
                     ("Description Required", general_charge_code["description_required_flag"]),
                 )
@@ -2692,17 +2710,21 @@ GENERAL_CHARGE_CODE_CONFIG = MasterUiConfig(
     section_key="general-charge-codes",
     list_title="General Charge Code Management",
     list_eyebrow="SCR-170",
-    list_intro="Scoped general charge code list with create form and lifecycle fields.",
+    list_intro=(
+        "Scoped general charge code list with create form, "
+        "Office Cost Center link, and lifecycle fields."
+    ),
     detail_title="General Charge Code Detail",
     detail_eyebrow="SCR-171",
     detail_intro=(
-        "Update charge-code validity, flags, and lifecycle fields inside the shared shell."
+        "Update charge-code validity, Cost Center assignment, flags, "
+        "and lifecycle fields inside the shared shell."
     ),
     singular_label="General Charge Code",
     plural_label="General Charge Codes",
     collection_path="/system/general-charge-codes/",
     detail_path_prefix="/system/general-charge-codes/",
-    table_headers=("Business Unit", "Code", "Name", "Charge Type", "Status"),
+    table_headers=("Business Unit", "Code", "Name", "Cost Center", "Charge Type", "Status"),
     empty_message="No general charge codes are available in your assigned Business Units yet.",
 )
 
@@ -4023,8 +4045,8 @@ def general_charge_codes_collection(request: HttpRequest) -> HttpResponse:
                     "code": request.POST.get("code", ""),
                     "name": request.POST.get("name", ""),
                     "charge_type_code": request.POST.get("charge_type_code", "STANDARD"),
+                    "cost_center_id": request.POST.get("cost_center_id", ""),
                     "billable_flag": _bool_from_post(request.POST, "billable_flag"),
-                    "common_code_flag": _bool_from_post(request.POST, "common_code_flag"),
                     "requires_approval_flag": _bool_from_post(
                         request.POST, "requires_approval_flag"
                     ),
@@ -4090,8 +4112,8 @@ def general_charge_code_detail(
                         "code": request.POST.get("code", ""),
                         "name": request.POST.get("name", ""),
                         "charge_type_code": request.POST.get("charge_type_code", ""),
+                        "cost_center_id": request.POST.get("cost_center_id", ""),
                         "billable_flag": _bool_from_post(request.POST, "billable_flag"),
-                        "common_code_flag": _bool_from_post(request.POST, "common_code_flag"),
                         "requires_approval_flag": _bool_from_post(
                             request.POST, "requires_approval_flag"
                         ),

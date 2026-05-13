@@ -259,10 +259,10 @@ def _upsert_pricing_model(
 def _upsert_general_charge_code(
     *,
     business_unit: BusinessUnit,
+    cost_center: CostCenter,
     code: str,
     name: str,
     billable_flag: bool,
-    common_code_flag: bool,
     requires_approval_flag: bool,
     description_required_flag: bool,
 ) -> GeneralChargeCode:
@@ -273,8 +273,8 @@ def _upsert_general_charge_code(
             "office": business_unit.office,
             "name": name,
             "charge_type": _ref_value("GENERAL_CHARGE_CODE_TYPE", "STANDARD"),
+            "cost_center": cost_center,
             "billable_flag": billable_flag,
-            "common_code_flag": common_code_flag,
             "requires_approval_flag": requires_approval_flag,
             "description_required_flag": description_required_flag,
             "valid_from": SEED_VALID_FROM,
@@ -474,7 +474,7 @@ class Command(BaseCommand):
             name="Consulting Revenue",
             description="Primary consulting cost center.",
         )
-        _upsert_cost_center(
+        cost_center_delivery = _upsert_cost_center(
             business_unit=delivery_bu,
             cost_center_code="CC-2000",
             name="Delivery Operations",
@@ -488,28 +488,28 @@ class Command(BaseCommand):
 
         _upsert_general_charge_code(
             business_unit=consulting_bu,
+            cost_center=cost_center_consulting,
             code="GCC-ADMIN",
             name="Administrative Time",
             billable_flag=False,
-            common_code_flag=True,
             requires_approval_flag=False,
             description_required_flag=False,
         )
         _upsert_general_charge_code(
             business_unit=consulting_bu,
+            cost_center=cost_center_consulting,
             code="GCC-TRAIN",
             name="Training Time",
             billable_flag=False,
-            common_code_flag=False,
             requires_approval_flag=False,
             description_required_flag=True,
         )
         _upsert_general_charge_code(
             business_unit=delivery_bu,
+            cost_center=cost_center_delivery,
             code="GCC-DELIVERY",
             name="Delivery Overhead",
             billable_flag=False,
-            common_code_flag=True,
             requires_approval_flag=False,
             description_required_flag=False,
         )

@@ -39,6 +39,7 @@ Primary diagram:
 
 - Internal Categories
 - General Charge Codes
+  - Each General Charge Code also references one Office-level Cost Center
 - Projects
 - Project Assignments
 - Employee scope links

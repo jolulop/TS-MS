@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-12`: `docs/plans/2026-05-12-general-charge-code-cost-center.md`
+  - status: completed
+  - focus: remove Common Code from General Charge Codes and require an Office Cost Center in schema, UI, API, seed data, and tests
 - `2026-05-11`: `docs/plans/2026-05-11-markdown-baseline-refresh.md`
   - status: completed
   - focus: align all repository markdown files to the current v5.4 Office-based Django implementation and mark older markdown notes as superseded
