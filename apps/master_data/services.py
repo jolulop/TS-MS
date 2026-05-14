@@ -16,6 +16,7 @@ from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
     CalendarSpecialDay,
+    Country,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -865,6 +866,12 @@ def _serialize_office(office: Office) -> dict:
         "name": office.office_name,
         "office_name": office.office_name,
         "status": office.status.value_code,
+        "country": {
+            "id": office.country_id,
+            "country_code": office.country.country_code,
+            "country_name": office.country.country_name,
+            "status": office.country.status.value_code,
+        },
     }
     configuration = getattr(office, "_configuration_cache", None)
     if configuration is None:
@@ -886,6 +893,19 @@ def _serialize_office(office: Office) -> dict:
         for employee in getattr(office, "_administrators_cache", [])
     ]
     return payload
+
+
+def _serialize_country(country: Country) -> dict:
+    return {
+        "id": country.id,
+        "country_code": country.country_code,
+        "country_name": country.country_name,
+        "name": country.country_name,
+        "status": country.status.value_code,
+        "office_count": getattr(country, "office_count", None)
+        if hasattr(country, "office_count")
+        else country.offices.count(),
+    }
 
 
 def _default_office_configuration_data() -> dict:
@@ -1347,6 +1367,154 @@ class BusinessUnitManagementService:
             )
 
 
+class CountryManagementService:
+    @staticmethod
+    def list_countries(current_user: CurrentUser, *, status_code: str | None = None) -> list[dict]:
+        _ensure_ts_admin_master(current_user)
+        countries = _apply_status_filter(
+            Country.objects.select_related("status")
+            .annotate(office_count=Count("offices"))
+            .order_by("country_name"),
+            status_code,
+        )
+        return [_serialize_country(country) for country in countries]
+
+    @staticmethod
+    def get_country(current_user: CurrentUser, country_id: int) -> dict:
+        _ensure_ts_admin_master(current_user)
+        return _serialize_country(CountryManagementService._refresh_country(country_id))
+
+    @staticmethod
+    @transaction.atomic
+    def create_country(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin_master(current_user)
+        actor_employee = _actor_employee(current_user)
+        country_code = str(payload.get("country_code", "")).strip()
+        country_name = str(payload.get("country_name", "")).strip()
+        if not country_code:
+            raise AuthError("COUNTRY_CODE_REQUIRED", "Country code is required.", 400)
+        if not country_name:
+            raise AuthError("COUNTRY_NAME_REQUIRED", "Country name is required.", 400)
+        status_code = str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE"
+        try:
+            country = Country.objects.create(
+                country_code=country_code,
+                country_name=country_name,
+                status=_ref_value("COUNTRY_STATUS", status_code),
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+        except IntegrityError as exc:
+            raise AuthError(
+                "COUNTRY_NOT_UNIQUE",
+                "Country code and country name must be unique.",
+                400,
+            ) from exc
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="country",
+            entity_id=country.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            reason_text="Country created by Timesheet Master Administrator.",
+        )
+        return _serialize_country(CountryManagementService._refresh_country(country.id))
+
+    @staticmethod
+    @transaction.atomic
+    def update_country(current_user: CurrentUser, country_id: int, payload: dict) -> dict:
+        _ensure_ts_admin_master(current_user)
+        actor_employee = _actor_employee(current_user)
+        country = CountryManagementService._refresh_country(country_id)
+        changed_fields: list[tuple[str, str, str]] = []
+
+        if "country_code" in payload:
+            new_country_code = str(payload.get("country_code", "")).strip()
+            if not new_country_code:
+                raise AuthError("COUNTRY_CODE_REQUIRED", "Country code is required.", 400)
+            if new_country_code != country.country_code:
+                changed_fields.append(("country_code", country.country_code, new_country_code))
+                country.country_code = new_country_code
+
+        if "country_name" in payload:
+            new_country_name = str(payload.get("country_name", "")).strip()
+            if not new_country_name:
+                raise AuthError("COUNTRY_NAME_REQUIRED", "Country name is required.", 400)
+            if new_country_name != country.country_name:
+                changed_fields.append(("country_name", country.country_name, new_country_name))
+                country.country_name = new_country_name
+
+        if "status_code" in payload:
+            new_status = _ref_value("COUNTRY_STATUS", str(payload.get("status_code", "")).strip())
+            if new_status.id != country.status_id:
+                changed_fields.append(("status", country.status.value_code, new_status.value_code))
+                country.status = new_status
+
+        if changed_fields:
+            try:
+                country.updated_by = current_user.email
+                country.save()
+            except IntegrityError as exc:
+                raise AuthError(
+                    "COUNTRY_NOT_UNIQUE",
+                    "Country code and country name must be unique.",
+                    400,
+                ) from exc
+
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="country",
+                entity_id=country.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="Country updated by Timesheet Master Administrator.",
+            )
+
+        return _serialize_country(CountryManagementService._refresh_country(country.id))
+
+    @staticmethod
+    @transaction.atomic
+    def delete_country(current_user: CurrentUser, country_id: int) -> None:
+        _ensure_ts_admin_master(current_user)
+        actor_employee = _actor_employee(current_user)
+        country = CountryManagementService._refresh_country(country_id)
+        try:
+            country_name = country.country_name
+            country_record_id = country.id
+            country.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "COUNTRY_DELETE_BLOCKED",
+                "Country cannot be deleted because it is still referenced by Offices or other records.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="country",
+            entity_id=country_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            old_value=country_name,
+            reason_text="Country deleted by Timesheet Master Administrator.",
+        )
+
+    @staticmethod
+    def _refresh_country(country_id: int) -> Country:
+        try:
+            return (
+                Country.objects.select_related("status")
+                .annotate(office_count=Count("offices"))
+                .get(id=country_id)
+            )
+        except Country.DoesNotExist as exc:
+            raise AuthError("COUNTRY_NOT_FOUND", "Country not found.", 404) from exc
+
+
 class OfficeManagementService:
     CONFIG_FIELD_NAMES = BusinessUnitManagementService.CONFIG_FIELD_NAMES
 
@@ -1354,7 +1522,13 @@ class OfficeManagementService:
     def list_offices(current_user: CurrentUser, *, status_code: str | None = None) -> list[dict]:
         _ensure_ts_admin_master(current_user)
         offices = _apply_status_filter(
-            Office.objects.select_related("status", "configuration", "configuration__approval_mode")
+            Office.objects.select_related(
+                "country",
+                "country__status",
+                "status",
+                "configuration",
+                "configuration__approval_mode",
+            )
             .order_by("office_name"),
             status_code,
         )
@@ -1384,6 +1558,12 @@ class OfficeManagementService:
     def create_office(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin_master(current_user)
         actor_employee = _actor_employee(current_user)
+        country_id = _parse_required_int(
+            payload.get("country_id"),
+            code="COUNTRY_REQUIRED",
+            message="country_id is required.",
+        )
+        country = CountryManagementService._refresh_country(country_id)
         office_name = str(payload.get("office_name", "")).strip()
         if not office_name:
             raise AuthError("COUNTRY_NAME_REQUIRED", "Office name is required.", 400)
@@ -1430,6 +1610,7 @@ class OfficeManagementService:
             )
         try:
             office = Office.objects.create(
+                country=country,
                 office_name=office_name,
                 status=_ref_value("COUNTRY_STATUS", status_code),
                 created_by=current_user.email,
@@ -1483,6 +1664,17 @@ class OfficeManagementService:
         actor_employee = _actor_employee(current_user)
         office = OfficeManagementService._refresh_office(office_id)
         changed_fields: list[tuple[str, str, str]] = []
+
+        if "country_id" in payload:
+            new_country_id = _parse_required_int(
+                payload.get("country_id"),
+                code="COUNTRY_REQUIRED",
+                message="country_id is required.",
+            )
+            if new_country_id != office.country_id:
+                new_country = CountryManagementService._refresh_country(new_country_id)
+                changed_fields.append(("country", office.country.country_code, new_country.country_code))
+                office.country = new_country
 
         if "office_name" in payload:
             new_office_name = str(payload.get("office_name", "")).strip()
@@ -1578,6 +1770,8 @@ class OfficeManagementService:
     def _refresh_office(office_id: int) -> Office:
         try:
             return Office.objects.select_related(
+                "country",
+                "country__status",
                 "status",
                 "configuration",
                 "configuration__approval_mode",

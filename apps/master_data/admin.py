@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from apps.master_data.models import (
     BusinessUnit,
+    Country,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -11,10 +12,17 @@ from apps.master_data.models import (
 )
 
 
+@admin.register(Country)
+class CountryAdmin(admin.ModelAdmin):
+    list_display = ("country_code", "country_name", "status")
+    search_fields = ("country_code", "country_name")
+    ordering = ("country_name",)
+
+
 @admin.register(Office)
 class OfficeAdmin(admin.ModelAdmin):
-    list_display = ("office_name", "status")
-    search_fields = ("office_name",)
+    list_display = ("office_name", "country", "status")
+    search_fields = ("office_name", "country__country_code", "country__country_name")
     ordering = ("office_name",)
 
 

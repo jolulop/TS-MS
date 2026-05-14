@@ -89,13 +89,21 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
             ),
         ]
         if current_user.is_ts_admin_master:
-            system_items.append(
-                _nav_item(
-                    label="Offices",
-                    href="/system/offices/",
-                    summary="Office lifecycle management for master administration.",
-                    current_path=current_path,
-                )
+            system_items.extend(
+                [
+                    _nav_item(
+                        label="Countries",
+                        href="/system/countries/",
+                        summary="Country lifecycle management for master administration.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Offices",
+                        href="/system/offices/",
+                        summary="Office lifecycle management for master administration.",
+                        current_path=current_path,
+                    ),
+                ]
             )
         if current_user.is_ts_admin:
             system_items.extend(

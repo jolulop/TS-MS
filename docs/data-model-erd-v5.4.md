@@ -9,7 +9,8 @@ Primary diagram:
 
 ## 2. Current Structural Highlights
 
-- `Office` is the top-level administrative entity.
+- `Country` is the top-level administrative entity.
+- `Office` belongs to `Country`.
 - `BusinessUnit` belongs to `Office`.
 - `OfficeConfiguration` is owned by `Office` and is inherited by Business Units at runtime.
 - `Employee` belongs to `Office` and has a primary Business Unit plus scoped Business Unit assignments.
@@ -19,6 +20,10 @@ Primary diagram:
 - `Project` now requires `pricing_model_id`.
 
 ## 3. Relationship Summary
+
+### Country owns
+
+- Offices
 
 ### Office owns
 

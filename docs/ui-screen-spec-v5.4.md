@@ -20,6 +20,7 @@ Role-aware visibility applies to menus and actions.
 ### 3.1 `TS_ADMIN_MASTER`
 
 Visible section:
+- Countries
 - Offices
 
 ### 3.2 `TS_ADMIN`
@@ -45,7 +46,19 @@ Visible sections:
 - Create forms live on collection screens.
 - Update and delete actions live on detail screens.
 
-## 5. Office Screens
+## 5. Country And Office Screens
+
+### SCR-098 Country Management
+
+- Access: `TS_ADMIN_MASTER`
+- Collection:
+  - list Countries
+  - filter by status
+  - create Country
+- Detail:
+  - edit Country code, name, and status
+  - show read-only Office count
+  - guarded delete action
 
 ### SCR-100 Office Management
 
@@ -53,10 +66,12 @@ Visible sections:
 - Collection:
   - list Offices
   - create Office
+  - require Country selection
   - capture Office configuration
   - capture bootstrap Business Unit data
   - capture bootstrap admin user data
 - Detail:
+  - edit parent Country
   - edit general Office data
   - edit Office configuration
   - show read-only Office administrators

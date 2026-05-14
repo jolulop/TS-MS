@@ -1,6 +1,19 @@
 # Use Cases And Acceptance v5.4
 
-## 1. Office Bootstrap
+## 1. Country Management
+
+### Use Case
+
+`TS_ADMIN_MASTER` creates, updates, and guarded-deletes Countries used by Offices.
+
+### Acceptance
+
+- Country create requires unique Country code and Country name
+- Country detail allows status updates
+- guarded delete succeeds when no Office references the Country
+- guarded delete fails when one or more Offices still reference the Country
+
+## 2. Office Bootstrap
 
 ### Use Case
 
@@ -8,13 +21,14 @@
 
 ### Acceptance
 
+- Office creation requires selecting an existing Country
 - Office is created
 - Office configuration is created
 - bootstrap Business Unit is created in that Office
 - bootstrap admin employee is created in that Office
 - bootstrap admin employee is assigned to the bootstrap Business Unit
 
-## 2. Office Configuration Inheritance
+## 3. Office Configuration Inheritance
 
 ### Use Case
 
@@ -26,7 +40,7 @@
 - Business Unit detail shows inherited values read-only
 - timesheet runtime behavior reads the inherited values
 
-## 3. Client Management
+## 4. Client Management
 
 ### Use Case
 
@@ -38,7 +52,7 @@
 - Client belongs to active Office
 - Parent Client, if present, is in the same Office
 
-## 4. Cost Center Management
+## 5. Cost Center Management
 
 ### Use Case
 
@@ -49,7 +63,7 @@
 - Cost Center creation does not require a Business Unit
 - Cost Center belongs to active Office
 
-## 5. Pricing Model Management
+## 6. Pricing Model Management
 
 ### Use Case
 
@@ -62,7 +76,7 @@
 - guarded delete succeeds when no project references exist
 - guarded delete fails when a project still references the Pricing Model
 
-## 6. Calendar Management
+## 7. Calendar Management
 
 ### Use Case
 
@@ -82,7 +96,7 @@
 - delete Special Day when no protected references exist
 - guarded delete fails with an error when a Calendar still has protected dependencies
 
-## 7. Project Creation
+## 8. Project Creation
 
 ### Use Case
 
@@ -103,7 +117,7 @@
 - guarded delete succeeds when no assignments, timesheet lines, approval items, or other protected references exist
 - guarded delete fails when dependent records still reference the Project
 
-## 8. Project Assignment Creation
+## 9. Project Assignment Creation
 
 ### Use Case
 

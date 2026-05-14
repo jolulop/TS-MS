@@ -4,7 +4,29 @@ from django.db.models import Q
 from apps.common.models import AuditFieldsModel
 
 
+class Country(AuditFieldsModel):
+    country_code = models.CharField(max_length=50, unique=True)
+    country_name = models.CharField(max_length=200, unique=True)
+    status = models.ForeignKey(
+        "reference_data.RefValue",
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "country"
+        ordering = ["country_name"]
+
+    def __str__(self) -> str:
+        return self.country_code
+
+
 class Office(AuditFieldsModel):
+    country = models.ForeignKey(
+        Country,
+        on_delete=models.PROTECT,
+        related_name="offices",
+    )
     office_name = models.CharField(max_length=200, unique=True)
     status = models.ForeignKey(
         "reference_data.RefValue",

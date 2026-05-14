@@ -127,16 +127,27 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
     if section == "system":
         cards = []
         if current_user.is_ts_admin_master:
-            cards.append(
-                {
-                    "title": "Offices",
-                    "summary": (
-                        "Create offices and manage active or inactive lifecycle states "
-                        "for office administration."
-                    ),
-                    "status": "Ready now",
-                    "href": "/system/offices/",
-                }
+            cards.extend(
+                [
+                    {
+                        "title": "Countries",
+                        "summary": (
+                            "Create Countries and manage their active or inactive "
+                            "lifecycle states for master administration."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/countries/",
+                    },
+                    {
+                        "title": "Offices",
+                        "summary": (
+                            "Create offices, assign them to Countries, and manage active "
+                            "or inactive lifecycle states for office administration."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/offices/",
+                    },
+                ]
             )
         if current_user.is_ts_admin:
             cards.extend(

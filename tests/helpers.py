@@ -7,6 +7,7 @@ from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
     CalendarSpecialDay,
+    Country,
     Employee,
     EmployeeBusinessUnit,
     GeneralChargeCodeApprovalRole,
@@ -56,8 +57,38 @@ def get_office(office_name: str = "Holding") -> Office:
     return Office.objects.get(office_name=office_name)
 
 
-def create_office(*, office_name: str, active: bool = True) -> Office:
+def create_country(
+    *,
+    country_code: str,
+    country_name: str,
+    active: bool = True,
+) -> Country:
+    return Country.objects.create(
+        country_code=country_code,
+        country_name=country_name,
+        status=ref_value("COUNTRY_STATUS", "ACTIVE" if active else "INACTIVE"),
+        created_by=SYSTEM_ACTOR,
+        updated_by=SYSTEM_ACTOR,
+    )
+
+
+def create_office(
+    *,
+    office_name: str,
+    active: bool = True,
+    country: Country | None = None,
+) -> Office:
+    resolved_country = country
+    if resolved_country is None:
+        resolved_country = Country.objects.filter(country_name="Holding").first()
+        if resolved_country is None:
+            resolved_country = create_country(
+                country_code="HOLDING",
+                country_name="Holding",
+                active=True,
+            )
     office = Office.objects.create(
+        country=resolved_country,
         office_name=office_name,
         status=ref_value("COUNTRY_STATUS", "ACTIVE" if active else "INACTIVE"),
         created_by=SYSTEM_ACTOR,

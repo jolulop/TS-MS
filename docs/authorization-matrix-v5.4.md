@@ -30,6 +30,7 @@
 | Manage Projects | No | No | No | Yes, scoped BUs | No |
 | Manage Project Assignments | No | No | No | Yes, scoped BUs | No |
 | Manage Calendar Period Rules | No | No | No | Yes, scoped BUs | No |
+| Manage Countries | No | No | No | No | Yes |
 | Manage Offices and Office configuration | No | No | No | No | Yes |
 
 ## 3. Scope Rules
@@ -57,6 +58,7 @@
 
 ### TS_ADMIN_MASTER
 
+- can manage Countries
 - can manage Offices and Office configuration
 - can bootstrap the first Business Unit and Office admin for a new Office
 - does not implicitly inherit all `TS_ADMIN` behavior in the current UI/API

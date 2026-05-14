@@ -191,7 +191,8 @@ def test_ts_admin_master_sees_country_management_only() -> None:
 
     dashboard_response = client.get("/")
     system_response = client.get("/system/")
-    countries_response = client.get("/system/offices/")
+    countries_response = client.get("/system/countries/")
+    offices_response = client.get("/system/offices/")
     employees_response = client.get("/system/employees/")
 
     dashboard_content = dashboard_response.content.decode()
@@ -199,13 +200,17 @@ def test_ts_admin_master_sees_country_management_only() -> None:
 
     assert dashboard_response.status_code == 200
     assert "System Management" in dashboard_content
+    assert "Countries" in dashboard_content
     assert "Offices" in dashboard_content
     assert "Employees" not in dashboard_content
     assert system_response.status_code == 200
+    assert "Countries" in system_content
     assert "Offices" in system_content
     assert "Employees" not in system_content
     assert countries_response.status_code == 200
-    assert "Office Management" in countries_response.content.decode()
+    assert "Country Management" in countries_response.content.decode()
+    assert offices_response.status_code == 200
+    assert "Office Management" in offices_response.content.decode()
     assert employees_response.status_code == 403
     assert "Access Denied" in employees_response.content.decode()
 

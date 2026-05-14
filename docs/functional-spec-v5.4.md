@@ -35,9 +35,16 @@ Role behavior is additive. A user may hold multiple roles at once.
 
 ## 5. Organizational Model
 
-### 5.1 Office
+### 5.1 Country
 
-- Office is the top-level administrative entity.
+- Country is the top-level administrative entity.
+- Country has a unique code, a unique name, and lifecycle status values such as `ACTIVE` and `INACTIVE`.
+- Only `TS_ADMIN_MASTER` can create, update, and delete Countries.
+- One Country can own multiple Offices.
+
+### 5.2 Office
+
+- Office belongs to exactly one Country.
 - Office lifecycle uses status values such as `ACTIVE` and `INACTIVE`.
 - Office configuration is owned at Office level.
 - Only `TS_ADMIN_MASTER` can create, update, and delete Offices.
@@ -47,7 +54,7 @@ Role behavior is additive. A user may hold multiple roles at once.
   - an initial Business Unit
   - an initial Office administrator employee
 
-### 5.2 Business Unit
+### 5.3 Business Unit
 
 - Business Units belong to exactly one Office.
 - Business Unit code uniqueness is enforced within the parent Office.
@@ -57,7 +64,7 @@ Role behavior is additive. A user may hold multiple roles at once.
 - Business Unit detail shows inherited Office configuration as read-only.
 - Business Units can be deleted only when no protected references remain.
 
-### 5.3 Employees
+### 5.4 Employees
 
 - Employees belong to exactly one Office.
 - Each employee has:
@@ -88,15 +95,20 @@ Behavior:
 
 ## 7. System Management Scope
 
-### 7.1 Office-Scoped Masters
+### 7.1 Country-Scoped Masters
+
+The following masters are managed by `TS_ADMIN_MASTER` above Office level:
+- Countries
+- Offices
+
+### 7.2 Office-Scoped Masters
 
 The following masters are managed at Office level:
-- Offices
 - Clients
 - Cost Centers
 - Pricing Models
 
-### 7.2 Business-Unit-Scoped Masters
+### 7.3 Business-Unit-Scoped Masters
 
 The following masters remain Business Unit scoped:
 - Business Units
@@ -109,10 +121,20 @@ The following masters remain Business Unit scoped:
 
 ## 8. System Management Features
 
-### 8.1 Offices
+### 8.1 Countries
+
+- `TS_ADMIN_MASTER` can create, edit, and guarded-delete Countries.
+- Country detail shows:
+  - general Country data
+  - related Office count
+- Country deletion is blocked when dependent Offices still exist.
+
+### 8.2 Offices
 
 - `TS_ADMIN_MASTER` can create, edit, and guarded-delete Offices.
+- Office create/edit requires selecting an existing Country.
 - Office detail shows:
+  - parent Country
   - general Office data
   - editable Office configuration
   - read-only Office administrators

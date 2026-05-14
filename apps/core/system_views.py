@@ -11,6 +11,7 @@ from apps.auth.errors import AuthError
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.master_data.models import (
     BusinessUnit,
+    Country,
     Employee,
     GeneralChargeCodeApprovalRole,
     Project,
@@ -26,6 +27,7 @@ from apps.master_data.services import (
     CalendarSpecialDayManagementService,
     ClientManagementService,
     CostCenterManagementService,
+    CountryManagementService,
     EmployeeManagementService,
     GeneralChargeCodeApprovalRoleManagementService,
     GeneralChargeCodeManagementService,
@@ -86,7 +88,12 @@ def _system_section_links(current_user: CurrentUser, current_path: str) -> list[
 
     sections = [("overview", "Overview", "/system/")]
     if current_user.is_ts_admin_master:
-        sections.append(("offices", "Offices", "/system/offices/"))
+        sections.extend(
+            [
+                ("countries", "Countries", "/system/countries/"),
+                ("offices", "Offices", "/system/offices/"),
+            ]
+        )
     if current_user.is_ts_admin:
         sections.extend(
             [
@@ -203,6 +210,27 @@ def _ref_options(
             selected_values=selected_values,
         )
         for ref_value in RefValue.objects.filter(domain__domain_code=domain_code, active_flag=True)
+    )
+    return options
+
+
+def _country_options(
+    *,
+    selected: object = None,
+    include_blank: bool = False,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select a Country", selected_values=selected_values))
+    countries = Country.objects.order_by("country_name")
+    options.extend(
+        _option(
+            country.id,
+            f"{country.country_code} - {country.country_name}",
+            selected_values=selected_values,
+        )
+        for country in countries
     )
     return options
 
@@ -2414,6 +2442,21 @@ def _office_form_fields(
     submitted_data = post_data or QueryDict("")
     return [
         _field(
+            name="country_id",
+            label="Country",
+            kind="select",
+            options=_country_options(
+                selected=submitted_data.get(
+                    "country_id",
+                    entity["country"]["id"] if entity else "",
+                )
+                if post_data is not None or entity is not None
+                else "",
+                include_blank=entity is None,
+            ),
+            required=True,
+        ),
+        _field(
             name="office_name",
             label="Office Name",
             kind="text",
@@ -2434,6 +2477,43 @@ def _office_form_fields(
             ),
             required=True,
             help_text="Only Timesheet Master Administrators can activate or deactivate offices.",
+        ),
+    ]
+
+
+def _country_form_fields(*, post_data: QueryDict | None = None, entity: dict | None = None) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    return [
+        _field(
+            name="country_code",
+            label="Country Code",
+            kind="text",
+            value=submitted_data.get("country_code", entity["country_code"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="country_name",
+            label="Country Name",
+            kind="text",
+            value=submitted_data.get("country_name", entity["country_name"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="status_code",
+            label="Status",
+            kind="select",
+            options=_ref_options(
+                "COUNTRY_STATUS",
+                selected=submitted_data.get("status_code", entity["status"] if entity else "ACTIVE")
+                if post_data is not None or entity is not None
+                else "ACTIVE",
+            ),
+            required=True,
+            help_text="Only Timesheet Master Administrators can activate or deactivate countries.",
         ),
     ]
 
@@ -2751,7 +2831,7 @@ def _office_rows(offices: list[dict]) -> list[dict]:
     return [
         {
             "href": f"/system/offices/{office['id']}/",
-            "cells": [office["office_name"], office["status"]],
+            "cells": [office["country"]["country_name"], office["office_name"], office["status"]],
         }
         for office in offices
     ]
@@ -2759,8 +2839,36 @@ def _office_rows(offices: list[dict]) -> list[dict]:
 
 def _office_detail_rows(office: dict) -> list[tuple[str, str]]:
     return [
+        (
+            "Country",
+            f"{office['country']['country_code']} - {office['country']['country_name']}",
+        ),
         ("Office Name", office["office_name"]),
         ("Status", office["status"]),
+    ]
+
+
+def _country_rows(countries: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/countries/{country['id']}/",
+            "cells": [
+                country["country_code"],
+                country["country_name"],
+                str(country["office_count"]),
+                country["status"],
+            ],
+        }
+        for country in countries
+    ]
+
+
+def _country_detail_rows(country: dict) -> list[tuple[str, str]]:
+    return [
+        ("Country Code", country["country_code"]),
+        ("Country Name", country["country_name"]),
+        ("Office Count", str(country["office_count"])),
+        ("Status", country["status"]),
     ]
 
 
@@ -2817,8 +2925,24 @@ OFFICE_CONFIG = MasterUiConfig(
     plural_label="Offices",
     collection_path="/system/offices/",
     detail_path_prefix="/system/offices/",
-    table_headers=("Office", "Status"),
+    table_headers=("Country", "Office", "Status"),
     empty_message="No offices are available yet.",
+)
+
+COUNTRY_CONFIG = MasterUiConfig(
+    section_key="countries",
+    list_title="Country Management",
+    list_eyebrow="SCR-098",
+    list_intro="Master administration list for Country lifecycle and identity management.",
+    detail_title="Country Detail",
+    detail_eyebrow="SCR-099",
+    detail_intro="Update Country identity and lifecycle state.",
+    singular_label="Country",
+    plural_label="Countries",
+    collection_path="/system/countries/",
+    detail_path_prefix="/system/countries/",
+    table_headers=("Country Code", "Country Name", "Offices", "Status"),
+    empty_message="No countries are available yet.",
 )
 
 
@@ -3179,6 +3303,145 @@ def business_unit_detail(request: HttpRequest, business_unit_id: int) -> HttpRes
 
 
 @require_http_methods(["GET", "POST"])
+def countries_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin_master(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            country = CountryManagementService.create_country(
+                current_user,
+                {
+                    "country_code": request.POST.get("country_code", ""),
+                    "country_name": request.POST.get("country_name", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/countries/{country['id']}/")
+
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="COUNTRY_STATUS",
+        default_code="ACTIVE",
+    )
+    countries = CountryManagementService.list_countries(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
+    return _render_collection_page(
+        request,
+        current_user,
+        title=COUNTRY_CONFIG.list_title,
+        eyebrow=COUNTRY_CONFIG.list_eyebrow,
+        intro=COUNTRY_CONFIG.list_intro,
+        table_headers=COUNTRY_CONFIG.table_headers,
+        table_rows=_country_rows(countries),
+        empty_message=COUNTRY_CONFIG.empty_message,
+        form_title="Create Country",
+        form_intro="Create a new Country that Offices can be assigned to.",
+        form_fields=_country_form_fields(post_data=post_data),
+        submit_label="Create Country",
+        form_error=form_error,
+        filter_links=filter_links,
+        filter_title="Country Status",
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def country_detail(request: HttpRequest, country_id: int) -> HttpResponse:
+    current_user = _require_ts_admin_master(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    active_form = "general"
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        active_form = request.POST.get("form_name", "general")
+        payload = {}
+        if active_form == "general":
+            payload = {
+                "country_code": request.POST.get("country_code", ""),
+                "country_name": request.POST.get("country_name", ""),
+                "status_code": request.POST.get("status_code", ""),
+            }
+        elif active_form == "delete":
+            payload = {}
+        else:
+            return _render_access_denied(
+                request,
+                message="Unknown Country form submission.",
+                status=400,
+            )
+        try:
+            if active_form == "delete":
+                CountryManagementService.delete_country(current_user, country_id)
+            else:
+                CountryManagementService.update_country(current_user, country_id, payload)
+        except AuthError as error:
+            form_error = error.message
+        else:
+            if active_form == "delete":
+                return redirect(COUNTRY_CONFIG.collection_path)
+            return redirect(f"/system/countries/{country_id}/")
+
+    try:
+        country = CountryManagementService.get_country(current_user, country_id)
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=COUNTRY_CONFIG.detail_title,
+            eyebrow=COUNTRY_CONFIG.detail_eyebrow,
+            intro=COUNTRY_CONFIG.detail_intro,
+            error=error,
+        )
+
+    form_sections = [
+        {
+            "form_name": "general",
+            "title": "General",
+            "intro": "Update Country identity and lifecycle status.",
+            "submit_label": "Save Country",
+            "form_error": form_error if active_form == "general" else "",
+            "fields": _country_form_fields(
+                post_data=post_data if active_form == "general" else None,
+                entity=country,
+            ),
+        },
+        {
+            "form_name": "delete",
+            "title": "Delete Country",
+            "intro": (
+                "Delete this Country only if it has no Offices or other dependent records. "
+                "If it is still in use, deletion will be blocked."
+            ),
+            "submit_label": "Delete Country",
+            "form_error": form_error if active_form == "delete" else "",
+            "fields": [],
+        },
+    ]
+    return _render_detail_page(
+        request,
+        current_user,
+        title=country["name"],
+        eyebrow=COUNTRY_CONFIG.detail_eyebrow,
+        intro=COUNTRY_CONFIG.detail_intro,
+        detail_rows=_country_detail_rows(country),
+        form_sections=form_sections,
+        back_href=COUNTRY_CONFIG.collection_path,
+        back_label=f"Back to {COUNTRY_CONFIG.plural_label}",
+        entity_status=country["status"],
+    )
+
+
+@require_http_methods(["GET", "POST"])
 def offices_collection(request: HttpRequest) -> HttpResponse:
     current_user = _require_ts_admin_master(request)
     if not isinstance(current_user, CurrentUser):
@@ -3191,6 +3454,7 @@ def offices_collection(request: HttpRequest) -> HttpResponse:
             office = OfficeManagementService.create_office(
                 current_user,
                 {
+                    "country_id": request.POST.get("country_id", ""),
                     "office_name": request.POST.get("office_name", ""),
                     "status_code": request.POST.get("status_code", "ACTIVE"),
                     "bootstrap_bu_code": request.POST.get("bootstrap_bu_code", ""),
@@ -3251,7 +3515,7 @@ def offices_collection(request: HttpRequest) -> HttpResponse:
         empty_message=OFFICE_CONFIG.empty_message,
         form_title="Create Office",
         form_intro=(
-            "Create a new office, bootstrap its first Business Unit and admin "
+            "Create a new office inside an existing Country, bootstrap its first Business Unit and admin "
             "employee, and define the inherited configuration for its Business Units."
         ),
         form_fields=(
@@ -3294,6 +3558,7 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
         payload = {}
         if active_form == "general":
             payload = {
+                "country_id": request.POST.get("country_id", ""),
                 "office_name": request.POST.get("office_name", ""),
                 "status_code": request.POST.get("status_code", ""),
             }
@@ -3355,7 +3620,7 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
         {
             "form_name": "general",
             "title": "General",
-            "intro": "Update Office identity and lifecycle status.",
+            "intro": "Update Office identity, parent Country, and lifecycle status.",
             "submit_label": "Save Office",
             "form_error": form_error if active_form == "general" else "",
             "fields": _office_form_fields(

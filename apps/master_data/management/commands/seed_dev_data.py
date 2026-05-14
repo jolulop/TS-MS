@@ -3,12 +3,14 @@ from datetime import date
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.db.models import Q
 
 from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
     Client,
     CostCenter,
+    Country,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -32,16 +34,58 @@ def _ref_value(domain_code: str, value_code: str) -> RefValue:
     return RefValue.objects.get(domain__domain_code=domain_code, value_code=value_code)
 
 
-def _upsert_country(*, office_id: int, office_name: str, active: bool) -> Office:
-    office, _ = Office.objects.update_or_create(
-        id=office_id,
+def _upsert_country(
+    *,
+    country_code: str,
+    country_name: str,
+    active: bool,
+) -> Country:
+    country = (
+        Country.objects.filter(Q(country_code=country_code) | Q(country_name=country_name))
+        .order_by("id")
+        .first()
+    )
+    if country is None:
+        country = Country.objects.create(
+            country_code=country_code,
+            country_name=country_name,
+            status=_ref_value("COUNTRY_STATUS", "ACTIVE" if active else "INACTIVE"),
+            created_by=SYSTEM_ACTOR,
+            updated_by=SYSTEM_ACTOR,
+        )
+        return country
+
+    country.country_code = country_code
+    country.country_name = country_name
+    country.status = _ref_value("COUNTRY_STATUS", "ACTIVE" if active else "INACTIVE")
+    country.updated_by = SYSTEM_ACTOR
+    country.save(
+        update_fields=[
+            "country_code",
+            "country_name",
+            "status",
+            "updated_by",
+            "updated_at",
+        ]
+    )
+    return country
+
+
+def _upsert_office(*, office_name: str, country: Country, active: bool) -> Office:
+    office, created = Office.objects.get_or_create(
+        office_name=office_name,
         defaults={
-            "office_name": office_name,
+            "country": country,
             "status": _ref_value("COUNTRY_STATUS", "ACTIVE" if active else "INACTIVE"),
             "created_by": SYSTEM_ACTOR,
             "updated_by": SYSTEM_ACTOR,
         },
     )
+    if not created:
+        office.country = country
+        office.status = _ref_value("COUNTRY_STATUS", "ACTIVE" if active else "INACTIVE")
+        office.updated_by = SYSTEM_ACTOR
+        office.save(update_fields=["country", "status", "updated_by", "updated_at"])
     return office
 
 
@@ -151,17 +195,50 @@ def _upsert_employee_business_unit(
     business_unit: BusinessUnit,
     is_primary_flag: bool,
 ) -> None:
-    EmployeeBusinessUnit.objects.update_or_create(
-        employee=employee,
-        business_unit=business_unit,
-        valid_from=SEED_VALID_FROM,
-        defaults={
-            "is_primary_flag": is_primary_flag,
-            "status": _ref_value("EMPLOYEE_BU_STATUS", "ACTIVE"),
-            "valid_to": None,
-            "created_by": SYSTEM_ACTOR,
-            "updated_by": SYSTEM_ACTOR,
-        },
+    if is_primary_flag:
+        EmployeeBusinessUnit.objects.filter(
+            employee=employee,
+            is_primary_flag=True,
+            valid_to__isnull=True,
+        ).exclude(business_unit=business_unit).update(
+            is_primary_flag=False,
+            updated_by=SYSTEM_ACTOR,
+        )
+
+    assignment = (
+        EmployeeBusinessUnit.objects.filter(
+            employee=employee,
+            business_unit=business_unit,
+            valid_to__isnull=True,
+        )
+        .order_by("valid_from", "id")
+        .first()
+    )
+    if assignment is None:
+        EmployeeBusinessUnit.objects.create(
+            employee=employee,
+            business_unit=business_unit,
+            is_primary_flag=is_primary_flag,
+            status=_ref_value("EMPLOYEE_BU_STATUS", "ACTIVE"),
+            valid_from=SEED_VALID_FROM,
+            valid_to=None,
+            created_by=SYSTEM_ACTOR,
+            updated_by=SYSTEM_ACTOR,
+        )
+        return
+
+    assignment.is_primary_flag = is_primary_flag
+    assignment.status = _ref_value("EMPLOYEE_BU_STATUS", "ACTIVE")
+    assignment.valid_to = None
+    assignment.updated_by = SYSTEM_ACTOR
+    assignment.save(
+        update_fields=[
+            "is_primary_flag",
+            "status",
+            "valid_to",
+            "updated_by",
+            "updated_at",
+        ]
     )
 
 
@@ -345,30 +422,55 @@ class Command(BaseCommand):
     def handle(self, *args, **options) -> None:
         call_command("seed_reference_data")
 
-        holding_country = _upsert_country(office_id=1, office_name="Holding", active=True)
-        _upsert_country(office_id=2, office_name="España", active=True)
-        _upsert_country(office_id=3, office_name="Colombia", active=True)
-        _upsert_country(office_id=4, office_name="Perú", active=True)
-        _upsert_country(office_id=5, office_name="Argentina", active=True)
-        _upsert_country(office_id=6, office_name="México", active=False)
+        holding_country = _upsert_country(
+            country_code="HOLDING",
+            country_name="Holding",
+            active=True,
+        )
+        spain_country = _upsert_country(
+            country_code="ESP",
+            country_name="España",
+            active=True,
+        )
+        peru_country = _upsert_country(
+            country_code="PER",
+            country_name="Peru",
+            active=True,
+        )
+
+        holding_office = _upsert_office(
+            office_name="Holding",
+            country=holding_country,
+            active=True,
+        )
+        _upsert_office(
+            office_name="Madrid",
+            country=spain_country,
+            active=True,
+        )
+        _upsert_office(
+            office_name="Lima",
+            country=peru_country,
+            active=True,
+        )
         for office in Office.objects.all():
             _upsert_office_configuration(office)
 
         consulting_bu = _upsert_business_unit(
-            office=holding_country,
+            office=holding_office,
             bu_code="CONSULTING",
             name="Consulting",
             description="Primary local sample Business Unit.",
         )
         delivery_bu = _upsert_business_unit(
-            office=holding_country,
+            office=holding_office,
             bu_code="DELIVERY",
             name="Delivery",
             description="Secondary local sample Business Unit.",
         )
 
         consulting_calendar = _upsert_calendar(
-            holding_country,
+            holding_office,
             business_unit=consulting_bu,
             calendar_name="Consulting Standard 2026",
         )
@@ -481,7 +583,7 @@ class Command(BaseCommand):
             description="Secondary BU cost center.",
         )
         pricing_model_standard = _upsert_pricing_model(
-            office=holding_country,
+            office=holding_office,
             name="Time and Materials",
             description="Default sample pricing model for seeded projects.",
         )

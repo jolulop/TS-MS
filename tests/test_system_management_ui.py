@@ -8,6 +8,7 @@ from apps.audit.models import AuditLog
 from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
+    Country,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -46,6 +47,7 @@ from tests.helpers import (
     create_calendar_special_day,
     create_client,
     create_cost_center,
+    create_country,
     create_employee,
     create_general_charge_code,
     create_internal_category,
@@ -193,6 +195,21 @@ def test_system_management_hub_shows_real_admin_screen_links() -> None:
 
 
 @pytest.mark.django_db
+def test_system_management_hub_shows_country_and_office_links_for_master_admin() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+
+    response = client.get("/system/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Countries" in content
+    assert "Offices" in content
+    card_hrefs = {card["href"] for card in response.context["section_cards"]}
+    assert "/system/countries/" in card_hrefs
+    assert "/system/offices/" in card_hrefs
+
+
+@pytest.mark.django_db
 def test_non_admin_cannot_open_employee_management_screen() -> None:
     seed_reference_data()
     business_unit = create_business_unit(bu_code="BU-NON-1", name="Non Admin BU")
@@ -291,7 +308,7 @@ def test_business_unit_management_can_create_new_business_unit_through_html() ->
 def test_ts_admin_cannot_open_country_management_screen() -> None:
     client, _, _ = _build_ts_admin_client()
 
-    response = client.get("/system/offices/")
+    response = client.get("/system/countries/")
 
     assert response.status_code == 403
     assert "Access Denied" in response.content.decode()
@@ -2042,12 +2059,97 @@ def test_calendar_delete_is_blocked_when_special_days_still_reference_it() -> No
 
 
 @pytest.mark.django_db
-def test_country_management_create_and_update_via_html() -> None:
+def test_country_master_management_create_and_update_via_html() -> None:
     client, _, _ = _build_ts_admin_master_client()
+
+    create_response = client.post(
+        "/system/countries/",
+        data={
+            "country_code": "CHL",
+            "country_name": "Chile",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    country = Country.objects.get(country_code="CHL")
+
+    update_response = client.post(
+        f"/system/countries/{country.id}/",
+        data={
+            "form_name": "general",
+            "country_code": "CHL-UPDATED",
+            "country_name": "Chile Updated",
+            "status_code": "INACTIVE",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    country.refresh_from_db()
+    assert country.country_code == "CHL-UPDATED"
+    assert country.country_name == "Chile Updated"
+    assert country.status.value_code == "INACTIVE"
+
+
+@pytest.mark.django_db
+def test_country_management_can_delete_unused_country_via_html() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    country = create_country(
+        country_code="BRA",
+        country_name="Brazil",
+        active=True,
+    )
+
+    response = client.post(
+        f"/system/countries/{country.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/countries/"
+    assert not Country.objects.filter(id=country.id).exists()
+    assert AuditLog.objects.filter(entity_name="country", entity_id=country.id).count() == 1
+
+
+@pytest.mark.django_db
+def test_country_management_delete_is_blocked_when_country_has_offices() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    country = create_country(
+        country_code="URU",
+        country_name="Uruguay",
+        active=True,
+    )
+    create_office(office_name="Madrid", country=country, active=True)
+
+    response = client.post(
+        f"/system/countries/{country.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Delete Country" in content
+    assert "Country cannot be deleted because it is still referenced" in content
+    assert Country.objects.filter(id=country.id).exists()
+
+
+@pytest.mark.django_db
+def test_office_management_create_and_update_via_html() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    country = create_country(
+        country_code="PRT",
+        country_name="Portugal",
+        active=True,
+    )
 
     create_response = client.post(
         "/system/offices/",
         data={
+            "country_id": str(country.id),
             "office_name": "Chile",
             "status_code": "ACTIVE",
             "bootstrap_bu_code": "CHI-ADMIN",
@@ -2069,16 +2171,17 @@ def test_country_management_create_and_update_via_html() -> None:
     )
 
     assert create_response.status_code == 302
-    country = Office.objects.get(office_name="Chile")
-    configuration = OfficeConfiguration.objects.get(office=country)
+    office = Office.objects.get(office_name="Chile")
+    configuration = OfficeConfiguration.objects.get(office=office)
     bootstrap_business_unit = BusinessUnit.objects.get(bu_code="CHI-ADMIN")
     bootstrap_admin = Employee.objects.get(canonical_email="chile.admin@example.com")
     assert configuration.allow_employee_withdraw_flag is True
     assert configuration.timesheet_cutoff_date == date(2026, 5, 31)
     assert configuration.archive_after_years == 7
-    assert bootstrap_business_unit.office_id == country.id
+    assert office.country_id == country.id
+    assert bootstrap_business_unit.office_id == office.id
     assert bootstrap_business_unit.name == "Chile Administration"
-    assert bootstrap_admin.office_id == country.id
+    assert bootstrap_admin.office_id == office.id
     assert bootstrap_admin.primary_business_unit_id == bootstrap_business_unit.id
     assert EmployeeBusinessUnit.objects.filter(
         employee=bootstrap_admin,
@@ -2103,7 +2206,7 @@ def test_country_management_create_and_update_via_html() -> None:
     assert bootstrap_system_response.status_code == 200
     assert "CHI-ADMIN" in bootstrap_system_response.content.decode()
 
-    office_detail_response = client.get(f"/system/offices/{country.id}/")
+    office_detail_response = client.get(f"/system/offices/{office.id}/")
     office_detail_content = office_detail_response.content.decode()
     assert office_detail_response.status_code == 200
     assert "Office Administrators" in office_detail_content
@@ -2111,9 +2214,10 @@ def test_country_management_create_and_update_via_html() -> None:
     assert "CHI-ADMIN" in office_detail_content
 
     update_response = client.post(
-        f"/system/offices/{country.id}/",
+        f"/system/offices/{office.id}/",
         data={
             "form_name": "general",
+            "country_id": str(country.id),
             "office_name": "Chile Updated",
             "status_code": "INACTIVE",
         },
@@ -2121,11 +2225,11 @@ def test_country_management_create_and_update_via_html() -> None:
     )
 
     assert update_response.status_code == 302
-    country.refresh_from_db()
-    assert country.office_name == "Chile Updated"
-    assert country.status.value_code == "INACTIVE"
+    office.refresh_from_db()
+    assert office.office_name == "Chile Updated"
+    assert office.status.value_code == "INACTIVE"
     configuration_update_response = client.post(
-        f"/system/offices/{country.id}/",
+        f"/system/offices/{office.id}/",
         data={
             "form_name": "configuration",
             "approval_mode_code": "PROJECT",
@@ -2137,7 +2241,7 @@ def test_country_management_create_and_update_via_html() -> None:
     assert configuration_update_response.status_code == 302
     configuration.refresh_from_db()
     assert configuration.archive_after_years == 9
-    assert AuditLog.objects.filter(entity_name="office", entity_id=country.id).count() == 3
+    assert AuditLog.objects.filter(entity_name="office", entity_id=office.id).count() == 3
     assert (
         AuditLog.objects.filter(
             entity_name="office_configuration",

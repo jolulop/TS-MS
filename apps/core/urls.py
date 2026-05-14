@@ -7,6 +7,12 @@ urlpatterns = [
     path("logout/", views.logout, name="ui-logout"),
     path("profile/", views.profile, name="profile"),
     path("system/", views.system_management, name="system-management"),
+    path("system/countries/", system_views.countries_collection, name="system-countries"),
+    path(
+        "system/countries/<int:country_id>/",
+        system_views.country_detail,
+        name="system-country-detail",
+    ),
     path("system/offices/", system_views.offices_collection, name="system-offices"),
     path(
         "system/offices/<int:office_id>/",

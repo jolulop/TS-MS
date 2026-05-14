@@ -9,10 +9,14 @@
 
 ## 2. Office And Business Unit Rules
 
+- Every Office belongs to one Country.
+- Country code and Country name must each be unique.
+- One Country can have several Offices.
 - Every Business Unit belongs to one Office.
 - Business Unit code must be unique within its Office.
 - Business Unit operational configuration is inherited from Office configuration.
 - Business Unit detail may display inherited configuration but may not edit it.
+- Office create/edit must select an existing Country.
 - Office creation must also create an initial Business Unit and Office admin employee.
 
 ## 3. Employee Rules
