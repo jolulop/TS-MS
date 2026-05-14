@@ -4,7 +4,7 @@ import pytest
 from django.test import Client
 
 from apps.master_data.models import Employee
-from apps.timesheets.models import WeeklyTimesheet
+from apps.timesheets.models import TimesheetLine, WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
     assign_employee_to_business_unit,
@@ -210,6 +210,47 @@ def test_timesheet_editor_saves_lines_and_submits_via_html() -> None:
     assert "Timesheet Lines" in content
     assert "Withdraw Timesheet" in content
     assert "Weekly Timesheet Editor" not in content
+
+
+@pytest.mark.django_db
+def test_timesheet_editor_shows_submission_blocker_for_legacy_general_code_requiring_approval() -> None:
+    client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-blocked@example.com",
+        employee_code="EMP-TS-BLOCKED",
+    )
+    fixtures["general_charge_code"].requires_approval_flag = True
+    fixtures["general_charge_code"].updated_by = "system@test.local"
+    fixtures["general_charge_code"].save(
+        update_fields=["requires_approval_flag", "updated_by", "updated_at"]
+    )
+
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": fixtures["week_start"].isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    timesheet = WeeklyTimesheet.objects.get(employee=employee)
+    TimesheetLine.objects.create(
+        weekly_timesheet=timesheet,
+        work_date=fixtures["week_start"],
+        general_charge_code=fixtures["general_charge_code"],
+        hours="2.00",
+        comment_text="Legacy unsupported general code line",
+        billable_flag=fixtures["general_charge_code"].billable_flag,
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+
+    detail_response = client.get(f"/ts/timesheets/{timesheet.id}/")
+
+    assert detail_response.status_code == 200
+    content = detail_response.content.decode()
+    assert "Submission Blocked" in content
+    assert "General charge code approval routing does not currently resolve" in content
+    assert fixtures["general_charge_code"].code in content
+    assert "Submit Timesheet" not in content
 
 
 @pytest.mark.django_db

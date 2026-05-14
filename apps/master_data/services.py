@@ -19,6 +19,8 @@ from apps.master_data.models import (
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
+    GeneralChargeCodeApprovalRole,
+    GeneralChargeCodeApprovalRoleAssignment,
     Office,
     OfficeConfiguration,
     Project,
@@ -36,6 +38,9 @@ from apps.master_data.models import (
 )
 from apps.master_data.models import (
     GeneralChargeCode as GeneralChargeCodeRecord,
+)
+from apps.master_data.models import (
+    GeneralChargeCodeApproverRole,
 )
 from apps.master_data.models import (
     InternalCategory as InternalCategoryRecord,
@@ -260,6 +265,39 @@ def _parse_role_codes(payload: dict) -> list[str]:
                 400,
             ) from exc
     return role_codes
+
+
+def _parse_general_charge_code_approver_keys(payload: dict) -> list[str]:
+    values = payload.get("approver_keys", [])
+    if values in (None, ""):
+        return []
+    if not isinstance(values, list):
+        raise AuthError(
+            "GENERAL_CHARGE_CODE_APPROVER_ROLE_INVALID",
+            "approver_keys must be a list of approver role identifiers.",
+            400,
+        )
+    return sorted({str(value).strip() for value in values if str(value).strip()})
+
+
+def _decode_general_charge_code_approver_key(value: str) -> tuple[str, str]:
+    normalized = value.strip()
+    if ":" not in normalized:
+        raise AuthError(
+            "GENERAL_CHARGE_CODE_APPROVER_ROLE_INVALID",
+            f"Unknown approver role identifier: {value}.",
+            400,
+        )
+    prefix, raw_identifier = normalized.split(":", 1)
+    prefix = prefix.strip().upper()
+    identifier = raw_identifier.strip()
+    if prefix not in {"ROLE", "ADHOC"} or not identifier:
+        raise AuthError(
+            "GENERAL_CHARGE_CODE_APPROVER_ROLE_INVALID",
+            f"Unknown approver role identifier: {value}.",
+            400,
+        )
+    return prefix, identifier
 
 
 def _ensure_business_units_in_scope(current_user: CurrentUser, business_unit_ids: set[int]) -> None:
@@ -541,6 +579,17 @@ def _serialize_general_charge_code(general_charge_code: GeneralChargeCodeRecord)
             "bu_code": general_charge_code.business_unit.bu_code,
             "name": general_charge_code.business_unit.name,
         },
+        "approver_roles": [
+            _serialize_general_charge_code_approver_role(approver_role)
+            for approver_role in sorted(
+                general_charge_code.approver_roles.all(),
+                key=lambda approver_role: (
+                    approver_role.existing_role.value_code
+                    if approver_role.existing_role_id is not None
+                    else f"ZZZ-{approver_role.approval_role.role_code}"
+                ),
+            )
+        ],
     }
 
 
@@ -555,6 +604,55 @@ def _serialize_yearly_calendar(yearly_calendar: YearlyCalendar) -> dict:
             "id": yearly_calendar.office_id,
             "office_name": yearly_calendar.office.office_name,
         },
+    }
+
+
+def _serialize_general_charge_code_approval_role(
+    approval_role: GeneralChargeCodeApprovalRole,
+) -> dict:
+    active_members = [
+        assignment
+        for assignment in approval_role.member_assignments.all()
+        if assignment.status.domain.domain_code == "ROLE_ASSIGNMENT_STATUS"
+        and assignment.status.value_code == "ACTIVE"
+        and assignment.valid_to is None
+    ]
+    active_members.sort(key=lambda assignment: assignment.employee.employee_code)
+    return {
+        "id": approval_role.id,
+        "role_code": approval_role.role_code,
+        "name": approval_role.name,
+        "description": approval_role.description,
+        "status": approval_role.status.value_code,
+        "office": {
+            "id": approval_role.office_id,
+            "office_name": approval_role.office.office_name,
+        },
+        "member_employees": [
+            {
+                "id": assignment.employee_id,
+                "employee_code": assignment.employee.employee_code,
+                "full_name": assignment.employee.full_name,
+            }
+            for assignment in active_members
+        ],
+    }
+
+
+def _serialize_general_charge_code_approver_role(approver_role: GeneralChargeCodeApproverRole) -> dict:
+    if approver_role.existing_role_id is not None:
+        return {
+            "key": f"ROLE:{approver_role.existing_role.value_code}",
+            "kind": "EXISTING_ROLE",
+            "code": approver_role.existing_role.value_code,
+            "name": approver_role.existing_role.value_label,
+        }
+    return {
+        "key": f"ADHOC:{approver_role.approval_role_id}",
+        "kind": "AD_HOC_ROLE",
+        "code": approver_role.approval_role.role_code,
+        "name": approver_role.approval_role.name,
+        "id": approver_role.approval_role_id,
     }
 
 
@@ -3355,6 +3453,456 @@ class PricingModelManagementService:
         return PricingModelRecord.objects.select_related("office").get(id=pricing_model_id)
 
 
+class GeneralChargeCodeApprovalRoleManagementService:
+    @staticmethod
+    def list_approval_roles(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+    ) -> list[dict]:
+        _ensure_ts_admin(current_user)
+        approval_roles = _apply_status_filter(
+            GeneralChargeCodeApprovalRole.objects.select_related("office", "status")
+            .prefetch_related(
+                "member_assignments__employee",
+                "member_assignments__status__domain",
+            )
+            .filter(office_id=current_user.office_id)
+            .order_by("role_code"),
+            _parse_status_filter(
+                status_code,
+                domain_code="GENERAL_CHARGE_CODE_APPROVAL_ROLE_STATUS",
+            ),
+        )
+        return [
+            _serialize_general_charge_code_approval_role(approval_role)
+            for approval_role in approval_roles
+        ]
+
+    @staticmethod
+    def get_approval_role(current_user: CurrentUser, approval_role_id: int) -> dict:
+        _ensure_ts_admin(current_user)
+        approval_role = GeneralChargeCodeApprovalRoleManagementService._get_scoped_approval_role(
+            current_user,
+            approval_role_id,
+        )
+        return _serialize_general_charge_code_approval_role(approval_role)
+
+    @staticmethod
+    @transaction.atomic
+    def create_approval_role(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin(current_user)
+        current_office = _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+
+        role_code = str(payload.get("role_code", "")).strip()
+        name = str(payload.get("name", "")).strip()
+        description = str(payload.get("description", "")).strip()
+        if not role_code:
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVAL_ROLE_CODE_REQUIRED",
+                "role_code is required.",
+                400,
+            )
+        if not name:
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVAL_ROLE_NAME_REQUIRED",
+                "name is required.",
+                400,
+            )
+
+        _validate_optional_office_payload(
+            payload,
+            code_prefix="GENERAL_CHARGE_CODE_APPROVAL_ROLE",
+            expected_office_id=current_office.id,
+            mismatch_message="General Charge Code approval role office must match your active office.",
+        )
+
+        member_employee_ids = (
+            GeneralChargeCodeApprovalRoleManagementService._parse_member_employee_ids(payload)
+        )
+        GeneralChargeCodeApprovalRoleManagementService._ensure_member_employees_are_assignable(
+            current_user,
+            member_employee_ids,
+        )
+
+        try:
+            approval_role = GeneralChargeCodeApprovalRole.objects.create(
+                office=current_office,
+                role_code=role_code,
+                name=name,
+                description=description,
+                status=_ref_value(
+                    "GENERAL_CHARGE_CODE_APPROVAL_ROLE_STATUS",
+                    str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE",
+                ),
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+        except IntegrityError as exc:
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVAL_ROLE_NOT_UNIQUE",
+                "Ad-hoc approval role code must be unique within the active office.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="general_charge_code_approval_role",
+            entity_id=approval_role.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            reason_text="General Charge Code approval role created by Timesheet Administrator.",
+        )
+
+        GeneralChargeCodeApprovalRoleManagementService._replace_member_assignments(
+            current_user,
+            approval_role,
+            actor_employee=actor_employee,
+            member_employee_ids=member_employee_ids,
+            reason="General Charge Code approval role members updated by Timesheet Administrator.",
+        )
+        return _serialize_general_charge_code_approval_role(
+            GeneralChargeCodeApprovalRoleManagementService._refresh_approval_role(approval_role.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def update_approval_role(
+        current_user: CurrentUser,
+        approval_role_id: int,
+        payload: dict,
+    ) -> dict:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        approval_role = GeneralChargeCodeApprovalRoleManagementService._get_scoped_approval_role(
+            current_user,
+            approval_role_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            approval_role.office,
+            out_of_scope_message=(
+                "General Charge Code approval role is outside your active office."
+            ),
+        )
+        _validate_optional_office_payload(
+            payload,
+            code_prefix="GENERAL_CHARGE_CODE_APPROVAL_ROLE",
+            expected_office_id=approval_role.office_id,
+            immutable_office_id=approval_role.office_id,
+            mismatch_message=(
+                "General Charge Code approval role office must match the existing office."
+            ),
+            immutable_message="General Charge Code approval role office cannot be changed.",
+        )
+
+        changed_fields: list[tuple[str, str, str]] = []
+
+        if "role_code" in payload:
+            new_role_code = str(payload.get("role_code", "")).strip()
+            if not new_role_code:
+                raise AuthError(
+                    "GENERAL_CHARGE_CODE_APPROVAL_ROLE_CODE_REQUIRED",
+                    "role_code is required.",
+                    400,
+                )
+            if new_role_code != approval_role.role_code:
+                changed_fields.append(("role_code", approval_role.role_code, new_role_code))
+                approval_role.role_code = new_role_code
+
+        if "name" in payload:
+            new_name = str(payload.get("name", "")).strip()
+            if not new_name:
+                raise AuthError(
+                    "GENERAL_CHARGE_CODE_APPROVAL_ROLE_NAME_REQUIRED",
+                    "name is required.",
+                    400,
+                )
+            if new_name != approval_role.name:
+                changed_fields.append(("name", approval_role.name, new_name))
+                approval_role.name = new_name
+
+        if "description" in payload:
+            new_description = str(payload.get("description", "")).strip()
+            if new_description != approval_role.description:
+                changed_fields.append(("description", approval_role.description, new_description))
+                approval_role.description = new_description
+
+        if "status_code" in payload:
+            new_status = _ref_value(
+                "GENERAL_CHARGE_CODE_APPROVAL_ROLE_STATUS",
+                str(payload.get("status_code", "")).strip(),
+            )
+            if new_status.id != approval_role.status_id:
+                changed_fields.append(
+                    ("status", approval_role.status.value_code, new_status.value_code)
+                )
+                approval_role.status = new_status
+
+        if changed_fields:
+            try:
+                approval_role.updated_by = current_user.email
+                approval_role.save()
+            except IntegrityError as exc:
+                raise AuthError(
+                    "GENERAL_CHARGE_CODE_APPROVAL_ROLE_NOT_UNIQUE",
+                    "Ad-hoc approval role code must be unique within the active office.",
+                    400,
+                ) from exc
+
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="general_charge_code_approval_role",
+                entity_id=approval_role.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="General Charge Code approval role updated by Timesheet Administrator.",
+            )
+
+        if "member_employee_ids" in payload:
+            member_employee_ids = (
+                GeneralChargeCodeApprovalRoleManagementService._parse_member_employee_ids(payload)
+            )
+            GeneralChargeCodeApprovalRoleManagementService._ensure_member_employees_are_assignable(
+                current_user,
+                member_employee_ids,
+            )
+            GeneralChargeCodeApprovalRoleManagementService._replace_member_assignments(
+                current_user,
+                approval_role,
+                actor_employee=actor_employee,
+                member_employee_ids=member_employee_ids,
+                reason=(
+                    "General Charge Code approval role members updated by Timesheet "
+                    "Administrator."
+                ),
+            )
+
+        return _serialize_general_charge_code_approval_role(
+            GeneralChargeCodeApprovalRoleManagementService._refresh_approval_role(
+                approval_role.id
+            )
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def delete_approval_role(current_user: CurrentUser, approval_role_id: int) -> None:
+        _ensure_ts_admin(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        approval_role = GeneralChargeCodeApprovalRoleManagementService._get_scoped_approval_role(
+            current_user,
+            approval_role_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            approval_role.office,
+            out_of_scope_message=(
+                "General Charge Code approval role is outside your active office."
+            ),
+        )
+
+        try:
+            approval_role_code = approval_role.role_code
+            approval_role_record_id = approval_role.id
+            approval_role.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVAL_ROLE_DELETE_BLOCKED",
+                "General Charge Code approval role cannot be deleted because it is still "
+                "referenced by General Charge Codes, pending approvals, or approval history.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="general_charge_code_approval_role",
+            entity_id=approval_role_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            old_value=approval_role_code,
+            reason_text="General Charge Code approval role deleted by Timesheet Administrator.",
+        )
+
+    @staticmethod
+    def _get_scoped_approval_role(
+        current_user: CurrentUser,
+        approval_role_id: int,
+    ) -> GeneralChargeCodeApprovalRole:
+        try:
+            approval_role = (
+                GeneralChargeCodeApprovalRole.objects.select_related("office", "status")
+                .prefetch_related(
+                    "member_assignments__employee",
+                    "member_assignments__status__domain",
+                )
+                .get(id=approval_role_id)
+            )
+        except GeneralChargeCodeApprovalRole.DoesNotExist as exc:
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVAL_ROLE_NOT_FOUND",
+                "General Charge Code approval role not found.",
+                404,
+            ) from exc
+
+        _ensure_office_in_scope(
+            current_user,
+            approval_role.office_id,
+            message="General Charge Code approval role is outside your active office.",
+        )
+        return approval_role
+
+    @staticmethod
+    def _refresh_approval_role(approval_role_id: int) -> GeneralChargeCodeApprovalRole:
+        return (
+            GeneralChargeCodeApprovalRole.objects.select_related("office", "status")
+            .prefetch_related(
+                "member_assignments__employee",
+                "member_assignments__status__domain",
+            )
+            .get(id=approval_role_id)
+        )
+
+    @staticmethod
+    def _parse_member_employee_ids(payload: dict) -> list[int]:
+        values = payload.get("member_employee_ids", [])
+        if values in (None, ""):
+            return []
+        if not isinstance(values, list):
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVAL_ROLE_MEMBER_INVALID",
+                "member_employee_ids must be a list of employee identifiers.",
+                400,
+            )
+        try:
+            return sorted({int(value) for value in values if str(value).strip()})
+        except (TypeError, ValueError) as exc:
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVAL_ROLE_MEMBER_INVALID",
+                "member_employee_ids must contain valid employee identifiers.",
+                400,
+            ) from exc
+
+    @staticmethod
+    def _ensure_member_employees_are_assignable(
+        current_user: CurrentUser,
+        member_employee_ids: list[int],
+    ) -> None:
+        if not member_employee_ids:
+            return
+        employees = list(
+            Employee.objects.select_related("office", "status").filter(id__in=member_employee_ids)
+        )
+        if len(employees) != len(member_employee_ids):
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVAL_ROLE_MEMBER_INVALID",
+                "One or more selected employees could not be found.",
+                400,
+            )
+        for employee in employees:
+            if employee.office_id != current_user.office_id:
+                raise AuthError(
+                    "GENERAL_CHARGE_CODE_APPROVAL_ROLE_MEMBER_OUT_OF_SCOPE",
+                    "Selected employees must belong to the active office.",
+                    403,
+                )
+            if employee.status.value_code != "ACTIVE":
+                raise AuthError(
+                    "GENERAL_CHARGE_CODE_APPROVAL_ROLE_MEMBER_INACTIVE",
+                    "Selected employees must be active.",
+                    400,
+                )
+
+    @staticmethod
+    def _replace_member_assignments(
+        current_user: CurrentUser,
+        approval_role: GeneralChargeCodeApprovalRole,
+        *,
+        actor_employee: Employee | None,
+        member_employee_ids: list[int],
+        reason: str,
+    ) -> None:
+        desired_employee_ids = set(member_employee_ids)
+        active_status = _ref_value("ROLE_ASSIGNMENT_STATUS", "ACTIVE")
+        inactive_status = _ref_value("ROLE_ASSIGNMENT_STATUS", "INACTIVE")
+        active_assignments = list(
+            approval_role.member_assignments.select_related("employee", "status", "status__domain")
+            .filter(valid_to__isnull=True)
+        )
+        current_active_employee_ids = {
+            assignment.employee_id
+            for assignment in active_assignments
+            if assignment.status.domain.domain_code == "ROLE_ASSIGNMENT_STATUS"
+            and assignment.status.value_code == "ACTIVE"
+        }
+
+        for assignment in active_assignments:
+            if (
+                assignment.employee_id not in desired_employee_ids
+                and assignment.status.value_code == "ACTIVE"
+            ):
+                assignment.status = inactive_status
+                assignment.valid_to = date.today()
+                assignment.updated_by = current_user.email
+                assignment.save(update_fields=["status", "valid_to", "updated_by", "updated_at"])
+                write_audit_event(
+                    action_code="UPDATE",
+                    entity_name="general_charge_code_approval_role_assignment",
+                    entity_id=assignment.id,
+                    actor_employee=actor_employee,
+                    actor_email=current_user.email,
+                    field_name="employee_id",
+                    old_value=assignment.employee.employee_code,
+                    new_value="",
+                    reason_text=reason,
+                )
+
+        for employee_id in sorted(desired_employee_ids - current_active_employee_ids):
+            existing_inactive = (
+                approval_role.member_assignments.filter(
+                    employee_id=employee_id,
+                    valid_to=date.today(),
+                )
+                .order_by("-id")
+                .first()
+            )
+            if existing_inactive is not None:
+                existing_inactive.status = active_status
+                existing_inactive.valid_to = None
+                existing_inactive.updated_by = current_user.email
+                existing_inactive.save(
+                    update_fields=["status", "valid_to", "updated_by", "updated_at"]
+                )
+                assignment = existing_inactive
+            else:
+                assignment = GeneralChargeCodeApprovalRoleAssignment.objects.create(
+                    approval_role=approval_role,
+                    employee_id=employee_id,
+                    valid_from=date.today(),
+                    status=active_status,
+                    created_by=current_user.email,
+                    updated_by=current_user.email,
+                )
+            employee = Employee.objects.get(id=employee_id)
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="general_charge_code_approval_role_assignment",
+                entity_id=assignment.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                field_name="employee_id",
+                old_value="",
+                new_value=employee.employee_code,
+                reason_text=reason,
+            )
+
+
 class GeneralChargeCodeManagementService:
     @staticmethod
     def list_general_charge_codes(
@@ -3370,6 +3918,10 @@ class GeneralChargeCodeManagementService:
                 "charge_type",
                 "cost_center",
                 "status",
+            )
+            .prefetch_related(
+                "approver_roles__existing_role",
+                "approver_roles__approval_role",
             )
             .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
             .filter(office_id=current_user.office_id)
@@ -3449,6 +4001,14 @@ class GeneralChargeCodeManagementService:
             cost_center_id=payload.get("cost_center_id"),
             required=True,
         )
+        requires_approval_flag = bool(payload.get("requires_approval_flag", False))
+        approver_keys = _parse_general_charge_code_approver_keys(payload)
+        if requires_approval_flag and not approver_keys:
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVER_ROLE_REQUIRED",
+                "At least one approver role is required when Requires Approval is enabled.",
+                400,
+            )
 
         try:
             general_charge_code = GeneralChargeCodeRecord.objects.create(
@@ -3459,7 +4019,7 @@ class GeneralChargeCodeManagementService:
                 charge_type=_ref_value("GENERAL_CHARGE_CODE_TYPE", charge_type_code),
                 cost_center=cost_center,
                 billable_flag=bool(payload.get("billable_flag", False)),
-                requires_approval_flag=bool(payload.get("requires_approval_flag", False)),
+                requires_approval_flag=requires_approval_flag,
                 description_required_flag=bool(payload.get("description_required_flag", False)),
                 valid_from=valid_from,
                 valid_to=valid_to,
@@ -3482,6 +4042,13 @@ class GeneralChargeCodeManagementService:
             actor_email=current_user.email,
             business_unit=general_charge_code.business_unit,
             reason_text="General charge code created by Timesheet Administrator.",
+        )
+        GeneralChargeCodeManagementService._replace_approver_roles(
+            current_user,
+            general_charge_code,
+            actor_employee=actor_employee,
+            approver_keys=approver_keys if requires_approval_flag else [],
+            reason="General charge code approver roles updated by Timesheet Administrator.",
         )
         return _serialize_general_charge_code(
             GeneralChargeCodeManagementService._refresh_general_charge_code(general_charge_code.id)
@@ -3586,6 +4153,14 @@ class GeneralChargeCodeManagementService:
                 )
                 general_charge_code.cost_center = new_cost_center
 
+        current_approver_keys = [
+            _serialize_general_charge_code_approver_role(approver_role)["key"]
+            for approver_role in general_charge_code.approver_roles.all()
+        ]
+        requested_approver_keys = None
+        if "approver_keys" in payload:
+            requested_approver_keys = _parse_general_charge_code_approver_keys(payload)
+
         for field_name in (
             "billable_flag",
             "requires_approval_flag",
@@ -3648,6 +4223,19 @@ class GeneralChargeCodeManagementService:
                 )
                 general_charge_code.status = new_status
 
+        final_requires_approval = general_charge_code.requires_approval_flag
+        effective_approver_keys = (
+            requested_approver_keys
+            if requested_approver_keys is not None
+            else current_approver_keys
+        )
+        if final_requires_approval and not effective_approver_keys:
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVER_ROLE_REQUIRED",
+                "At least one approver role is required when Requires Approval is enabled.",
+                400,
+            )
+
         if changed_fields:
             try:
                 general_charge_code.updated_by = current_user.email
@@ -3671,6 +4259,15 @@ class GeneralChargeCodeManagementService:
                 old_value=old_value,
                 new_value=new_value,
                 reason_text="General charge code updated by Timesheet Administrator.",
+            )
+
+        if requested_approver_keys is not None or not final_requires_approval:
+            GeneralChargeCodeManagementService._replace_approver_roles(
+                current_user,
+                general_charge_code,
+                actor_employee=actor_employee,
+                approver_keys=effective_approver_keys if final_requires_approval else [],
+                reason="General charge code approver roles updated by Timesheet Administrator.",
             )
 
         return _serialize_general_charge_code(
@@ -3737,6 +4334,9 @@ class GeneralChargeCodeManagementService:
         try:
             general_charge_code = GeneralChargeCodeRecord.objects.select_related(
                 "business_unit", "office", "charge_type", "cost_center", "status"
+            ).prefetch_related(
+                "approver_roles__existing_role",
+                "approver_roles__approval_role",
             ).get(id=general_charge_code_id)
         except GeneralChargeCodeRecord.DoesNotExist as exc:
             raise AuthError(
@@ -3759,7 +4359,153 @@ class GeneralChargeCodeManagementService:
     ) -> GeneralChargeCodeRecord:
         return GeneralChargeCodeRecord.objects.select_related(
             "business_unit", "office", "charge_type", "cost_center", "status"
+        ).prefetch_related(
+            "approver_roles__existing_role",
+            "approver_roles__approval_role",
         ).get(id=general_charge_code_id)
+
+    @staticmethod
+    def _replace_approver_roles(
+        current_user: CurrentUser,
+        general_charge_code: GeneralChargeCodeRecord,
+        *,
+        actor_employee: Employee | None,
+        approver_keys: list[str],
+        reason: str,
+    ) -> None:
+        desired_existing_roles, desired_ad_hoc_roles = (
+            GeneralChargeCodeManagementService._resolve_approver_roles(
+                current_user,
+                office_id=general_charge_code.office_id,
+                approver_keys=approver_keys,
+            )
+        )
+        current_mappings = list(
+            general_charge_code.approver_roles.select_related("existing_role", "approval_role")
+        )
+        current_existing_role_codes = {
+            mapping.existing_role.value_code
+            for mapping in current_mappings
+            if mapping.existing_role_id is not None
+        }
+        current_ad_hoc_role_ids = {
+            mapping.approval_role_id
+            for mapping in current_mappings
+            if mapping.approval_role_id is not None
+        }
+
+        desired_existing_role_codes = {role.value_code for role in desired_existing_roles}
+        desired_ad_hoc_role_ids = {role.id for role in desired_ad_hoc_roles}
+
+        for mapping in current_mappings:
+            if mapping.existing_role_id is not None:
+                if mapping.existing_role.value_code in desired_existing_role_codes:
+                    continue
+                old_value = mapping.existing_role.value_code
+            else:
+                if mapping.approval_role_id in desired_ad_hoc_role_ids:
+                    continue
+                old_value = mapping.approval_role.role_code
+            mapping_id = mapping.id
+            mapping.delete()
+            write_audit_event(
+                action_code="DELETE",
+                entity_name="general_charge_code_approver_role",
+                entity_id=mapping_id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=general_charge_code.business_unit,
+                old_value=old_value,
+                reason_text=reason,
+            )
+
+        for role in sorted(
+            desired_existing_roles,
+            key=lambda existing_role: existing_role.value_code,
+        ):
+            if role.value_code in current_existing_role_codes:
+                continue
+            mapping = GeneralChargeCodeApproverRole.objects.create(
+                general_charge_code=general_charge_code,
+                existing_role=role,
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+            write_audit_event(
+                action_code="CREATE",
+                entity_name="general_charge_code_approver_role",
+                entity_id=mapping.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=general_charge_code.business_unit,
+                new_value=role.value_code,
+                reason_text=reason,
+            )
+
+        for approval_role in sorted(desired_ad_hoc_roles, key=lambda role: role.role_code):
+            if approval_role.id in current_ad_hoc_role_ids:
+                continue
+            mapping = GeneralChargeCodeApproverRole.objects.create(
+                general_charge_code=general_charge_code,
+                approval_role=approval_role,
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+            write_audit_event(
+                action_code="CREATE",
+                entity_name="general_charge_code_approver_role",
+                entity_id=mapping.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=general_charge_code.business_unit,
+                new_value=approval_role.role_code,
+                reason_text=reason,
+            )
+
+    @staticmethod
+    def _resolve_approver_roles(
+        current_user: CurrentUser,
+        *,
+        office_id: int,
+        approver_keys: list[str] | None,
+    ) -> tuple[list[RefValue], list[GeneralChargeCodeApprovalRole]]:
+        if not approver_keys:
+            return [], []
+
+        existing_role_codes: set[str] = set()
+        ad_hoc_role_ids: set[int] = set()
+        for approver_key in approver_keys:
+            key_type, raw_identifier = _decode_general_charge_code_approver_key(approver_key)
+            if key_type == "ROLE":
+                existing_role_codes.add(raw_identifier)
+                continue
+            try:
+                ad_hoc_role_ids.add(int(raw_identifier))
+            except ValueError as exc:
+                raise AuthError(
+                    "GENERAL_CHARGE_CODE_APPROVER_ROLE_INVALID",
+                    f"Unknown approver role identifier: {approver_key}.",
+                    400,
+                ) from exc
+
+        existing_roles = [_ref_value("ROLE_CODE", role_code) for role_code in sorted(existing_role_codes)]
+        ad_hoc_roles = list(
+            GeneralChargeCodeApprovalRole.objects.select_related("status").filter(id__in=ad_hoc_role_ids)
+        )
+        if len(ad_hoc_roles) != len(ad_hoc_role_ids):
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVER_ROLE_INVALID",
+                "One or more selected ad-hoc approver roles could not be found.",
+                400,
+            )
+        for approval_role in ad_hoc_roles:
+            if approval_role.office_id != office_id or approval_role.office_id != current_user.office_id:
+                raise AuthError(
+                    "GENERAL_CHARGE_CODE_APPROVER_ROLE_OUT_OF_SCOPE",
+                    "Ad-hoc approver roles must belong to the active office.",
+                    403,
+                )
+        return existing_roles, sorted(ad_hoc_roles, key=lambda role: role.role_code)
 
     @staticmethod
     def _resolve_cost_center(

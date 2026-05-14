@@ -24,6 +24,9 @@ from apps.master_data.models import (
     CostCenter as CostCenterRecord,
 )
 from apps.master_data.models import (
+    GeneralChargeCodeApprovalRole,
+)
+from apps.master_data.models import (
     GeneralChargeCode as GeneralChargeCodeRecord,
 )
 from apps.master_data.models import (
@@ -1090,6 +1093,7 @@ def test_general_charge_code_management_create_and_update_via_html() -> None:
             "charge_type_code": "STANDARD",
             "cost_center_id": str(replacement_cost_center.id),
             "requires_approval_flag": "on",
+            "approver_keys": ["ROLE:PROJECT_MANAGER"],
             "description_required_flag": "on",
             "valid_from": date(2026, 5, 1).isoformat(),
             "valid_to": "",
@@ -1106,6 +1110,40 @@ def test_general_charge_code_management_create_and_update_via_html() -> None:
     assert general_charge_code.description_required_flag is True
     assert general_charge_code.valid_to is None
     assert general_charge_code.status.value_code == "INACTIVE"
+
+
+@pytest.mark.django_db
+def test_general_charge_code_approval_role_management_create_via_html() -> None:
+    client, employee, _ = _build_ts_admin_client()
+    member_employee = create_employee(
+        employee_code="EMP-GCC-ROLE-MEMBER",
+        full_name="GCC Role Member",
+        email="gcc-role-member@example.com",
+        primary_business_unit=employee.primary_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=member_employee,
+        business_unit=employee.primary_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=member_employee, role_code="USER")
+
+    response = client.post(
+        "/system/general-charge-code-approval-roles/",
+        data={
+            "role_code": "HR_APPROVER",
+            "name": "HR Approver",
+            "description": "Reviews sickness charge codes.",
+            "member_employee_ids": [str(member_employee.id)],
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    approval_role = GeneralChargeCodeApprovalRole.objects.get(role_code="HR_APPROVER")
+    assert approval_role.name == "HR Approver"
+    assert approval_role.member_assignments.filter(employee=member_employee).exists()
 
 
 @pytest.mark.django_db

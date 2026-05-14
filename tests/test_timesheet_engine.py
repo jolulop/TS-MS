@@ -5,6 +5,8 @@ import pytest
 from django.test import Client
 
 from apps.audit.models import AuditLog
+from apps.auth.services import CurrentUserService
+from apps.timesheets.services import TimesheetService
 from apps.timesheets.models import (
     ApprovalAction,
     ApprovalItem,
@@ -1938,6 +1940,7 @@ def test_submit_blocks_self_approval_and_general_code_required_approval() -> Non
         name="Requires Approval",
         valid_from=date(2026, 1, 1),
         requires_approval_flag=True,
+        approver_role_codes=["PROJECT_MANAGER"],
     )
 
     client = Client()
@@ -1966,7 +1969,7 @@ def test_submit_blocks_self_approval_and_general_code_required_approval() -> Non
     )
 
     general_code_timesheet = create_timesheet(client, "2026-05-11")
-    client.put(
+    general_code_save_response = client.put(
         f"/api/v1/timesheets/{general_code_timesheet['id']}/lines/",
         data=json.dumps(
             {
@@ -1981,19 +1984,39 @@ def test_submit_blocks_self_approval_and_general_code_required_approval() -> Non
         ),
         content_type="application/json",
     )
-    general_code_submit_response = client.post(
-        f"/api/v1/timesheets/{general_code_timesheet['id']}/submit/",
-        data=json.dumps({}),
-        content_type="application/json",
-    )
 
     assert self_approval_submit_response.status_code == 400
     assert (
         self_approval_submit_response.json()["error"]["code"]
         == "TIMESHEET_SELF_APPROVAL_NOT_ALLOWED"
     )
-    assert general_code_submit_response.status_code == 400
-    assert (
-        general_code_submit_response.json()["error"]["code"]
-        == "TIMESHEET_GENERAL_CODE_APPROVAL_NOT_CONFIGURED"
+    assert general_code_save_response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_timesheet_editor_context_keeps_general_charge_codes_with_routed_approval() -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="user-hidden-gcc@example.com",
+        employee_code="EMP-2012",
+        full_name="User Hidden GCC",
     )
+    context["general_charge_code"].requires_approval_flag = True
+    context["general_charge_code"].updated_by = "system@test.local"
+    context["general_charge_code"].save(
+        update_fields=["requires_approval_flag", "updated_by", "updated_at"]
+    )
+
+    client = Client()
+    initialize_session(client, "user-hidden-gcc@example.com")
+    timesheet = create_timesheet(client, "2026-05-11")
+
+    current_user = CurrentUserService.build_for_employee(context["employee"])
+    editor_context = TimesheetService.get_timesheet_editor_context(
+        current_user=current_user,
+        timesheet_id=timesheet["id"],
+    )
+
+    assert [item["id"] for item in editor_context["available_general_charge_codes"]] == [
+        context["general_charge_code"].id
+    ]

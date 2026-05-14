@@ -1,3 +1,12 @@
+from datetime import date
+
+from django.db.models import Q
+
+from apps.master_data.models import (
+    GeneralChargeCodeApprovalRoleAssignment,
+    GeneralChargeCodeApproverRole,
+)
+
 from apps.auth.context import CurrentUser
 
 
@@ -11,6 +20,38 @@ class AuthorizationPolicyService:
         "audit-history",
         "integration-jobs",
     }
+
+    @staticmethod
+    def _active_general_charge_code_approval_role_ids(current_user: CurrentUser) -> set[int]:
+        return set(
+            GeneralChargeCodeApprovalRoleAssignment.objects.filter(
+                employee_id=current_user.employee_id,
+                status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
+                status__value_code="ACTIVE",
+                valid_from__lte=date.today(),
+            )
+            .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=date.today()))
+            .values_list("approval_role_id", flat=True)
+        )
+
+    @staticmethod
+    def has_general_charge_code_approval_access(current_user: CurrentUser) -> bool:
+        if AuthorizationPolicyService._active_general_charge_code_approval_role_ids(current_user):
+            return True
+        if not current_user.role_codes:
+            return False
+        return GeneralChargeCodeApproverRole.objects.filter(
+            general_charge_code__office_id=current_user.office_id,
+            general_charge_code__status__value_code="ACTIVE",
+            general_charge_code__requires_approval_flag=True,
+            existing_role__value_code__in=current_user.role_codes,
+        ).exists()
+
+    @staticmethod
+    def can_access_approval_worklist(current_user: CurrentUser) -> bool:
+        return current_user.has_role("PROJECT_MANAGER") or (
+            AuthorizationPolicyService.has_general_charge_code_approval_access(current_user)
+        )
 
     @staticmethod
     def can_view_employee(current_user: CurrentUser, employee) -> bool:
@@ -107,9 +148,17 @@ class AuthorizationPolicyService:
 
     @staticmethod
     def can_view_approval_item(current_user: CurrentUser, approval_item) -> bool:
-        return current_user.has_role("PROJECT_MANAGER") and (
-            approval_item.approver_employee_id == current_user.employee_id
+        if approval_item.approver_employee_id == current_user.employee_id:
+            return True
+        if approval_item.general_charge_code_id is None:
+            return False
+        active_ad_hoc_role_ids = AuthorizationPolicyService._active_general_charge_code_approval_role_ids(
+            current_user
         )
+        return approval_item.approver_roles.filter(
+            Q(existing_role__value_code__in=current_user.role_codes)
+            | Q(approval_role_id__in=active_ad_hoc_role_ids)
+        ).exists()
 
     @staticmethod
     def can_approve_approval_item(current_user: CurrentUser, approval_item) -> bool:
@@ -138,7 +187,9 @@ class AuthorizationPolicyService:
                 or current_user.has_role("PROJECT_MANAGER")
             )
         if report_code == "pending-approvals":
-            return current_user.is_ts_admin or current_user.has_role("PROJECT_MANAGER")
+            return current_user.is_ts_admin or AuthorizationPolicyService.can_access_approval_worklist(
+                current_user
+            )
         if report_code in {
             "missing-timesheets",
             "archived-timesheets",

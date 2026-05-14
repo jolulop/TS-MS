@@ -218,6 +218,65 @@ class EmployeeRole(AuditFieldsModel):
         ]
 
 
+class GeneralChargeCodeApprovalRole(AuditFieldsModel):
+    office = models.ForeignKey(
+        Office,
+        on_delete=models.PROTECT,
+        related_name="general_charge_code_approval_roles",
+    )
+    role_code = models.CharField(max_length=50)
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    status = models.ForeignKey(
+        "reference_data.RefValue",
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "general_charge_code_approval_role"
+        ordering = ["office__office_name", "role_code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["office", "role_code"],
+                name="gcc_approval_role_office_code_uniq",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return self.role_code
+
+
+class GeneralChargeCodeApprovalRoleAssignment(AuditFieldsModel):
+    approval_role = models.ForeignKey(
+        GeneralChargeCodeApprovalRole,
+        on_delete=models.CASCADE,
+        related_name="member_assignments",
+    )
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.PROTECT,
+        related_name="general_charge_code_approval_role_assignments",
+    )
+    valid_from = models.DateField()
+    valid_to = models.DateField(null=True, blank=True)
+    status = models.ForeignKey(
+        "reference_data.RefValue",
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "general_charge_code_approval_role_assignment"
+        ordering = ["approval_role__role_code", "employee__employee_code", "valid_from"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["approval_role", "employee", "valid_from"],
+                name="gcc_approval_role_assignment_window_uniq",
+            )
+        ]
+
+
 class CalendarPeriodRule(AuditFieldsModel):
     yearly_calendar = models.ForeignKey(
         YearlyCalendar,
@@ -409,6 +468,51 @@ class GeneralChargeCode(AuditFieldsModel):
                 fields=["business_unit", "code"],
                 name="general_charge_code_bu_code_uniq",
             )
+        ]
+
+
+class GeneralChargeCodeApproverRole(AuditFieldsModel):
+    general_charge_code = models.ForeignKey(
+        GeneralChargeCode,
+        on_delete=models.PROTECT,
+        related_name="approver_roles",
+    )
+    existing_role = models.ForeignKey(
+        "reference_data.RefValue",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    approval_role = models.ForeignKey(
+        GeneralChargeCodeApprovalRole,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="general_charge_code_assignments",
+    )
+
+    class Meta:
+        db_table = "general_charge_code_approver_role"
+        ordering = ["general_charge_code", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(existing_role__isnull=False, approval_role__isnull=True)
+                    | Q(existing_role__isnull=True, approval_role__isnull=False)
+                ),
+                name="gcc_approver_role_target_xor_chk",
+            ),
+            models.UniqueConstraint(
+                fields=["general_charge_code", "existing_role"],
+                condition=Q(existing_role__isnull=False),
+                name="gcc_approver_role_existing_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["general_charge_code", "approval_role"],
+                condition=Q(approval_role__isnull=False),
+                name="gcc_approver_role_ad_hoc_uniq",
+            ),
         ]
 
 

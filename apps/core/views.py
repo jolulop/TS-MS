@@ -209,6 +209,15 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         "href": "/system/calendar-period-rules/",
                     },
                     {
+                        "title": "GCC Approval Roles",
+                        "summary": (
+                            "Manage office-scoped ad-hoc approval roles and employee "
+                            "membership for General Charge Code routing."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/general-charge-code-approval-roles/",
+                    },
+                    {
                         "title": "General Charge Codes",
                         "summary": (
                             "Maintain general charge code Cost Center assignment, "

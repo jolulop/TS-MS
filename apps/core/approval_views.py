@@ -45,11 +45,14 @@ def _render_approval_auth_error(
     return render(request, "core/access_denied.html", context, status=error.status)
 
 
-def _project_label(approval_item: dict) -> str:
+def _approval_target_label(approval_item: dict) -> str:
     project = approval_item.get("project")
-    if not project:
-        return "General scope"
-    return f"{project['project_code']} - {project['name']}"
+    if project:
+        return f"{project['project_code']} - {project['name']}"
+    general_charge_code = approval_item.get("general_charge_code")
+    if general_charge_code:
+        return f"{general_charge_code['code']} - {general_charge_code['name']}"
+    return "General scope"
 
 
 def _employee_label(approval_item: dict) -> str:
@@ -63,7 +66,7 @@ def _approval_rows(approval_items: list[dict]) -> list[dict]:
             "href": f"/approvals/{approval_item['id']}/",
             "cells": [
                 _employee_label(approval_item),
-                _project_label(approval_item),
+                _approval_target_label(approval_item),
                 str(approval_item["submission_no"]),
                 approval_item["status"],
                 approval_item["rejection_reason"] or "Pending review",
@@ -95,7 +98,7 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
             current_user,
             title="Approval Worklist",
             eyebrow="SCR-205",
-            intro="Managed-project approvals waiting for your decision.",
+            intro="Routed approval items waiting for your decision.",
             error=error,
         )
 
@@ -107,8 +110,8 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
         title="Approval Worklist",
         eyebrow="SCR-205",
         intro=(
-            "Managed-project approvals waiting for your decision, with completed "
-            "items kept visible for audit-friendly follow-up."
+            "Routed approval items waiting for your decision, with completed items "
+            "kept visible for audit-friendly follow-up."
         ),
     )
     context.update(
@@ -164,7 +167,7 @@ def approval_detail(request: HttpRequest, approval_item_id: int) -> HttpResponse
                     current_user,
                     title=f"Approval Item #{approval_item_id}",
                     eyebrow="SCR-206",
-                    intro="Review the routed project lines before recording a decision.",
+                    intro="Review the routed timesheet lines before recording a decision.",
                     error=error,
                 )
             form_error = error.message
@@ -179,7 +182,7 @@ def approval_detail(request: HttpRequest, approval_item_id: int) -> HttpResponse
             current_user,
             title=f"Approval Item #{approval_item_id}",
             eyebrow="SCR-206",
-            intro="Review the routed project lines before recording a decision.",
+            intro="Review the routed timesheet lines before recording a decision.",
             error=error,
         )
 
@@ -187,12 +190,12 @@ def approval_detail(request: HttpRequest, approval_item_id: int) -> HttpResponse
         request,
         title=f"Approval Item #{approval_item_id}",
         eyebrow="SCR-206",
-        intro="Review the routed project lines before recording a decision.",
+        intro="Review the routed timesheet lines before recording a decision.",
     )
     context.update(
         {
             "approval_item": approval_item,
-            "approval_project_label": _project_label(approval_item),
+            "approval_project_label": _approval_target_label(approval_item),
             "timesheet_employee_label": _employee_label(approval_item),
             "can_decide": approval_item["status"] == "PENDING",
             "line_rows": [

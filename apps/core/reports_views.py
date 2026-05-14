@@ -10,6 +10,7 @@ from django.views.decorators.http import require_GET
 from apps.audit.models import AuditLog
 from apps.auth.context import CurrentUser
 from apps.auth.policies import AuthorizationPolicyService
+from apps.auth.policies import AuthorizationPolicyService
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.integrations.models import IntegrationJob
 from apps.master_data.models import Employee, Project
@@ -450,14 +451,21 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
 
 
 def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -> dict:
+    active_ad_hoc_role_ids = AuthorizationPolicyService._active_general_charge_code_approval_role_ids(
+        current_user
+    )
     queryset = ApprovalItem.objects.select_related(
         "status",
         "project",
+        "general_charge_code",
         "approver_employee",
         "submission_cycle",
         "submission_cycle__weekly_timesheet",
         "submission_cycle__weekly_timesheet__employee",
         "submission_cycle__weekly_timesheet__business_unit",
+    ).prefetch_related(
+        "approver_roles__existing_role",
+        "approver_roles__approval_role",
     ).filter(status__value_code="PENDING")
     if current_user.is_ts_admin:
         queryset = queryset.filter(
@@ -466,7 +474,14 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
     else:
         queryset = queryset.filter(
             Q(approver_employee_id=current_user.employee_id)
-            | Q(project__project_manager_employee_id=current_user.employee_id)
+            | Q(
+                general_charge_code_id__isnull=False,
+                approver_roles__existing_role__value_code__in=current_user.role_codes,
+            )
+            | Q(
+                general_charge_code_id__isnull=False,
+                approver_roles__approval_role_id__in=active_ad_hoc_role_ids,
+            )
         )
 
     business_unit_id = _selected_value(request, "business_unit_id")
@@ -488,7 +503,13 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
             item.submission_cycle.weekly_timesheet.employee.employee_code,
             item.submission_cycle.weekly_timesheet.employee.full_name,
             item.project.project_code if item.project else "",
-            item.project.name if item.project else "",
+            (
+                item.project.name
+                if item.project
+                else item.general_charge_code.code
+                if item.general_charge_code
+                else ""
+            ),
             item.submission_cycle.weekly_timesheet.business_unit.bu_code,
             str(item.submission_cycle.submission_no),
             item.status.value_code,
@@ -526,8 +547,8 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
             "Approval Item",
             "Employee Code",
             "Employee",
-            "Project Code",
-            "Project",
+            "Target Code",
+            "Target",
             "BU",
             "Submission No.",
             "Status",

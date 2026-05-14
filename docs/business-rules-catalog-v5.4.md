@@ -49,6 +49,11 @@
 - Each General Charge Code must reference a Cost Center from the same active Office.
 - `Common Code` is not part of the current General Charge Code model.
 - Validity windows and behavior flags are enforced in the domain layer.
+- If `Requires Approval` is enabled, the General Charge Code must keep at least one
+  configured approver role.
+- Configured approver roles can point to:
+  - existing TS internal roles
+  - office-scoped ad-hoc General Charge Code approval roles
 
 ## 5. Calendar Rules
 
@@ -103,8 +108,10 @@
 
 ## 9. Approval Rules
 
-- Approval worklist is currently a `PROJECT_MANAGER` workflow.
-- A Project Manager can act only on approval items assigned to them.
+- Project approval items route to the assigned Project Manager.
+- General Charge Code approval items route to a snapped set of approver roles.
+- Any active employee matching one of those snapped roles can act on the General Charge
+  Code approval item, and the first decision wins.
 - An approver cannot approve their own submitted timesheet as the acting approver for that item.
 
 ## 10. Period Lock And Retention Rules

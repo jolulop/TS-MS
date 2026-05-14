@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from apps.auth.policies import AuthorizationPolicyService
 from apps.auth.context import CurrentUser
 
 
@@ -53,7 +54,7 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
             current_path=current_path,
         ),
     ]
-    if current_user.has_role("PROJECT_MANAGER"):
+    if AuthorizationPolicyService.can_access_approval_worklist(current_user):
         work_items.append(
             _nav_item(
                 label="Approval Worklist",
@@ -133,6 +134,15 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         label="Pricing Models",
                         href="/system/pricing-models/",
                         summary="Office-level pricing model management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="GCC Approval Roles",
+                        href="/system/general-charge-code-approval-roles/",
+                        summary=(
+                            "Office-scoped ad-hoc approval roles and member assignments "
+                            "for General Charge Code routing."
+                        ),
                         current_path=current_path,
                     ),
                     _nav_item(

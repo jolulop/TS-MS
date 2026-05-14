@@ -66,6 +66,16 @@ urlpatterns = [
         name="system-pricing-model-detail",
     ),
     path(
+        "system/general-charge-code-approval-roles/",
+        system_views.general_charge_code_approval_roles_collection,
+        name="system-general-charge-code-approval-roles",
+    ),
+    path(
+        "system/general-charge-code-approval-roles/<int:approval_role_id>/",
+        system_views.general_charge_code_approval_role_detail,
+        name="system-general-charge-code-approval-role-detail",
+    ),
+    path(
         "system/general-charge-codes/",
         system_views.general_charge_codes_collection,
         name="system-general-charge-codes",

@@ -9,6 +9,9 @@ from apps.master_data.models import (
     CalendarSpecialDay,
     Employee,
     EmployeeBusinessUnit,
+    GeneralChargeCodeApprovalRole,
+    GeneralChargeCodeApprovalRoleAssignment,
+    GeneralChargeCodeApproverRole,
     EmployeeRole,
     Office,
     OfficeConfiguration,
@@ -176,6 +179,44 @@ def assign_role(
     )
 
 
+def create_general_charge_code_approval_role(
+    *,
+    office: Office | None = None,
+    role_code: str,
+    name: str,
+    description: str = "",
+    active: bool = True,
+) -> GeneralChargeCodeApprovalRole:
+    resolved_office = office or get_office()
+    return GeneralChargeCodeApprovalRole.objects.create(
+        office=resolved_office,
+        role_code=role_code,
+        name=name,
+        description=description,
+        status=ref_value(
+            "GENERAL_CHARGE_CODE_APPROVAL_ROLE_STATUS",
+            "ACTIVE" if active else "INACTIVE",
+        ),
+        created_by=SYSTEM_ACTOR,
+        updated_by=SYSTEM_ACTOR,
+    )
+
+
+def assign_general_charge_code_approval_role(
+    *,
+    employee: Employee,
+    approval_role: GeneralChargeCodeApprovalRole,
+) -> GeneralChargeCodeApprovalRoleAssignment:
+    return GeneralChargeCodeApprovalRoleAssignment.objects.create(
+        approval_role=approval_role,
+        employee=employee,
+        valid_from=date.today(),
+        status=ref_value("ROLE_ASSIGNMENT_STATUS", "ACTIVE"),
+        created_by=SYSTEM_ACTOR,
+        updated_by=SYSTEM_ACTOR,
+    )
+
+
 def create_client(
     *,
     business_unit: BusinessUnit | None = None,
@@ -272,6 +313,8 @@ def create_general_charge_code(
     requires_approval_flag: bool = False,
     description_required_flag: bool = False,
     active: bool = True,
+    approver_role_codes: list[str] | None = None,
+    ad_hoc_approval_roles: list[GeneralChargeCodeApprovalRole] | None = None,
 ) -> GeneralChargeCodeRecord:
     resolved_cost_center = cost_center or CostCenterRecord.objects.filter(
         office=business_unit.office
@@ -283,7 +326,7 @@ def create_general_charge_code(
             name=f"{business_unit.name} Cost Center",
             description="Auto-generated test cost center for General Charge Code helpers.",
         )
-    return GeneralChargeCodeRecord.objects.create(
+    general_charge_code = GeneralChargeCodeRecord.objects.create(
         business_unit=business_unit,
         office=business_unit.office,
         code=code,
@@ -299,6 +342,21 @@ def create_general_charge_code(
         created_by=SYSTEM_ACTOR,
         updated_by=SYSTEM_ACTOR,
     )
+    for role_code in approver_role_codes or []:
+        GeneralChargeCodeApproverRole.objects.create(
+            general_charge_code=general_charge_code,
+            existing_role=ref_value("ROLE_CODE", role_code),
+            created_by=SYSTEM_ACTOR,
+            updated_by=SYSTEM_ACTOR,
+        )
+    for approval_role in ad_hoc_approval_roles or []:
+        GeneralChargeCodeApproverRole.objects.create(
+            general_charge_code=general_charge_code,
+            approval_role=approval_role,
+            created_by=SYSTEM_ACTOR,
+            updated_by=SYSTEM_ACTOR,
+        )
+    return general_charge_code
 
 
 def create_yearly_calendar(

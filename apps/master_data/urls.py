@@ -71,6 +71,16 @@ urlpatterns = [
         name="admin-general-charge-code-collection",
     ),
     path(
+        "admin/general-charge-code-approval-roles/",
+        views.general_charge_code_approval_roles_collection,
+        name="admin-general-charge-code-approval-role-collection",
+    ),
+    path(
+        "admin/general-charge-code-approval-roles/<int:approval_role_id>/",
+        views.general_charge_code_approval_role_detail,
+        name="admin-general-charge-code-approval-role-detail",
+    ),
+    path(
         "admin/general-charge-codes/<int:general_charge_code_id>/",
         views.general_charge_code_detail,
         name="admin-general-charge-code-detail",

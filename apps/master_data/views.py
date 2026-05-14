@@ -10,6 +10,7 @@ from apps.master_data.services import (
     ClientManagementService,
     CostCenterManagementService,
     EmployeeManagementService,
+    GeneralChargeCodeApprovalRoleManagementService,
     GeneralChargeCodeManagementService,
     InternalCategoryManagementService,
     PricingModelManagementService,
@@ -233,6 +234,54 @@ def general_charge_codes_collection(request: HttpRequest) -> JsonResponse:
         return error_response(exc.code, exc.message, exc.status)
 
     return JsonResponse({"general_charge_code": general_charge_code}, status=201)
+
+
+@require_http_methods(["GET", "POST"])
+def general_charge_code_approval_roles_collection(request: HttpRequest) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            approval_roles = GeneralChargeCodeApprovalRoleManagementService.list_approval_roles(
+                current_user,
+                status_code=request.GET.get("status"),
+            )
+            return JsonResponse({"general_charge_code_approval_roles": approval_roles})
+
+        payload = parse_json_request(request)
+        approval_role = GeneralChargeCodeApprovalRoleManagementService.create_approval_role(
+            current_user,
+            payload,
+        )
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"general_charge_code_approval_role": approval_role}, status=201)
+
+
+@require_http_methods(["GET", "PATCH"])
+def general_charge_code_approval_role_detail(
+    request: HttpRequest,
+    approval_role_id: int,
+) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            approval_role = GeneralChargeCodeApprovalRoleManagementService.get_approval_role(
+                current_user,
+                approval_role_id,
+            )
+            return JsonResponse({"general_charge_code_approval_role": approval_role})
+
+        payload = parse_json_request(request)
+        approval_role = GeneralChargeCodeApprovalRoleManagementService.update_approval_role(
+            current_user,
+            approval_role_id,
+            payload,
+        )
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"general_charge_code_approval_role": approval_role})
 
 
 @require_http_methods(["GET", "PATCH"])

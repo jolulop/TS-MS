@@ -129,9 +129,22 @@
 ### Acceptance
 
 - create and update a General Charge Code with mandatory Cost Center, lifecycle, and validity fields
+- require at least one approver role when `Requires Approval` is enabled
 - reject create or edit when Cost Center is empty
 - guarded delete succeeds when no timesheet lines, approval items, or other protected references exist
 - guarded delete fails when dependent records still reference the General Charge Code
+
+## 8B. General Charge Code Approval Role Management
+
+### Use Case
+
+`TS_ADMIN` maintains office-scoped ad-hoc approval roles used only for General Charge Code approvals.
+
+### Acceptance
+
+- create and update an ad-hoc approval role with member employees from the active Office
+- existing TS internal roles are selectable on General Charge Codes but are not editable in this screen
+- guarded delete fails when General Charge Codes or approval history still reference the ad-hoc role
 
 ## 9. Employee Self-Service Timesheet
 
@@ -153,12 +166,15 @@ An authenticated employee edits and submits a weekly timesheet.
 
 ### Use Case
 
-A Project Manager processes approval items.
+An eligible approver processes routed approval items.
 
 ### Acceptance
 
-- approval worklist is visible to `PROJECT_MANAGER`
-- only assigned approval items are actionable
+- approval worklist is visible to:
+  - `PROJECT_MANAGER` for directly assigned project approvals
+  - any employee matching the configured roles on a General Charge Code approval item
+- only assigned project items or role-matched General Charge Code items are actionable
+- General Charge Code approval uses first-decision-wins behavior
 - approve and reject actions are audited
 
 ## 11. Project Time Inquiry

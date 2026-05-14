@@ -147,6 +147,8 @@ class ApprovalItem(AuditFieldsModel):
     approver_employee = models.ForeignKey(
         "master_data.Employee",
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="approval_items",
     )
     project = models.ForeignKey(
@@ -180,6 +182,51 @@ class ApprovalItem(AuditFieldsModel):
     class Meta:
         db_table = "approval_item"
         ordering = ["submission_cycle", "id"]
+
+
+class ApprovalItemApproverRole(AuditFieldsModel):
+    approval_item = models.ForeignKey(
+        ApprovalItem,
+        on_delete=models.PROTECT,
+        related_name="approver_roles",
+    )
+    existing_role = models.ForeignKey(
+        "reference_data.RefValue",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    approval_role = models.ForeignKey(
+        "master_data.GeneralChargeCodeApprovalRole",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approval_item_assignments",
+    )
+
+    class Meta:
+        db_table = "approval_item_approver_role"
+        ordering = ["approval_item", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(existing_role__isnull=False, approval_role__isnull=True)
+                    | Q(existing_role__isnull=True, approval_role__isnull=False)
+                ),
+                name="approval_item_approver_role_target_xor_chk",
+            ),
+            models.UniqueConstraint(
+                fields=["approval_item", "existing_role"],
+                condition=Q(existing_role__isnull=False),
+                name="approval_item_approver_existing_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["approval_item", "approval_role"],
+                condition=Q(approval_role__isnull=False),
+                name="approval_item_approver_ad_hoc_uniq",
+            ),
+        ]
 
 
 class ApprovalAction(CreatedAuditModel):

@@ -16,8 +16,8 @@
 | Submit/withdraw own timesheets | Yes | Yes | Yes | Yes if self | Yes if self |
 | Open My History | Yes | Yes | Yes | Yes | Yes |
 | Open Project Time Inquiry | No | Yes | Yes | If also PO/PM or via reports | No direct role grant |
-| Open Approval Worklist | No | No | Yes | No direct role grant | No |
-| Approve/reject approval items | No | No | Yes, only assigned items | No direct role grant | No |
+| Open Approval Worklist | If matching GCC approver role | If matching GCC approver role | Yes, plus matching GCC approver role items | If matching GCC approver role | If matching GCC approver role |
+| Approve/reject approval items | If matching GCC approver role items | If matching GCC approver role items | Yes, assigned project items plus matching GCC approver role items | If matching GCC approver role items | If matching GCC approver role items |
 | Run Project Time report | No | Yes, owned projects | Yes, managed projects | Yes, scoped BUs | No direct role grant |
 | Run admin reports | No | No | Pending Approvals only | Yes | No direct role grant |
 | Manage Employees | No | No | No | Yes, scoped BUs | No |
@@ -65,4 +65,7 @@
 
 - Client, Cost Center, and Pricing Model visibility is Office-scoped.
 - Internal Category, Project, Project Assignment, and Calendar Period Rule visibility is Business Unit scoped.
+- Any active employee can gain General Charge Code approval authority through:
+  - a selected existing TS internal role on the General Charge Code
+  - a selected office ad-hoc General Charge Code approval role with active membership
 - Reports use per-report authorization rather than a single blanket rule.

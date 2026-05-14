@@ -134,6 +134,14 @@ REFERENCE_DATA = {
             {"code": "INACTIVE", "label": "Inactive", "sort_order": 20},
         ],
     },
+    "GENERAL_CHARGE_CODE_APPROVAL_ROLE_STATUS": {
+        "name": "General Charge Code Approval Role Status",
+        "description": "Ad-hoc General Charge Code approval role lifecycle status values.",
+        "values": [
+            {"code": "ACTIVE", "label": "Active", "sort_order": 10},
+            {"code": "INACTIVE", "label": "Inactive", "sort_order": 20},
+        ],
+    },
     "PROJECT_STATUS": {
         "name": "Project Status",
         "description": "Project lifecycle status values.",

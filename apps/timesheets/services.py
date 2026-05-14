@@ -16,6 +16,7 @@ from apps.master_data.models import (
     CalendarSpecialDay,
     Employee,
     GeneralChargeCode,
+    GeneralChargeCodeApprovalRoleAssignment,
     OfficeConfiguration,
     Project,
     ProjectAssignment,
@@ -24,6 +25,7 @@ from apps.reference_data.models import RefValue
 from apps.timesheets.models import (
     ApprovalAction,
     ApprovalItem,
+    ApprovalItemApproverRole,
     TimesheetLine,
     TimesheetSubmissionCycle,
     WeeklyTimesheet,
@@ -76,6 +78,88 @@ def _employee_for_current_user(current_user: CurrentUser) -> Employee:
         ).get(id=current_user.employee_id)
     except Employee.DoesNotExist as exc:
         raise AuthError("EMPLOYEE_NOT_FOUND", "Employee not found.", 404) from exc
+
+
+def _active_general_charge_code_approval_role_ids_for_employee(employee_id: int) -> set[int]:
+    today = date.today()
+    return set(
+        GeneralChargeCodeApprovalRoleAssignment.objects.filter(
+            employee_id=employee_id,
+            status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
+            status__value_code="ACTIVE",
+            valid_from__lte=today,
+        )
+        .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=today))
+        .values_list("approval_role_id", flat=True)
+    )
+
+
+def _eligible_general_charge_code_approver_employee_ids(
+    general_charge_code: GeneralChargeCode,
+    *,
+    exclude_employee_id: int | None = None,
+) -> set[int]:
+    today = date.today()
+    approver_mappings = list(
+        general_charge_code.approver_roles.select_related("existing_role", "approval_role", "approval_role__status")
+    )
+    existing_role_codes = [
+        mapping.existing_role.value_code
+        for mapping in approver_mappings
+        if mapping.existing_role_id is not None
+    ]
+    ad_hoc_role_ids = [
+        mapping.approval_role_id
+        for mapping in approver_mappings
+        if mapping.approval_role_id is not None
+        and mapping.approval_role.status.value_code == "ACTIVE"
+    ]
+
+    employee_ids: set[int] = set()
+    if existing_role_codes:
+        employee_ids.update(
+            Employee.objects.filter(
+                office_id=general_charge_code.office_id,
+                status__domain__domain_code="EMPLOYEE_STATUS",
+                status__value_code="ACTIVE",
+                role_assignments__role__domain__domain_code="ROLE_CODE",
+                role_assignments__role__value_code__in=existing_role_codes,
+                role_assignments__status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
+                role_assignments__status__value_code="ACTIVE",
+                role_assignments__valid_from__lte=today,
+                role_assignments__valid_to__isnull=True,
+            ).values_list("id", flat=True)
+        )
+    if ad_hoc_role_ids:
+        employee_ids.update(
+            Employee.objects.filter(
+                office_id=general_charge_code.office_id,
+                status__domain__domain_code="EMPLOYEE_STATUS",
+                status__value_code="ACTIVE",
+                general_charge_code_approval_role_assignments__approval_role_id__in=ad_hoc_role_ids,
+                general_charge_code_approval_role_assignments__status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
+                general_charge_code_approval_role_assignments__status__value_code="ACTIVE",
+                general_charge_code_approval_role_assignments__valid_from__lte=today,
+            )
+            .filter(
+                Q(general_charge_code_approval_role_assignments__valid_to__isnull=True)
+                | Q(general_charge_code_approval_role_assignments__valid_to__gte=today)
+            )
+            .values_list("id", flat=True)
+        )
+    if exclude_employee_id is not None:
+        employee_ids.discard(exclude_employee_id)
+    return employee_ids
+
+
+def _approval_item_line_ids(approval_item: ApprovalItem) -> list[int]:
+    timesheet = approval_item.submission_cycle.weekly_timesheet
+    line_filters = Q()
+    if approval_item.project_id is not None:
+        line_filters = Q(project_id=approval_item.project_id)
+    elif approval_item.general_charge_code_id is not None:
+        line_filters = Q(general_charge_code_id=approval_item.general_charge_code_id)
+    return list(timesheet.lines.filter(line_filters).values_list("id", flat=True))
 
 
 def _serialize_line(line: TimesheetLine) -> dict:
@@ -467,11 +551,38 @@ def _serialize_approval_item(approval_item: ApprovalItem, *, include_lines: bool
             if approval_item.project_id is not None
             else None
         ),
+        "general_charge_code": (
+            {
+                "id": approval_item.general_charge_code_id,
+                "code": approval_item.general_charge_code.code,
+                "name": approval_item.general_charge_code.name,
+            }
+            if approval_item.general_charge_code_id is not None
+            else None
+        ),
+        "approver_roles": [
+            (
+                {
+                    "kind": "EXISTING_ROLE",
+                    "code": approver_role.existing_role.value_code,
+                    "name": approver_role.existing_role.value_label,
+                }
+                if approver_role.existing_role_id is not None
+                else {
+                    "kind": "AD_HOC_ROLE",
+                    "code": approver_role.approval_role.role_code,
+                    "name": approver_role.approval_role.name,
+                }
+            )
+            for approver_role in approval_item.approver_roles.all()
+        ],
     }
     if include_lines:
         lines = timesheet.lines.all().order_by("work_date", "id")
         if approval_item.project_id is not None:
             lines = lines.filter(project_id=approval_item.project_id)
+        elif approval_item.general_charge_code_id is not None:
+            lines = lines.filter(general_charge_code_id=approval_item.general_charge_code_id)
         payload["lines"] = [_serialize_line(line) for line in lines]
     return payload
 
@@ -531,12 +642,18 @@ def _get_approval_item_for_view(current_user: CurrentUser, approval_item_id: int
                 "status",
                 "approver_employee",
                 "project",
+                "general_charge_code",
                 "submission_cycle",
                 "submission_cycle__weekly_timesheet",
                 "submission_cycle__weekly_timesheet__employee",
                 "submission_cycle__weekly_timesheet__business_unit",
             )
-            .prefetch_related("submission_cycle__weekly_timesheet__lines__project")
+            .prefetch_related(
+                "approver_roles__existing_role",
+                "approver_roles__approval_role",
+                "submission_cycle__weekly_timesheet__lines__project",
+                "submission_cycle__weekly_timesheet__lines__general_charge_code",
+            )
             .get(id=approval_item_id)
         )
     except ApprovalItem.DoesNotExist as exc:
@@ -618,6 +735,58 @@ def _available_general_charge_codes_for_week(timesheet: WeeklyTimesheet) -> list
     ]
 
 
+def _submission_blockers(timesheet: WeeklyTimesheet) -> list[str]:
+    blockers: list[str] = []
+    if not timesheet.lines.exists():
+        blockers.append("A timesheet must contain at least one line before submission.")
+        return blockers
+
+    if _approval_mode_code(timesheet.business_unit_id) != "PROJECT":
+        blockers.append(
+            "Only project-scoped approval mode is supported in the current implementation."
+        )
+        return blockers
+
+    unroutable_general_codes = sorted(
+        {
+            line.general_charge_code.code
+            for line in timesheet.lines.select_related(
+                "project",
+                "general_charge_code",
+            )
+            .prefetch_related("general_charge_code__approver_roles__existing_role")
+            .all()
+            if line.general_charge_code_id is not None
+            and line.general_charge_code.requires_approval_flag
+            and not _eligible_general_charge_code_approver_employee_ids(
+                line.general_charge_code,
+                exclude_employee_id=timesheet.employee_id,
+            )
+        }
+    )
+    if unroutable_general_codes:
+        blockers.append(
+            "General charge code approval routing does not currently resolve to any "
+            "eligible approver other than the timesheet owner. Update the approver "
+            "roles or remove lines charged to: "
+            + ", ".join(unroutable_general_codes)
+            + "."
+        )
+
+    for line in timesheet.lines.select_related("project", "general_charge_code").all():
+        if (
+            line.project_id is not None
+            and line.project.project_manager_employee_id == timesheet.employee_id
+        ):
+            blockers.append(
+                "A timesheet cannot be submitted when project approval would route to the "
+                "timesheet owner."
+            )
+            break
+
+    return blockers
+
+
 class TimesheetService:
     @staticmethod
     def list_timesheets(current_user: CurrentUser) -> list[dict]:
@@ -633,6 +802,7 @@ class TimesheetService:
     def get_timesheet_editor_context(current_user: CurrentUser, timesheet_id: int) -> dict:
         timesheet = _get_timesheet_for_view(current_user, timesheet_id)
         employee = _employee_for_current_user(current_user)
+        submit_blockers = _submission_blockers(timesheet)
         return {
             "timesheet": _serialize_timesheet(timesheet),
             "employee": {
@@ -654,10 +824,12 @@ class TimesheetService:
                 )
             ],
             "can_edit": AuthorizationPolicyService.can_edit_timesheet(current_user, timesheet),
-            "can_submit": AuthorizationPolicyService.can_submit_timesheet(current_user, timesheet),
+            "can_submit": AuthorizationPolicyService.can_submit_timesheet(current_user, timesheet)
+            and not submit_blockers,
             "can_withdraw": AuthorizationPolicyService.can_withdraw_timesheet(
                 current_user, timesheet
             ),
+            "submit_blockers": submit_blockers,
         }
 
     @staticmethod
@@ -885,8 +1057,10 @@ class TimesheetService:
             )
 
         project_line_ids_by_project_id: dict[int, list[int]] = defaultdict(list)
+        general_charge_code_line_ids_by_code_id: dict[int, list[int]] = defaultdict(list)
         auto_approved_line_ids: list[int] = []
         project_map: dict[int, Project] = {}
+        general_charge_code_map: dict[int, GeneralChargeCode] = {}
 
         for line in timesheet.lines.select_related("project", "general_charge_code").all():
             if line.project_id is not None:
@@ -904,21 +1078,44 @@ class TimesheetService:
                 continue
 
             if line.general_charge_code.requires_approval_flag:
-                raise AuthError(
-                    "TIMESHEET_GENERAL_CODE_APPROVAL_NOT_CONFIGURED",
-                    (
-                        "General charge code approval routing is not configured in "
-                        "the current implementation."
-                    ),
-                    400,
-                )
+                general_charge_code_line_ids_by_code_id[line.general_charge_code_id].append(line.id)
+                general_charge_code_map[line.general_charge_code_id] = line.general_charge_code
+                continue
             auto_approved_line_ids.append(line.id)
+
+        unroutable_general_codes = sorted(
+            general_charge_code.code
+            for general_charge_code in general_charge_code_map.values()
+            if not _eligible_general_charge_code_approver_employee_ids(
+                general_charge_code,
+                exclude_employee_id=timesheet.employee_id,
+            )
+        )
+        if unroutable_general_codes:
+            raise AuthError(
+                "TIMESHEET_GENERAL_CODE_APPROVER_NOT_AVAILABLE",
+                (
+                    "General charge code approval routing does not currently resolve "
+                    "to any eligible approver other than the timesheet owner for: "
+                    + ", ".join(unroutable_general_codes)
+                    + "."
+                ),
+                400,
+            )
 
         _set_line_approval_state(
             line_ids=[
                 line_id
                 for project_line_ids in project_line_ids_by_project_id.values()
                 for line_id in project_line_ids
+            ],
+            approval_state_code="PENDING",
+        )
+        _set_line_approval_state(
+            line_ids=[
+                line_id
+                for general_charge_code_line_ids in general_charge_code_line_ids_by_code_id.values()
+                for line_id in general_charge_code_line_ids
             ],
             approval_state_code="PENDING",
         )
@@ -936,6 +1133,40 @@ class TimesheetService:
                 updated_by=current_user.email,
             )
 
+        for general_charge_code_id in sorted(general_charge_code_line_ids_by_code_id):
+            general_charge_code = general_charge_code_map[general_charge_code_id]
+            approval_item = ApprovalItem.objects.create(
+                submission_cycle=submission_cycle,
+                scope_type=_ref_value("APPROVAL_SCOPE_TYPE", "GENERAL_CODE"),
+                approver_employee=None,
+                general_charge_code=general_charge_code,
+                status=_ref_value("APPROVAL_STATUS", "PENDING"),
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+            for mapping in general_charge_code.approver_roles.select_related(
+                "existing_role",
+                "approval_role",
+            ):
+                ApprovalItemApproverRole.objects.create(
+                    approval_item=approval_item,
+                    existing_role=mapping.existing_role,
+                    approval_role=mapping.approval_role,
+                    created_by=current_user.email,
+                    updated_by=current_user.email,
+                )
+            write_audit_event(
+                action_code="CREATE",
+                entity_name="approval_item",
+                entity_id=approval_item.id,
+                actor_employee=timesheet.employee,
+                actor_email=current_user.email,
+                business_unit=timesheet.business_unit,
+                reason_text=(
+                    "General Charge Code approval item created during timesheet submission."
+                ),
+            )
+
         write_audit_event(
             action_code="SUBMIT",
             entity_name="weekly_timesheet",
@@ -946,7 +1177,7 @@ class TimesheetService:
             reason_text="Timesheet submitted by employee.",
         )
 
-        if not project_line_ids_by_project_id:
+        if not project_line_ids_by_project_id and not general_charge_code_line_ids_by_code_id:
             _finalize_approved_timesheet(
                 timesheet=timesheet,
                 submission_cycle=submission_cycle,
@@ -1036,23 +1267,42 @@ class TimesheetService:
 
     @staticmethod
     def list_approval_items(current_user: CurrentUser) -> list[dict]:
-        if not current_user.has_role("PROJECT_MANAGER"):
+        if not AuthorizationPolicyService.can_access_approval_worklist(current_user):
             raise AuthError(
                 "AUTH_ACCESS_DENIED",
                 "You are not authorized to view approval items.",
                 403,
             )
 
+        active_ad_hoc_role_ids = _active_general_charge_code_approval_role_ids_for_employee(
+            current_user.employee_id
+        )
         approval_items = (
             ApprovalItem.objects.select_related(
                 "scope_type",
                 "status",
                 "project",
+                "general_charge_code",
                 "submission_cycle",
                 "submission_cycle__weekly_timesheet",
                 "submission_cycle__weekly_timesheet__employee",
             )
-            .filter(approver_employee_id=current_user.employee_id)
+            .prefetch_related(
+                "approver_roles__existing_role",
+                "approver_roles__approval_role",
+            )
+            .filter(
+                Q(approver_employee_id=current_user.employee_id)
+                | Q(
+                    general_charge_code_id__isnull=False,
+                    approver_roles__existing_role__value_code__in=current_user.role_codes,
+                )
+                | Q(
+                    general_charge_code_id__isnull=False,
+                    approver_roles__approval_role_id__in=active_ad_hoc_role_ids,
+                )
+            )
+            .distinct()
             .order_by(
                 "status__sort_order",
                 "submission_cycle__weekly_timesheet__week_start_date",
@@ -1085,6 +1335,7 @@ class TimesheetService:
         comment_text = str(payload.get("comment_text", "")).strip()
         submission_cycle = approval_item.submission_cycle
         timesheet = submission_cycle.weekly_timesheet
+        actor_employee = _employee_for_current_user(current_user)
 
         approval_item.status = _ref_value("APPROVAL_STATUS", "APPROVED")
         approval_item.rejection_reason = ""
@@ -1101,12 +1352,7 @@ class TimesheetService:
         )
 
         _set_line_approval_state(
-            line_ids=list(
-                timesheet.lines.filter(project_id=approval_item.project_id).values_list(
-                    "id",
-                    flat=True,
-                )
-            ),
+            line_ids=_approval_item_line_ids(approval_item),
             approval_state_code="APPROVED",
         )
 
@@ -1114,10 +1360,10 @@ class TimesheetService:
             action_code="APPROVE",
             entity_name="approval_item",
             entity_id=approval_item.id,
-            actor_employee=approval_item.approver_employee,
+            actor_employee=actor_employee,
             actor_email=current_user.email,
             business_unit=timesheet.business_unit,
-            reason_text="Project approval completed.",
+            reason_text="Approval completed.",
         )
 
         if not submission_cycle.approval_items.exclude(status__value_code="APPROVED").exists():
@@ -1131,10 +1377,10 @@ class TimesheetService:
                 action_code="APPROVE",
                 entity_name="weekly_timesheet",
                 entity_id=timesheet.id,
-                actor_employee=approval_item.approver_employee,
+                actor_employee=actor_employee,
                 actor_email=current_user.email,
                 business_unit=timesheet.business_unit,
-                reason_text="All required project approvals completed.",
+                reason_text="All required approvals completed.",
             )
 
         return TimesheetService.get_approval_item(current_user, approval_item.id)
@@ -1165,6 +1411,7 @@ class TimesheetService:
         acted_at = timezone.now()
         submission_cycle = approval_item.submission_cycle
         timesheet = submission_cycle.weekly_timesheet
+        actor_employee = _employee_for_current_user(current_user)
 
         approval_item.status = _ref_value("APPROVAL_STATUS", "REJECTED")
         approval_item.rejection_reason = reason_text
@@ -1188,12 +1435,7 @@ class TimesheetService:
         )
 
         _set_line_approval_state(
-            line_ids=list(
-                timesheet.lines.filter(project_id=approval_item.project_id).values_list(
-                    "id",
-                    flat=True,
-                )
-            ),
+            line_ids=_approval_item_line_ids(approval_item),
             approval_state_code="REJECTED",
         )
 
@@ -1227,7 +1469,7 @@ class TimesheetService:
             action_code="REJECT",
             entity_name="approval_item",
             entity_id=approval_item.id,
-            actor_employee=approval_item.approver_employee,
+            actor_employee=actor_employee,
             actor_email=current_user.email,
             business_unit=timesheet.business_unit,
             reason_text=reason_text,
@@ -1236,10 +1478,10 @@ class TimesheetService:
             action_code="REJECT",
             entity_name="weekly_timesheet",
             entity_id=timesheet.id,
-            actor_employee=approval_item.approver_employee,
+            actor_employee=actor_employee,
             actor_email=current_user.email,
             business_unit=timesheet.business_unit,
-            reason_text="Timesheet rejected after project approval action.",
+            reason_text="Timesheet rejected after approval action.",
         )
 
         return TimesheetService.get_approval_item(current_user, approval_item.id)

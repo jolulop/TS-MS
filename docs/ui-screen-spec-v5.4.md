@@ -148,8 +148,23 @@ Important UI behavior:
   - status filter
   - create general charge code
   - mandatory Cost Center dropdown populated from the active Office
+  - approver-role multiselect combining:
+    - existing internal TS roles
+    - office ad-hoc General Charge Code approval roles
 - Detail:
-  - edit Cost Center assignment, lifecycle, validity, and behavior flags
+  - edit Cost Center assignment, approver roles, lifecycle, validity, and behavior flags
+
+### SCR-169 General Charge Code Approval Role Management
+
+- Access: `TS_ADMIN`
+- Scope: active Office
+- Collection:
+  - status filter
+  - create ad-hoc General Charge Code approval role
+  - assign member employees from the active Office
+- Detail:
+  - edit role code, name, description, members, and status
+  - guarded delete action
 
 ### SCR-115 Calendar Management
 

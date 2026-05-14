@@ -110,6 +110,7 @@ def test_ts_admin_can_create_and_update_general_charge_code_with_audit() -> None
                 "cost_center_id": cost_center.id,
                 "billable_flag": True,
                 "requires_approval_flag": True,
+                "approver_keys": ["ROLE:PROJECT_MANAGER"],
                 "description_required_flag": True,
                 "valid_from": "2026-01-01",
                 "valid_to": "2026-12-31",
@@ -123,6 +124,14 @@ def test_ts_admin_can_create_and_update_general_charge_code_with_audit() -> None
     assert created_general_charge_code["code"] == "GCC-NEW"
     assert created_general_charge_code["billable_flag"] is True
     assert created_general_charge_code["requires_approval_flag"] is True
+    assert created_general_charge_code["approver_roles"] == [
+        {
+            "key": "ROLE:PROJECT_MANAGER",
+            "kind": "EXISTING_ROLE",
+            "code": "PROJECT_MANAGER",
+            "name": "Project Manager",
+        }
+    ]
 
     update_response = client.patch(
         f"/api/v1/admin/general-charge-codes/{created_general_charge_code['id']}/",
@@ -279,6 +288,123 @@ def test_general_charge_code_requires_cost_center_on_create() -> None:
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "GENERAL_CHARGE_CODE_COST_CENTER_REQUIRED"
+
+
+@pytest.mark.django_db
+def test_general_charge_code_requires_approver_roles_when_approval_enabled() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    cost_center = create_cost_center(
+        business_unit=business_unit,
+        cost_center_code="CC-GCC-REQ",
+        name="General Charge Cost Center",
+    )
+    admin_employee = create_employee(
+        employee_code="EMP-1303C",
+        full_name="Admin User",
+        email="admin-approval@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=business_unit)
+    assign_role(employee=admin_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin-approval@example.com")
+
+    response = client.post(
+        "/api/v1/admin/general-charge-codes/",
+        data=json.dumps(
+            {
+                "business_unit_id": business_unit.id,
+                "code": "GCC-REQ",
+                "name": "Requires Approval",
+                "cost_center_id": cost_center.id,
+                "requires_approval_flag": True,
+                "valid_from": "2026-01-01",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "GENERAL_CHARGE_CODE_APPROVER_ROLE_REQUIRED"
+
+
+@pytest.mark.django_db
+def test_ts_admin_can_create_and_update_general_charge_code_approval_role() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    admin_employee = create_employee(
+        employee_code="EMP-1303D",
+        full_name="Admin User",
+        email="admin-gcc-role@example.com",
+        primary_business_unit=business_unit,
+    )
+    member_employee = create_employee(
+        employee_code="EMP-1303E",
+        full_name="Member User",
+        email="member-gcc-role@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=member_employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=business_unit)
+    assign_role(employee=admin_employee, role_code="USER")
+    assign_role(employee=member_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin-gcc-role@example.com")
+
+    create_response = client.post(
+        "/api/v1/admin/general-charge-code-approval-roles/",
+        data=json.dumps(
+            {
+                "role_code": "HR_APPROVER",
+                "name": "HR Approver",
+                "description": "Reviews sickness charge codes.",
+                "member_employee_ids": [member_employee.id],
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 201
+    created_role = create_response.json()["general_charge_code_approval_role"]
+    assert created_role["role_code"] == "HR_APPROVER"
+    assert [member["employee_code"] for member in created_role["member_employees"]] == [
+        member_employee.employee_code
+    ]
+
+    update_response = client.patch(
+        f"/api/v1/admin/general-charge-code-approval-roles/{created_role['id']}/",
+        data=json.dumps(
+            {
+                "name": "HR Backup Approver",
+                "member_employee_ids": [],
+                "status_code": "INACTIVE",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert update_response.status_code == 200
+    updated_role = update_response.json()["general_charge_code_approval_role"]
+    assert updated_role["name"] == "HR Backup Approver"
+    assert updated_role["member_employees"] == []
+    assert updated_role["status"] == "INACTIVE"
 
 
 @pytest.mark.django_db

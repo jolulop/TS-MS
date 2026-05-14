@@ -12,6 +12,7 @@ from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.master_data.models import (
     BusinessUnit,
     Employee,
+    GeneralChargeCodeApprovalRole,
     Project,
     YearlyCalendar,
 )
@@ -26,6 +27,7 @@ from apps.master_data.services import (
     ClientManagementService,
     CostCenterManagementService,
     EmployeeManagementService,
+    GeneralChargeCodeApprovalRoleManagementService,
     GeneralChargeCodeManagementService,
     InternalCategoryManagementService,
     OfficeManagementService,
@@ -498,6 +500,46 @@ def _scoped_employee_options(
             )
         )
     options.extend(employee_options)
+    return options
+
+
+def _general_charge_code_approval_role_member_options(
+    current_user: CurrentUser,
+    *,
+    selected: object = None,
+) -> list[dict]:
+    return _scoped_employee_options(
+        current_user,
+        selected=selected,
+        include_all_employees=True,
+        restrict_to_current_country=True,
+    )
+
+
+def _general_charge_code_approver_options(
+    current_user: CurrentUser,
+    *,
+    selected: object = None,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = [
+        _option(
+            f"ROLE:{role.value_code}",
+            f"[System] {role.value_code} - {role.value_label}",
+            selected_values=selected_values,
+        )
+        for role in RefValue.objects.filter(domain__domain_code="ROLE_CODE").order_by("sort_order")
+    ]
+    options.extend(
+        _option(
+            f"ADHOC:{approval_role.id}",
+            f"[Ad hoc] {approval_role.role_code} - {approval_role.name}",
+            selected_values=selected_values,
+        )
+        for approval_role in GeneralChargeCodeApprovalRole.objects.filter(
+            office_id=current_user.office_id
+        ).order_by("role_code")
+    )
     return options
 
 
@@ -1077,6 +1119,80 @@ def _pricing_model_fields(
     ]
 
 
+def _general_charge_code_approval_role_fields(
+    current_user: CurrentUser,
+    *,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    selected_members = (
+        submitted_data.getlist("member_employee_ids")
+        if post_data is not None
+        else [member["id"] for member in entity["member_employees"]]
+        if entity is not None
+        else []
+    )
+    return [
+        _office_display_field(
+            entity["office"]["office_name"] if entity else current_user.office_name
+        ),
+        _field(
+            name="role_code",
+            label="Role Code",
+            kind="text",
+            value=submitted_data.get("role_code", entity["role_code"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="name",
+            label="Name",
+            kind="text",
+            value=submitted_data.get("name", entity["name"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="description",
+            label="Description",
+            kind="textarea",
+            value=submitted_data.get("description", entity["description"] if entity else "")
+            if post_data is not None or entity is not None
+            else "",
+        ),
+        _field(
+            name="member_employee_ids",
+            label="Member Employees",
+            kind="multiselect",
+            options=_general_charge_code_approval_role_member_options(
+                current_user,
+                selected=selected_members,
+            ),
+            help_text=(
+                "Assign any active employee from the current Office who may approve "
+                "General Charge Code charges for this ad-hoc role."
+            ),
+        ),
+        _field(
+            name="status_code",
+            label="Status",
+            kind="select",
+            options=_ref_options(
+                "GENERAL_CHARGE_CODE_APPROVAL_ROLE_STATUS",
+                selected=submitted_data.get(
+                    "status_code", entity["status"] if entity else "ACTIVE"
+                )
+                if post_data is not None or entity is not None
+                else "ACTIVE",
+            ),
+            required=True,
+        ),
+    ]
+
+
 def _general_charge_code_fields(
     current_user: CurrentUser,
     *,
@@ -1099,6 +1215,12 @@ def _general_charge_code_fields(
         valid_to_value = entity["valid_to"]
     if post_data is not None:
         valid_to_value = submitted_data.get("valid_to", valid_to_value)
+
+    selected_approver_keys = []
+    if post_data is not None:
+        selected_approver_keys = submitted_data.getlist("approver_keys")
+    elif entity is not None:
+        selected_approver_keys = [role["key"] for role in entity["approver_roles"]]
 
     return [
         _office_display_field(
@@ -1196,6 +1318,19 @@ def _general_charge_code_fields(
             else bool(entity["requires_approval_flag"])
             if entity is not None
             else False,
+        ),
+        _field(
+            name="approver_keys",
+            label="Approver Roles",
+            kind="multiselect",
+            options=_general_charge_code_approver_options(
+                current_user,
+                selected=selected_approver_keys,
+            ),
+            help_text=(
+                "Required only when Requires Approval is enabled. Select one or more "
+                "existing system roles and/or ad-hoc approval roles."
+            ),
         ),
         _field(
             name="description_required_flag",
@@ -2064,6 +2199,11 @@ def _general_charge_code_rows(general_charge_codes: list[dict]) -> list[dict]:
                 general_charge_code["code"],
                 general_charge_code["name"],
                 general_charge_code["cost_center"]["cost_center_code"],
+                (
+                    ", ".join(role["code"] for role in general_charge_code["approver_roles"])
+                    if general_charge_code["requires_approval_flag"]
+                    else "Not required"
+                ),
                 general_charge_code["charge_type"],
                 general_charge_code["status"],
             ],
@@ -2098,9 +2238,54 @@ def _general_charge_code_detail_rows(general_charge_code: dict) -> list[tuple[st
             )
             or "None",
         ),
+        (
+            "Approver Roles",
+            (
+                ", ".join(role["code"] for role in general_charge_code["approver_roles"])
+                if general_charge_code["approver_roles"]
+                else "None"
+            ),
+        ),
         ("Valid From", general_charge_code["valid_from"]),
         ("Valid To", general_charge_code["valid_to"] or "Open-ended"),
         ("Status", general_charge_code["status"]),
+    ]
+
+
+def _general_charge_code_approval_role_rows(approval_roles: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/general-charge-code-approval-roles/{approval_role['id']}/",
+            "cells": [
+                approval_role["role_code"],
+                approval_role["name"],
+                str(len(approval_role["member_employees"])),
+                approval_role["status"],
+            ],
+        }
+        for approval_role in approval_roles
+    ]
+
+
+def _general_charge_code_approval_role_detail_rows(
+    approval_role: dict,
+) -> list[tuple[str, str]]:
+    return [
+        ("Role Code", approval_role["role_code"]),
+        ("Name", approval_role["name"]),
+        ("Description", approval_role["description"] or "None"),
+        (
+            "Members",
+            (
+                ", ".join(
+                    f"{member['employee_code']} - {member['full_name']}"
+                    for member in approval_role["member_employees"]
+                )
+                if approval_role["member_employees"]
+                else "None"
+            ),
+        ),
+        ("Status", approval_role["status"]),
     ]
 
 
@@ -2706,6 +2891,28 @@ PRICING_MODEL_CONFIG = MasterUiConfig(
     empty_message="No pricing models are available in your active Office yet.",
 )
 
+GENERAL_CHARGE_CODE_APPROVAL_ROLE_CONFIG = MasterUiConfig(
+    section_key="general-charge-code-approval-roles",
+    list_title="General Charge Code Approval Role Management",
+    list_eyebrow="SCR-168",
+    list_intro=(
+        "Office-scoped ad-hoc approval roles for General Charge Code routing, "
+        "including employee membership maintenance."
+    ),
+    detail_title="General Charge Code Approval Role Detail",
+    detail_eyebrow="SCR-169",
+    detail_intro=(
+        "Update the selected ad-hoc approval role, member employees, and lifecycle "
+        "status inside the shared shell."
+    ),
+    singular_label="General Charge Code Approval Role",
+    plural_label="General Charge Code Approval Roles",
+    collection_path="/system/general-charge-code-approval-roles/",
+    detail_path_prefix="/system/general-charge-code-approval-roles/",
+    table_headers=("Role Code", "Name", "Members", "Status"),
+    empty_message="No ad-hoc General Charge Code approval roles are available in your active Office yet.",
+)
+
 GENERAL_CHARGE_CODE_CONFIG = MasterUiConfig(
     section_key="general-charge-codes",
     list_title="General Charge Code Management",
@@ -2724,7 +2931,15 @@ GENERAL_CHARGE_CODE_CONFIG = MasterUiConfig(
     plural_label="General Charge Codes",
     collection_path="/system/general-charge-codes/",
     detail_path_prefix="/system/general-charge-codes/",
-    table_headers=("Business Unit", "Code", "Name", "Cost Center", "Charge Type", "Status"),
+    table_headers=(
+        "Business Unit",
+        "Code",
+        "Name",
+        "Cost Center",
+        "Approvers",
+        "Charge Type",
+        "Status",
+    ),
     empty_message="No general charge codes are available in your assigned Business Units yet.",
 )
 
@@ -4029,6 +4244,144 @@ def pricing_model_detail(request: HttpRequest, pricing_model_id: int) -> HttpRes
 
 
 @require_http_methods(["GET", "POST"])
+def general_charge_code_approval_roles_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            approval_role = (
+                GeneralChargeCodeApprovalRoleManagementService.create_approval_role(
+                    current_user,
+                    {
+                        "role_code": request.POST.get("role_code", ""),
+                        "name": request.POST.get("name", ""),
+                        "description": request.POST.get("description", ""),
+                        "member_employee_ids": request.POST.getlist("member_employee_ids"),
+                        "status_code": request.POST.get("status_code", "ACTIVE"),
+                    },
+                )
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/general-charge-code-approval-roles/{approval_role['id']}/")
+
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="GENERAL_CHARGE_CODE_APPROVAL_ROLE_STATUS",
+        default_code="ACTIVE",
+    )
+    approval_roles = GeneralChargeCodeApprovalRoleManagementService.list_approval_roles(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
+    return _render_master_collection(
+        request,
+        current_user,
+        config=GENERAL_CHARGE_CODE_APPROVAL_ROLE_CONFIG,
+        entities=approval_roles,
+        form_fields=_general_charge_code_approval_role_fields(current_user, post_data=post_data),
+        table_rows=_general_charge_code_approval_role_rows(approval_roles),
+        form_error=form_error,
+        filter_links=filter_links,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def general_charge_code_approval_role_detail(
+    request: HttpRequest,
+    approval_role_id: int,
+) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    active_form = "edit"
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
+        try:
+            if active_form == "delete":
+                GeneralChargeCodeApprovalRoleManagementService.delete_approval_role(
+                    current_user,
+                    approval_role_id,
+                )
+            elif active_form == "edit":
+                GeneralChargeCodeApprovalRoleManagementService.update_approval_role(
+                    current_user,
+                    approval_role_id,
+                    {
+                        "role_code": request.POST.get("role_code", ""),
+                        "name": request.POST.get("name", ""),
+                        "description": request.POST.get("description", ""),
+                        "member_employee_ids": request.POST.getlist("member_employee_ids"),
+                        "status_code": request.POST.get("status_code", ""),
+                    },
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown General Charge Code approval role form submission.",
+                    400,
+                )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            if active_form == "delete":
+                return redirect(GENERAL_CHARGE_CODE_APPROVAL_ROLE_CONFIG.collection_path)
+            return redirect(f"/system/general-charge-code-approval-roles/{approval_role_id}/")
+
+    try:
+        approval_role = GeneralChargeCodeApprovalRoleManagementService.get_approval_role(
+            current_user,
+            approval_role_id,
+        )
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=GENERAL_CHARGE_CODE_APPROVAL_ROLE_CONFIG.detail_title,
+            eyebrow=GENERAL_CHARGE_CODE_APPROVAL_ROLE_CONFIG.detail_eyebrow,
+            intro=GENERAL_CHARGE_CODE_APPROVAL_ROLE_CONFIG.detail_intro,
+            error=error,
+        )
+
+    return _render_master_detail(
+        request,
+        current_user,
+        config=GENERAL_CHARGE_CODE_APPROVAL_ROLE_CONFIG,
+        entity={"name": approval_role["name"], **approval_role},
+        detail_rows=_general_charge_code_approval_role_detail_rows(approval_role),
+        form_fields=_general_charge_code_approval_role_fields(
+            current_user,
+            post_data=post_data if active_form == "edit" else None,
+            entity=approval_role,
+        ),
+        form_error=form_error,
+        active_form=active_form,
+        extra_form_sections=[
+            {
+                "form_name": "delete",
+                "title": "Delete General Charge Code Approval Role",
+                "intro": (
+                    "Delete this ad-hoc approval role only when it is no longer linked to "
+                    "General Charge Codes or approval history. Protected references will "
+                    "block deletion."
+                ),
+                "submit_label": "Delete General Charge Code Approval Role",
+                "form_error": form_error if active_form == "delete" else "",
+                "fields": [],
+            }
+        ],
+    )
+
+
+@require_http_methods(["GET", "POST"])
 def general_charge_codes_collection(request: HttpRequest) -> HttpResponse:
     current_user = _require_ts_admin(request)
     if not isinstance(current_user, CurrentUser):
@@ -4050,6 +4403,7 @@ def general_charge_codes_collection(request: HttpRequest) -> HttpResponse:
                     "requires_approval_flag": _bool_from_post(
                         request.POST, "requires_approval_flag"
                     ),
+                    "approver_keys": request.POST.getlist("approver_keys"),
                     "description_required_flag": _bool_from_post(
                         request.POST, "description_required_flag"
                     ),
@@ -4117,6 +4471,7 @@ def general_charge_code_detail(
                         "requires_approval_flag": _bool_from_post(
                             request.POST, "requires_approval_flag"
                         ),
+                        "approver_keys": request.POST.getlist("approver_keys"),
                         "description_required_flag": _bool_from_post(
                             request.POST, "description_required_flag"
                         ),

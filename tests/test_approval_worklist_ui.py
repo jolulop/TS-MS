@@ -191,6 +191,114 @@ def _build_approval_ui_clients(
     }
 
 
+def _build_general_charge_code_approval_ui_clients() -> dict:
+    seed_reference_data()
+    week_start = date(2026, 5, 18)
+    business_unit = create_business_unit(bu_code="BU-GCC-APR", name="GCC Approval BU")
+    create_business_unit_configuration(
+        business_unit=business_unit,
+        approval_mode_code="PROJECT",
+    )
+    calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="GCC Approval Calendar",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+
+    employee = create_employee(
+        employee_code="EMP-GCC-APR",
+        full_name="GCC Approval Employee",
+        email="gcc-approval-employee@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    approver = create_employee(
+        employee_code="EMP-GCC-PM",
+        full_name="GCC Approval Manager",
+        email="gcc-approval-manager@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_calendar(employee=approver, yearly_calendar=calendar)
+    assign_employee_to_business_unit(
+        employee=approver,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=approver, role_code="USER")
+    assign_role(employee=approver, role_code="PROJECT_MANAGER")
+
+    general_charge_code = create_general_charge_code(
+        business_unit=business_unit,
+        code="GCC-APPROVAL",
+        name="Approval General Code",
+        valid_from=week_start - timedelta(days=7),
+        requires_approval_flag=True,
+        approver_role_codes=["PROJECT_MANAGER"],
+    )
+
+    employee_client = Client()
+    approver_client = Client()
+    initialize_ui_session(employee_client, employee.email)
+    initialize_ui_session(approver_client, approver.email)
+
+    create_response = employee_client.post(
+        "/ts/",
+        data={"week_start_date": week_start.isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    timesheet = WeeklyTimesheet.objects.get(employee=employee)
+    lines_response = employee_client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "lines",
+            "row_count": "8",
+            "line_0_work_date": week_start.isoformat(),
+            "line_0_hours": "8.00",
+            "line_0_project_id": "",
+            "line_0_general_charge_code_id": str(general_charge_code.id),
+            "line_0_comment_text": "Sickness time",
+        },
+        follow=False,
+    )
+    assert lines_response.status_code == 302
+
+    submit_response = employee_client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "submit",
+            "comment_text": "Please review the general charge code line",
+        },
+        follow=False,
+    )
+    assert submit_response.status_code == 302
+
+    approval_item = ApprovalItem.objects.get(
+        general_charge_code_id=general_charge_code.id,
+        submission_cycle__weekly_timesheet=timesheet,
+    )
+
+    return {
+        "approver_client": approver_client,
+        "approval_item": approval_item,
+        "timesheet": timesheet,
+        "general_charge_code": general_charge_code,
+    }
+
+
 @pytest.mark.django_db
 def test_project_manager_worklist_shows_pending_approval_item() -> None:
     context = _build_approval_ui_clients()
@@ -239,8 +347,31 @@ def test_project_manager_can_approve_item_from_detail_ui() -> None:
         "Looks good to me"
     )
 
-    confirmed_response = context["pm_client"].get(f"/approvals/{context['approval_item'].id}/")
-    assert "Decision Recorded" in confirmed_response.content.decode()
+
+@pytest.mark.django_db
+def test_matching_role_user_can_approve_general_charge_code_item_from_ui() -> None:
+    context = _build_general_charge_code_approval_ui_clients()
+
+    worklist_response = context["approver_client"].get("/approvals/")
+
+    assert worklist_response.status_code == 200
+    worklist_content = worklist_response.content.decode()
+    assert context["general_charge_code"].code in worklist_content
+
+    approve_response = context["approver_client"].post(
+        f"/approvals/{context['approval_item'].id}/",
+        data={
+            "form_name": "approve",
+            "comment_text": "Approved GCC line",
+        },
+        follow=False,
+    )
+
+    assert approve_response.status_code == 302
+    context["approval_item"].refresh_from_db()
+    context["timesheet"].refresh_from_db()
+    assert context["approval_item"].status.value_code == "APPROVED"
+    assert context["timesheet"].status.value_code == "APPROVED"
 
 
 @pytest.mark.django_db

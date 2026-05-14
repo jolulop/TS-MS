@@ -395,6 +395,7 @@ def timesheet_detail(request: HttpRequest, timesheet_id: int) -> HttpResponse:
             "row_count": max(EDITOR_ROW_COUNT, len(timesheet["lines"]) + 3),
             "can_edit": can_edit,
             "can_submit": editor_context["can_submit"],
+            "submit_blockers": editor_context["submit_blockers"],
             "can_withdraw": editor_context["can_withdraw"],
             "available_projects": editor_context["available_projects"],
             "available_general_charge_codes": editor_context["available_general_charge_codes"],

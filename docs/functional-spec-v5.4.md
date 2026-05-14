@@ -150,6 +150,13 @@ The following masters remain Business Unit scoped:
 - Each General Charge Code must be linked to one Cost Center from the same active Office.
 - The `Common Code` attribute is no longer part of the model.
 - They keep lifecycle, approval, billing, and validity-window behavior.
+- When `Requires Approval` is enabled, the General Charge Code must keep at least one
+  configured approver role.
+- Approver roles can be:
+  - existing internal TS roles
+  - office-scoped ad-hoc General Charge Code approval roles
+- Ad-hoc General Charge Code approval roles are managed in System Management together
+  with employee membership assignment.
 - General Charge Code deletion is guarded by referential integrity.
 
 ### 8.7 Calendars And Special Days
@@ -263,8 +270,13 @@ Delete behavior:
 
 ## 10. Approvals
 
-- The approval worklist is currently a `PROJECT_MANAGER` workflow.
-- Project Managers can view and act on approval items assigned to them.
+- The approval worklist supports:
+  - project approval items assigned to one Project Manager
+  - General Charge Code approval items routed to one or more eligible roles
+- A General Charge Code approval item is actionable by any active employee who matches
+  one of the snapped approver roles for that item.
+- The first approval or rejection decision closes the General Charge Code approval item.
+- Project Managers can still view and act on project approval items assigned to them.
 - Project Owners currently do not get approval authority from ownership alone.
 - `TS_ADMIN` has reporting visibility over approvals but is not the primary approver role in the current UI workflow.
 
