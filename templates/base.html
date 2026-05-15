@@ -133,6 +133,35 @@
         color: var(--ink);
       }
 
+      .button.danger {
+        border-color: var(--danger);
+        background: rgba(136, 45, 45, 0.1);
+        color: var(--danger);
+      }
+
+      .button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+
+      .icon-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.6rem;
+        height: 2.6rem;
+        padding: 0;
+        border: 1px solid var(--line);
+        background: white;
+        color: var(--accent-strong);
+        cursor: pointer;
+      }
+
+      .icon-button svg {
+        width: 1.15rem;
+        height: 1.15rem;
+      }
+
       .shell {
         display: grid;
         gap: 1.25rem;
@@ -255,6 +284,11 @@
         gap: 1rem;
       }
 
+      .page-title-row > div:first-child {
+        display: grid;
+        gap: 0.55rem;
+      }
+
       .hero-grid,
       .card-grid,
       .meta-grid,
@@ -281,6 +315,10 @@
 
         .split-grid.split-grid-primary-wide {
           grid-template-columns: minmax(0, 1.7fr) minmax(22rem, 1fr);
+        }
+
+        .meta-grid.meta-grid-inline {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
         }
       }
 
@@ -376,6 +414,10 @@
         border-collapse: collapse;
       }
 
+      .data-table-wide {
+        min-width: 66rem;
+      }
+
       .data-table th,
       .data-table td {
         padding: 0.8rem 0.7rem;
@@ -405,6 +447,12 @@
         width: 100%;
         min-width: 8rem;
         font: inherit;
+      }
+
+      .action-column,
+      .row-action-cell {
+        width: 4.5rem;
+        text-align: center;
       }
 
       .empty-state {
@@ -438,9 +486,35 @@
         margin-left: auto;
       }
 
+      .toolbar-form {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: flex-end;
+        gap: 0.75rem;
+      }
+
+      .toolbar-field {
+        min-width: 15rem;
+      }
+
+      .toolbar-field input {
+        min-width: 15rem;
+      }
+
+      .toolbar-actions {
+        display: flex;
+        align-items: flex-end;
+      }
+
       .form-stack {
         display: grid;
         gap: 1rem;
+      }
+
+      .table-actions {
+        display: flex;
+        justify-content: flex-end;
       }
 
       .auth-shell {
@@ -527,6 +601,13 @@
         gap: 1rem;
         align-items: flex-start;
         flex-wrap: wrap;
+      }
+
+      .detail-header-top {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.75rem;
       }
 
       .banner {

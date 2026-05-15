@@ -162,6 +162,85 @@ def test_my_timesheets_page_creates_weekly_timesheet_from_html() -> None:
 
 
 @pytest.mark.django_db
+def test_my_timesheets_page_uses_header_create_controls_and_no_inline_create_panel() -> None:
+    client, _, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-list@example.com",
+        employee_code="EMP-TS-LIST",
+    )
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": fixtures["week_start"].isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    response = client.get("/ts/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert 'action="/ts/"' in content
+    assert "Create Weekly Timesheet" not in content
+    assert "Weekly Timesheets" not in content
+    assert fixtures["week_start"].isoformat() in content
+
+
+@pytest.mark.django_db
+def test_timesheet_detail_uses_compact_metadata_editable_row_controls_and_five_empty_rows() -> None:
+    client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-detail-ui@example.com",
+        employee_code="EMP-TS-DETAIL",
+    )
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": fixtures["week_start"].isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    timesheet = WeeklyTimesheet.objects.get(employee=employee)
+    response = client.get(f"/ts/timesheets/{timesheet.id}/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Timesheet Context" not in content
+    assert "Available Charge Targets" not in content
+    assert "Assigned Calendar" in content
+    assert "Submission No" in content
+    assert "Submitted At" in content
+    assert "Approved At" in content
+    assert "Period Override" in content
+    assert 'aria-label="Remove line"' in content
+    assert 'aria-label="Add line"' in content
+    assert 'name="row_count" value="5"' in content
+    assert "Delete Timesheet" in content
+
+
+@pytest.mark.django_db
+def test_created_timesheet_can_be_deleted_from_editor() -> None:
+    client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-delete-ui@example.com",
+        employee_code="EMP-TS-DELETE",
+    )
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": fixtures["week_start"].isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    timesheet = WeeklyTimesheet.objects.get(employee=employee)
+    delete_response = client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert delete_response.status_code == 302
+    assert delete_response.headers["Location"] == "/ts/"
+    assert not WeeklyTimesheet.objects.filter(id=timesheet.id).exists()
+
+
+@pytest.mark.django_db
 def test_timesheet_editor_saves_lines_and_submits_via_html() -> None:
     client, employee, fixtures = _build_timesheet_ui_client()
     create_response = client.post(

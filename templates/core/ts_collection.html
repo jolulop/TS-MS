@@ -14,71 +14,64 @@
 
     <div class="page-header">
       <p class="eyebrow">{{ page_eyebrow }}</p>
-      <h1>{{ page_title }}</h1>
-      <p>{{ page_intro }}</p>
-    </div>
-
-    <div class="split-grid">
-      <section class="surface-card">
-        <div class="section-header">
-          <h2>Weekly Timesheets</h2>
+      <div class="page-title-row">
+        <div>
+          <h1>{{ page_title }}</h1>
+          <p>{{ page_intro }}</p>
         </div>
-        {% if table_rows %}
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  {% for header in table_headers %}
-                    <th>{{ header }}</th>
-                  {% endfor %}
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in table_rows %}
-                  <tr>
-                    {% for cell in row.cells %}
-                      <td>
-                        {% if forloop.first %}
-                          <a href="{{ row.href }}">{{ cell }}</a>
-                        {% else %}
-                          {{ cell }}
-                        {% endif %}
-                      </td>
-                    {% endfor %}
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% else %}
-          <div class="empty-state">{{ empty_message }}</div>
-        {% endif %}
-      </section>
-
-      <section class="surface-card">
-        <div class="section-header">
-          <h2>Create Weekly Timesheet</h2>
-          <p>Weeks must start on Monday. The server will enforce the one-timesheet-per-week rule.</p>
-        </div>
-        {% if create_error %}
-          <div class="banner error">{{ create_error }}</div>
-        {% endif %}
-        <form class="form-stack" method="post" action="">
+        <form class="toolbar-form" method="post" action="/ts/">
           {% csrf_token %}
-          <div class="field">
+          <div class="field toolbar-field">
             <label for="week_start_date">Week Start Date</label>
             <input
               id="week_start_date"
               name="week_start_date"
               type="date"
-              value="{{ default_week_start_date }}"
+              value="{{ create_week_start_date }}"
               required>
           </div>
-          <div>
+          <div class="toolbar-actions">
             <button class="button" type="submit">Create Timesheet</button>
           </div>
         </form>
-      </section>
+      </div>
     </div>
+
+    {% if create_error %}
+      <div class="banner error">{{ create_error }}</div>
+    {% endif %}
+
+    <section class="surface-card surface-card-wide">
+      {% if table_rows %}
+        <div class="table-wrap">
+          <table class="data-table data-table-wide">
+            <thead>
+              <tr>
+                {% for header in table_headers %}
+                  <th>{{ header }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in table_rows %}
+                <tr>
+                  {% for cell in row.cells %}
+                    <td>
+                      {% if forloop.first %}
+                        <a href="{{ row.href }}">{{ cell }}</a>
+                      {% else %}
+                        {{ cell }}
+                      {% endif %}
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">{{ empty_message }}</div>
+      {% endif %}
+    </section>
   </div>
 {% endblock %}

@@ -279,9 +279,12 @@ Important UI behavior:
 - Access: authenticated `USER`
 - features:
   - view current/available weekly timesheets
-  - edit lines
+  - header-level `Week Start Date` selector and `Create Timesheet` action
+  - create flow opens the weekly editor directly for the selected date
+  - open weekly timesheets into the dedicated edit/detail screen
   - submit
   - withdraw if allowed
+  - delete draft timesheets only when deletion is allowed by backend rules
 
 ### SCR-210 My History
 

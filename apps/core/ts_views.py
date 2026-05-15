@@ -10,7 +10,7 @@ from apps.core.reports_views import render_report_view
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.timesheets.services import TimesheetService
 
-EDITOR_ROW_COUNT = 8
+INITIAL_EMPTY_EDITOR_ROWS = 5
 
 
 def _timesheet_section_links(current_user: CurrentUser, current_path: str) -> list[dict]:
@@ -83,6 +83,14 @@ def _current_monday(today: date | None = None) -> date:
     return current_date - timedelta(days=current_date.weekday())
 
 
+def _default_week_start_date_value() -> str:
+    return _current_monday().isoformat()
+
+
+def _editor_row_count(existing_line_count: int) -> int:
+    return max(INITIAL_EMPTY_EDITOR_ROWS, existing_line_count + 1)
+
+
 def _timesheet_rows(timesheets: list[dict]) -> list[dict]:
     return [
         {
@@ -130,13 +138,13 @@ def _line_options(items: list[dict], *, id_key: str, label_keys: tuple[str, ...]
 def _line_rows(
     *,
     timesheet: dict,
+    row_count: int,
     available_work_dates: list[str],
     available_projects: list[dict],
     available_general_charge_codes: list[dict],
     post_data=None,
 ) -> list[dict]:
     existing_lines = timesheet["lines"]
-    row_count = max(EDITOR_ROW_COUNT, len(existing_lines) + 3)
     project_options = _line_options(
         available_projects,
         id_key="id",
@@ -235,10 +243,10 @@ def _lines_payload_from_post(request: HttpRequest, *, row_count: int) -> list[di
 
 def _row_count_from_post(request: HttpRequest) -> int:
     try:
-        row_count = int(request.POST.get("row_count", str(EDITOR_ROW_COUNT)))
+        row_count = int(request.POST.get("row_count", str(INITIAL_EMPTY_EDITOR_ROWS)))
     except ValueError:
-        return EDITOR_ROW_COUNT
-    return max(EDITOR_ROW_COUNT, row_count)
+        return INITIAL_EMPTY_EDITOR_ROWS
+    return max(INITIAL_EMPTY_EDITOR_ROWS, row_count)
 
 
 @require_http_methods(["GET", "POST"])
@@ -274,9 +282,9 @@ def my_timesheets(request: HttpRequest) -> HttpResponse:
             "table_headers": ("Week Start", "Week End", "Status", "Lines", "Submission No."),
             "table_rows": _timesheet_rows(timesheets),
             "empty_message": "No weekly timesheets exist yet. Create your first week to begin.",
-            "default_week_start_date": request.POST.get(
+            "create_week_start_date": request.POST.get(
                 "week_start_date",
-                _current_monday().isoformat(),
+                _default_week_start_date_value(),
             ),
             "create_error": create_error,
         }
@@ -347,6 +355,9 @@ def timesheet_detail(request: HttpRequest, timesheet_id: int) -> HttpResponse:
                     timesheet_id,
                     {"comment_text": request.POST.get("comment_text", "")},
                 )
+            elif active_form == "delete":
+                TimesheetService.delete_timesheet(current_user, timesheet_id)
+                return redirect("/ts/")
             else:
                 raise AuthError("UI_FORM_UNKNOWN", "Unknown timesheet form submission.", 400)
         except AuthError as error:
@@ -368,10 +379,15 @@ def timesheet_detail(request: HttpRequest, timesheet_id: int) -> HttpResponse:
 
     timesheet = editor_context["timesheet"]
     can_edit = editor_context["can_edit"]
+    row_count = (
+        _row_count_from_post(request)
+        if request.method == "POST" and active_form == "lines"
+        else _editor_row_count(len(timesheet["lines"]))
+    )
     context = _ts_context(
         request,
         current_user,
-        title=f"Week Of {timesheet['week_start_date']}",
+        title=f"Week of {timesheet['week_start_date']}",
         eyebrow="SCR-201" if can_edit else "SCR-202",
         intro=(
             "Edit line entries and manage submission for this weekly timesheet."
@@ -385,6 +401,7 @@ def timesheet_detail(request: HttpRequest, timesheet_id: int) -> HttpResponse:
             "employee": editor_context["employee"],
             "line_rows": _line_rows(
                 timesheet=timesheet,
+                row_count=row_count,
                 available_work_dates=editor_context["available_work_dates"],
                 available_projects=editor_context["available_projects"],
                 available_general_charge_codes=editor_context["available_general_charge_codes"],
@@ -392,11 +409,12 @@ def timesheet_detail(request: HttpRequest, timesheet_id: int) -> HttpResponse:
                 if request.method == "POST" and active_form == "lines"
                 else None,
             ),
-            "row_count": max(EDITOR_ROW_COUNT, len(timesheet["lines"]) + 3),
+            "row_count": row_count,
             "can_edit": can_edit,
             "can_submit": editor_context["can_submit"],
             "submit_blockers": editor_context["submit_blockers"],
             "can_withdraw": editor_context["can_withdraw"],
+            "can_delete": editor_context["can_delete"],
             "available_projects": editor_context["available_projects"],
             "available_general_charge_codes": editor_context["available_general_charge_codes"],
             "active_form": active_form,

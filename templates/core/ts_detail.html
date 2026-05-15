@@ -16,244 +16,304 @@
       <p class="eyebrow">{{ page_eyebrow }}</p>
       <div class="detail-header">
         <div>
-          <h1>{{ page_title }}</h1>
+          <div class="detail-header-top">
+            <h1>{{ page_title }}</h1>
+            <a class="button ghost" href="/ts/">Back to My Timesheets</a>
+          </div>
           <p>{{ page_intro }}</p>
         </div>
         <span class="chip">{{ timesheet.status }}</span>
       </div>
     </div>
 
-    <div class="split-grid">
-      <section class="surface-card">
+    <dl class="meta-grid meta-grid-inline">
+      <div class="meta-row">
+        <dt>Assigned Calendar</dt>
+        <dd>{{ employee.assigned_calendar|default:"Not assigned" }}</dd>
+      </div>
+      <div class="meta-row">
+        <dt>Submission No</dt>
+        <dd>{{ timesheet.current_submission_no }}</dd>
+      </div>
+      <div class="meta-row">
+        <dt>Submitted At</dt>
+        <dd>{{ timesheet.submission_datetime|default:"Not submitted" }}</dd>
+      </div>
+      <div class="meta-row">
+        <dt>Approved At</dt>
+        <dd>{{ timesheet.final_approval_datetime|default:"Not approved" }}</dd>
+      </div>
+      <div class="meta-row">
+        <dt>Period Override</dt>
+        <dd>{% if timesheet.period_lock_override_flag %}Enabled{% else %}Not enabled{% endif %}</dd>
+      </div>
+    </dl>
+
+    <div class="content-stack">
+      <section class="surface-card surface-card-wide">
         <div class="section-header">
-          <h2>Timesheet Context</h2>
-          <p><a href="/ts/">Back to My Timesheets</a></p>
+          <h2>{% if can_edit %}Weekly Timesheet Editor{% else %}Timesheet Lines{% endif %}</h2>
+          <p>
+            {% if can_edit %}
+              Enter one charge target per row: either a project or a general charge code.
+            {% else %}
+              This timesheet is read-only in its current state.
+            {% endif %}
+          </p>
         </div>
-        <dl class="meta-grid">
-          <div class="meta-row">
-            <dt>Employee</dt>
-            <dd>{{ employee.full_name }} ({{ employee.employee_code }})</dd>
-          </div>
-          <div class="meta-row">
-            <dt>Week Start</dt>
-            <dd>{{ timesheet.week_start_date }}</dd>
-          </div>
-          <div class="meta-row">
-            <dt>Week End</dt>
-            <dd>{{ timesheet.week_end_date }}</dd>
-          </div>
-          <div class="meta-row">
-            <dt>Assigned Calendar</dt>
-            <dd>{{ employee.assigned_calendar|default:"Not assigned" }}</dd>
-          </div>
-          <div class="meta-row">
-            <dt>Submission No</dt>
-            <dd>{{ timesheet.current_submission_no }}</dd>
-          </div>
-          <div class="meta-row">
-            <dt>Submitted At</dt>
-            <dd>{{ timesheet.submission_datetime|default:"Not submitted" }}</dd>
-          </div>
-          <div class="meta-row">
-            <dt>Approved At</dt>
-            <dd>{{ timesheet.final_approval_datetime|default:"Not approved" }}</dd>
-          </div>
-          <div class="meta-row">
-            <dt>Period Override</dt>
-            <dd>{% if timesheet.period_lock_override_flag %}Enabled{% else %}Not enabled{% endif %}</dd>
-          </div>
-        </dl>
+        {% if form_error and active_form == "lines" %}
+          <div class="banner error">{{ form_error }}</div>
+        {% endif %}
+        {% if form_error and active_form == "delete" %}
+          <div class="banner error">{{ form_error }}</div>
+        {% endif %}
+        {% if can_edit %}
+          <form class="form-stack" method="post" action="">
+            {% csrf_token %}
+            <input type="hidden" name="form_name" value="lines">
+            <input id="row_count" type="hidden" name="row_count" value="{{ row_count }}">
+            <div class="table-wrap">
+              <table class="data-table data-table-wide">
+                <thead>
+                  <tr>
+                    <th>Work Date</th>
+                    <th>Hours</th>
+                    <th>Project</th>
+                    <th>General Charge Code</th>
+                    <th>Comment</th>
+                    <th class="action-column">Remove</th>
+                  </tr>
+                </thead>
+                <tbody id="timesheet-line-rows">
+                  {% for row in line_rows %}
+                    <tr data-line-row>
+                      <td>
+                        <select name="line_{{ row.index }}_work_date">
+                          <option value="">Select a day</option>
+                          {% for option in row.date_options %}
+                            <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+                          {% endfor %}
+                        </select>
+                      </td>
+                      <td><input name="line_{{ row.index }}_hours" type="text" value="{{ row.hours }}"></td>
+                      <td>
+                        <select name="line_{{ row.index }}_project_id">
+                          {% for option in row.project_options %}
+                            <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+                          {% endfor %}
+                        </select>
+                      </td>
+                      <td>
+                        <select name="line_{{ row.index }}_general_charge_code_id">
+                          {% for option in row.general_charge_code_options %}
+                            <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+                          {% endfor %}
+                        </select>
+                      </td>
+                      <td><input name="line_{{ row.index }}_comment_text" type="text" value="{{ row.comment_text }}"></td>
+                      <td class="row-action-cell">
+                        <button class="icon-button line-remove-button" type="button" aria-label="Remove line">
+                          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v9H7V9Zm4 0h2v9h-2V9Zm4 0h2v9h-2V9Z" fill="currentColor"></path>
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <div class="table-actions">
+              <button class="icon-button add-row-button" id="add-line-row" type="button" aria-label="Add line">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4Z" fill="currentColor"></path>
+                </svg>
+              </button>
+            </div>
+            <div>
+              <button class="button" type="submit">Save Lines</button>
+            </div>
+          </form>
+          <form method="post" action="">
+            {% csrf_token %}
+            <input type="hidden" name="form_name" value="delete">
+            <div class="button-row">
+              <button class="button danger" type="submit"{% if not can_delete %} disabled{% endif %}>Delete Timesheet</button>
+            </div>
+          </form>
+          <template id="timesheet-line-row-template">
+            <tr data-line-row>
+              <td>
+                <select name="line___INDEX___work_date">
+                  <option value="">Select a day</option>
+                  {% for option in line_rows.0.date_options %}
+                    <option value="{{ option.value }}">{{ option.label }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td><input name="line___INDEX___hours" type="text" value=""></td>
+              <td>
+                <select name="line___INDEX___project_id">
+                  {% for option in line_rows.0.project_options %}
+                    <option value="{{ option.value }}">{{ option.label }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td>
+                <select name="line___INDEX___general_charge_code_id">
+                  {% for option in line_rows.0.general_charge_code_options %}
+                    <option value="{{ option.value }}">{{ option.label }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td><input name="line___INDEX___comment_text" type="text" value=""></td>
+              <td class="row-action-cell">
+                <button class="icon-button line-remove-button" type="button" aria-label="Remove line">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v9H7V9Zm4 0h2v9h-2V9Zm4 0h2v9h-2V9Z" fill="currentColor"></path>
+                  </svg>
+                </button>
+              </td>
+            </tr>
+          </template>
+        {% else %}
+          {% if timesheet.lines %}
+            <div class="table-wrap">
+              <table class="data-table data-table-wide">
+                <thead>
+                  <tr>
+                    <th>Work Date</th>
+                    <th>Hours</th>
+                    <th>Project</th>
+                    <th>General Charge Code</th>
+                    <th>Approval State</th>
+                    <th>Comment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for line in timesheet.lines %}
+                    <tr>
+                      <td>{{ line.work_date }}</td>
+                      <td>{{ line.hours }}</td>
+                      <td>{% if line.project %}{{ line.project.project_code }} - {{ line.project.name }}{% else %}None{% endif %}</td>
+                      <td>{% if line.general_charge_code %}{{ line.general_charge_code.code }} - {{ line.general_charge_code.name }}{% else %}None{% endif %}</td>
+                      <td>{{ line.approval_state|default:"Not routed" }}</td>
+                      <td>{{ line.comment_text|default:"" }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="empty-state">This timesheet does not contain any lines.</div>
+          {% endif %}
+        {% endif %}
       </section>
 
-      <div class="content-stack">
+      {% if can_submit or submit_blockers %}
         <section class="surface-card">
           <div class="section-header">
-            <h2>{% if can_edit %}Weekly Timesheet Editor{% else %}Timesheet Lines{% endif %}</h2>
-            <p>
-              {% if can_edit %}
-                Enter one charge target per row: either a project or a general charge code.
-              {% else %}
-                This timesheet is read-only in its current state.
-              {% endif %}
-            </p>
+            <h2>{% if submit_blockers %}Submission Blocked{% else %}Submit Timesheet{% endif %}</h2>
+            <p>Submission will route approvals using the current backend lifecycle rules.</p>
           </div>
-          {% if form_error and active_form == "lines" %}
+          {% if submit_blockers %}
+            {% for blocker in submit_blockers %}
+              <div class="banner error">{{ blocker }}</div>
+            {% endfor %}
+          {% endif %}
+          {% if form_error and active_form == "submit" %}
             <div class="banner error">{{ form_error }}</div>
           {% endif %}
-          {% if can_edit %}
+          {% if not submit_blockers %}
             <form class="form-stack" method="post" action="">
               {% csrf_token %}
-              <input type="hidden" name="form_name" value="lines">
-              <input type="hidden" name="row_count" value="{{ row_count }}">
-              <div class="table-wrap">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>Work Date</th>
-                      <th>Hours</th>
-                      <th>Project</th>
-                      <th>General Charge Code</th>
-                      <th>Comment</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for row in line_rows %}
-                      <tr>
-                        <td>
-                          <select name="line_{{ row.index }}_work_date">
-                            <option value="">Select a day</option>
-                            {% for option in row.date_options %}
-                              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
-                            {% endfor %}
-                          </select>
-                        </td>
-                        <td><input name="line_{{ row.index }}_hours" type="text" value="{{ row.hours }}"></td>
-                        <td>
-                          <select name="line_{{ row.index }}_project_id">
-                            {% for option in row.project_options %}
-                              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
-                            {% endfor %}
-                          </select>
-                        </td>
-                        <td>
-                          <select name="line_{{ row.index }}_general_charge_code_id">
-                            {% for option in row.general_charge_code_options %}
-                              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
-                            {% endfor %}
-                          </select>
-                        </td>
-                        <td><input name="line_{{ row.index }}_comment_text" type="text" value="{{ row.comment_text }}"></td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
+              <input type="hidden" name="form_name" value="submit">
+              <div class="field">
+                <label for="submit_comment_text">Comment</label>
+                <textarea id="submit_comment_text" name="comment_text">{{ submit_comment }}</textarea>
               </div>
               <div>
-                <button class="button" type="submit">Save Lines</button>
+                <button class="button" type="submit">Submit Timesheet</button>
               </div>
             </form>
-          {% else %}
-            {% if timesheet.lines %}
-              <div class="table-wrap">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>Work Date</th>
-                      <th>Hours</th>
-                      <th>Project</th>
-                      <th>General Charge Code</th>
-                      <th>Approval State</th>
-                      <th>Comment</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for line in timesheet.lines %}
-                      <tr>
-                        <td>{{ line.work_date }}</td>
-                        <td>{{ line.hours }}</td>
-                        <td>{% if line.project %}{{ line.project.project_code }} - {{ line.project.name }}{% else %}None{% endif %}</td>
-                        <td>{% if line.general_charge_code %}{{ line.general_charge_code.code }} - {{ line.general_charge_code.name }}{% else %}None{% endif %}</td>
-                        <td>{{ line.approval_state|default:"Not routed" }}</td>
-                        <td>{{ line.comment_text|default:"" }}</td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            {% else %}
-              <div class="empty-state">This timesheet does not contain any lines.</div>
-            {% endif %}
           {% endif %}
         </section>
+      {% endif %}
 
-        {% if can_submit or submit_blockers %}
-          <section class="surface-card">
-            <div class="section-header">
-              <h2>{% if submit_blockers %}Submission Blocked{% else %}Submit Timesheet{% endif %}</h2>
-              <p>Submission will route approvals using the current backend lifecycle rules.</p>
+      {% if can_withdraw %}
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>Withdraw Timesheet</h2>
+            <p>Withdraw returns the weekly record to an editable state when lifecycle rules allow it.</p>
+          </div>
+          {% if form_error and active_form == "withdraw" %}
+            <div class="banner error">{{ form_error }}</div>
+          {% endif %}
+          <form class="form-stack" method="post" action="">
+            {% csrf_token %}
+            <input type="hidden" name="form_name" value="withdraw">
+            <div class="field">
+              <label for="withdraw_comment_text">Comment</label>
+              <textarea id="withdraw_comment_text" name="comment_text">{{ withdraw_comment }}</textarea>
             </div>
-            {% if submit_blockers %}
-              {% for blocker in submit_blockers %}
-                <div class="banner error">{{ blocker }}</div>
-              {% endfor %}
-            {% endif %}
-            {% if form_error and active_form == "submit" %}
-              <div class="banner error">{{ form_error }}</div>
-            {% endif %}
-            {% if not submit_blockers %}
-              <form class="form-stack" method="post" action="">
-                {% csrf_token %}
-                <input type="hidden" name="form_name" value="submit">
-                <div class="field">
-                  <label for="submit_comment_text">Comment</label>
-                  <textarea id="submit_comment_text" name="comment_text">{{ submit_comment }}</textarea>
-                </div>
-                <div>
-                  <button class="button" type="submit">Submit Timesheet</button>
-                </div>
-              </form>
-            {% endif %}
-          </section>
-        {% endif %}
-
-        {% if can_withdraw %}
-          <section class="surface-card">
-            <div class="section-header">
-              <h2>Withdraw Timesheet</h2>
-              <p>Withdraw returns the weekly record to an editable state when lifecycle rules allow it.</p>
+            <div>
+              <button class="button secondary" type="submit">Withdraw Timesheet</button>
             </div>
-            {% if form_error and active_form == "withdraw" %}
-              <div class="banner error">{{ form_error }}</div>
-            {% endif %}
-            <form class="form-stack" method="post" action="">
-              {% csrf_token %}
-              <input type="hidden" name="form_name" value="withdraw">
-              <div class="field">
-                <label for="withdraw_comment_text">Comment</label>
-                <textarea id="withdraw_comment_text" name="comment_text">{{ withdraw_comment }}</textarea>
-              </div>
-              <div>
-                <button class="button secondary" type="submit">Withdraw Timesheet</button>
-              </div>
-            </form>
-          </section>
-        {% endif %}
-
-        {% if available_projects or available_general_charge_codes %}
-          <section class="surface-card">
-            <div class="section-header">
-              <h2>Available Charge Targets</h2>
-              <p>The server remains authoritative for valid charge targets on each work date.</p>
-            </div>
-            <div class="split-grid">
-              <div>
-                <h3>Projects</h3>
-                {% if available_projects %}
-                  <ul>
-                    {% for project in available_projects %}
-                      <li>{{ project.project_code }} - {{ project.name }}</li>
-                    {% endfor %}
-                  </ul>
-                {% else %}
-                  <p>No projects are currently available for this week.</p>
-                {% endif %}
-              </div>
-              <div>
-                <h3>General Charge Codes</h3>
-                {% if available_general_charge_codes %}
-                  <ul>
-                    {% for code in available_general_charge_codes %}
-                      <li>{{ code.code }} - {{ code.name }}</li>
-                    {% endfor %}
-                  </ul>
-                {% else %}
-                  <p>No general charge codes are currently available for this week.</p>
-                {% endif %}
-              </div>
-            </div>
-          </section>
-        {% endif %}
-      </div>
+          </form>
+        </section>
+      {% endif %}
     </div>
   </div>
+
+  {% if can_edit %}
+    <script>
+      (function () {
+        const tbody = document.getElementById("timesheet-line-rows");
+        const rowCountInput = document.getElementById("row_count");
+        const addButton = document.getElementById("add-line-row");
+        const template = document.getElementById("timesheet-line-row-template");
+        if (!tbody || !rowCountInput || !addButton || !template) {
+          return;
+        }
+
+        function clearRow(row) {
+          row.querySelectorAll("input").forEach((input) => {
+            input.value = "";
+          });
+          row.querySelectorAll("select").forEach((select) => {
+            select.selectedIndex = 0;
+          });
+        }
+
+        function bindRemoveButton(button) {
+          button.addEventListener("click", function () {
+            const row = button.closest("[data-line-row]");
+            if (!row) {
+              return;
+            }
+            const visibleRows = tbody.querySelectorAll("[data-line-row]");
+            if (visibleRows.length === 1) {
+              clearRow(row);
+              return;
+            }
+            row.remove();
+          });
+        }
+
+        tbody.querySelectorAll(".line-remove-button").forEach(bindRemoveButton);
+
+        addButton.addEventListener("click", function () {
+          const nextIndex = Number(rowCountInput.value);
+          const html = template.innerHTML.replaceAll("__INDEX__", String(nextIndex));
+          tbody.insertAdjacentHTML("beforeend", html);
+          rowCountInput.value = String(nextIndex + 1);
+          const newRow = tbody.lastElementChild;
+          const removeButton = newRow ? newRow.querySelector(".line-remove-button") : null;
+          if (removeButton) {
+            bindRemoveButton(removeButton);
+          }
+        });
+      }());
+    </script>
+  {% endif %}
 {% endblock %}

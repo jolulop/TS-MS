@@ -113,6 +113,13 @@ class AuthorizationPolicyService:
         )
 
     @staticmethod
+    def can_delete_timesheet(current_user: CurrentUser, timesheet) -> bool:
+        return (
+            current_user.employee_id == timesheet.employee_id
+            and timesheet.status.value_code == "CREATED"
+        )
+
+    @staticmethod
     def can_reopen_timesheet(current_user: CurrentUser, timesheet) -> bool:
         return current_user.is_ts_admin and (
             timesheet.business_unit_id in current_user.scoped_business_unit_ids

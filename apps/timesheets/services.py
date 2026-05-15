@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
 from apps.audit.services import write_audit_event
@@ -27,6 +28,7 @@ from apps.timesheets.models import (
     ApprovalItem,
     ApprovalItemApproverRole,
     TimesheetLine,
+    TimesheetLineAttributeValue,
     TimesheetSubmissionCycle,
     WeeklyTimesheet,
 )
@@ -829,6 +831,7 @@ class TimesheetService:
             "can_withdraw": AuthorizationPolicyService.can_withdraw_timesheet(
                 current_user, timesheet
             ),
+            "can_delete": AuthorizationPolicyService.can_delete_timesheet(current_user, timesheet),
             "submit_blockers": submit_blockers,
         }
 
@@ -1264,6 +1267,52 @@ class TimesheetService:
 
         refreshed = _get_timesheet_for_view(current_user, timesheet.id)
         return _serialize_timesheet(refreshed)
+
+    @staticmethod
+    @transaction.atomic
+    def delete_timesheet(current_user: CurrentUser, timesheet_id: int) -> None:
+        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        if not AuthorizationPolicyService.can_delete_timesheet(current_user, timesheet):
+            raise AuthError(
+                "TIMESHEET_DELETE_NOT_ALLOWED",
+                "This timesheet cannot be deleted in its current state.",
+                400,
+            )
+        if timesheet.submission_cycles.exists():
+            raise AuthError(
+                "TIMESHEET_DELETE_BLOCKED",
+                "This timesheet cannot be deleted because it already has submission history.",
+                400,
+            )
+
+        timesheet_id_value = timesheet.id
+        timesheet_label = (
+            f"{timesheet.employee.employee_code} week {timesheet.week_start_date.isoformat()}"
+        )
+        TimesheetLineAttributeValue.objects.filter(
+            timesheet_line__weekly_timesheet=timesheet
+        ).delete()
+        timesheet.lines.all().delete()
+
+        try:
+            timesheet.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "TIMESHEET_DELETE_BLOCKED",
+                "This timesheet cannot be deleted because other protected records still reference it.",
+                400,
+            ) from exc
+
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="weekly_timesheet",
+            entity_id=timesheet_id_value,
+            actor_employee=timesheet.employee,
+            actor_email=current_user.email,
+            business_unit=timesheet.business_unit,
+            old_value=timesheet_label,
+            reason_text="Draft timesheet deleted by employee.",
+        )
 
     @staticmethod
     def list_approval_items(current_user: CurrentUser) -> list[dict]:
