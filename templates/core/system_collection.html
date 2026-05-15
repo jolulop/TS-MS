@@ -14,11 +14,16 @@
 
     <div class="page-header">
       <p class="eyebrow">{{ page_eyebrow }}</p>
-      <h1>{{ page_title }}</h1>
+      <div class="page-title-row">
+        <h1>{{ page_title }}</h1>
+        {% if page_action %}
+          <a class="button" href="{{ page_action.href }}">{{ page_action.label }}</a>
+        {% endif %}
+      </div>
       <p>{{ page_intro }}</p>
     </div>
 
-    {% if filter_links %}
+    {% if filter_links and show_filter_panel %}
       <section class="surface-card">
         <div class="section-header">
           <h2>{{ filter_title|default:"Filters" }}</h2>
@@ -33,10 +38,19 @@
     {% endif %}
 
     {% if form_title %}
-      <div class="split-grid">
+      <div class="{{ split_grid_class|default:'split-grid' }}">
         <section class="surface-card">
-          <div class="section-header">
-            <h2>Current Records</h2>
+          <div class="section-header{% if inline_filter_links %} section-header-row{% endif %}">
+            {% if records_heading %}
+              <h2>{{ records_heading }}</h2>
+            {% endif %}
+            {% if inline_filter_links %}
+              <nav class="subnav" aria-label="{{ inline_filter_title|default:filter_title|default:'Filters' }}">
+                {% for link in inline_filter_links %}
+                  <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+                {% endfor %}
+              </nav>
+            {% endif %}
           </div>
           {% if table_rows %}
             <div class="table-wrap">
@@ -91,8 +105,17 @@
       </div>
     {% else %}
       <section class="surface-card">
-        <div class="section-header">
-          <h2>Current Records</h2>
+        <div class="section-header{% if inline_filter_links %} section-header-row{% endif %}">
+          {% if records_heading %}
+            <h2>{{ records_heading }}</h2>
+          {% endif %}
+          {% if inline_filter_links %}
+            <nav class="subnav" aria-label="{{ inline_filter_title|default:filter_title|default:'Filters' }}">
+              {% for link in inline_filter_links %}
+                <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+              {% endfor %}
+            </nav>
+          {% endif %}
         </div>
         {% if table_rows %}
           <div class="table-wrap">

@@ -109,12 +109,6 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
             system_items.extend(
                 [
                     _nav_item(
-                        label="Business Units",
-                        href="/system/business-units/",
-                        summary="Scoped Business Unit identity and configuration screens.",
-                        current_path=current_path,
-                    ),
-                    _nav_item(
                         label="Employees",
                         href="/system/employees/",
                         summary="Employee identity, role, and BU administration.",
@@ -124,6 +118,18 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         label="Clients",
                         href="/system/clients/",
                         summary="Scoped client management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Projects",
+                        href="/system/projects/",
+                        summary="Scoped project setup and lifecycle management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Project Assignments",
+                        href="/system/project-assignments/",
+                        summary="Scoped project staffing and lifecycle management screens.",
                         current_path=current_path,
                     ),
                     _nav_item(
@@ -145,6 +151,24 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         current_path=current_path,
                     ),
                     _nav_item(
+                        label="Business Units",
+                        href="/system/business-units/",
+                        summary="Scoped Business Unit identity and configuration screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Calendars",
+                        href="/system/calendars/",
+                        summary="Office-level yearly calendar and special-day management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Calendar Period Rules",
+                        href="/system/calendar-period-rules/",
+                        summary="Scoped daily-hour period-rule management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
                         label="GCC Approval Roles",
                         href="/system/general-charge-code-approval-roles/",
                         summary=(
@@ -160,30 +184,6 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                             "Scoped general charge code management with "
                             "Office Cost Center assignment."
                         ),
-                        current_path=current_path,
-                    ),
-                    _nav_item(
-                        label="Projects",
-                        href="/system/projects/",
-                        summary="Scoped project setup and lifecycle management screens.",
-                        current_path=current_path,
-                    ),
-                    _nav_item(
-                        label="Project Assignments",
-                        href="/system/project-assignments/",
-                        summary="Scoped project staffing and lifecycle management screens.",
-                        current_path=current_path,
-                    ),
-                    _nav_item(
-                        label="Calendars",
-                        href="/system/calendars/",
-                        summary="Office-level yearly calendar and special-day management screens.",
-                        current_path=current_path,
-                    ),
-                    _nav_item(
-                        label="Calendar Period Rules",
-                        href="/system/calendar-period-rules/",
-                        summary="Scoped daily-hour period-rule management screens.",
                         current_path=current_path,
                     ),
                 ]

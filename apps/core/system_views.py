@@ -97,24 +97,29 @@ def _system_section_links(current_user: CurrentUser, current_path: str) -> list[
     if current_user.is_ts_admin:
         sections.extend(
             [
-                ("business-units", "Business Units", "/system/business-units/"),
                 ("employees", "Employees", "/system/employees/"),
                 ("clients", "Clients", "/system/clients/"),
-                ("internal-categories", "Internal Categories", "/system/internal-categories/"),
-                ("cost-centers", "Cost Centers", "/system/cost-centers/"),
-                ("calendars", "Calendars", "/system/calendars/"),
-                ("pricing-models", "Pricing Models", "/system/pricing-models/"),
-                (
-                    "general-charge-codes",
-                    "General Charge Codes",
-                    "/system/general-charge-codes/",
-                ),
                 ("projects", "Projects", "/system/projects/"),
                 ("project-assignments", "Project Assignments", "/system/project-assignments/"),
+                ("internal-categories", "Internal Categories", "/system/internal-categories/"),
+                ("cost-centers", "Cost Centers", "/system/cost-centers/"),
+                ("pricing-models", "Pricing Models", "/system/pricing-models/"),
+                ("business-units", "Business Units", "/system/business-units/"),
+                ("calendars", "Calendars", "/system/calendars/"),
                 (
                     "calendar-period-rules",
                     "Calendar Period Rules",
                     "/system/calendar-period-rules/",
+                ),
+                (
+                    "general-charge-code-approval-roles",
+                    "GCC Approval Roles",
+                    "/system/general-charge-code-approval-roles/",
+                ),
+                (
+                    "general-charge-codes",
+                    "General Charge Codes",
+                    "/system/general-charge-codes/",
                 ),
             ]
         )
@@ -1899,6 +1904,12 @@ def _render_collection_page(
     form_error: str = "",
     filter_links: list[dict] | None = None,
     filter_title: str = "Filters",
+    show_filter_panel: bool = True,
+    inline_filter_links: list[dict] | None = None,
+    inline_filter_title: str = "Filters",
+    records_heading: str = "Current Records",
+    split_grid_class: str = "split-grid",
+    page_action: dict | None = None,
 ) -> HttpResponse:
     context = _system_context(
         request,
@@ -1919,6 +1930,12 @@ def _render_collection_page(
             "form_error": form_error,
             "filter_links": filter_links or [],
             "filter_title": filter_title,
+            "show_filter_panel": show_filter_panel,
+            "inline_filter_links": inline_filter_links or [],
+            "inline_filter_title": inline_filter_title,
+            "records_heading": records_heading,
+            "split_grid_class": split_grid_class,
+            "page_action": page_action,
         }
     )
     return render(request, "core/system_collection.html", context)
@@ -1936,6 +1953,8 @@ def _render_detail_page(
     back_href: str,
     back_label: str,
     entity_status: str,
+    show_detail_panel: bool = True,
+    page_action: dict | None = None,
 ) -> HttpResponse:
     context = _system_context(
         request,
@@ -1951,9 +1970,86 @@ def _render_detail_page(
             "back_href": back_href,
             "back_label": back_label,
             "entity_status": entity_status,
+            "show_detail_panel": show_detail_panel,
+            "page_action": page_action,
         }
     )
     return render(request, "core/system_detail.html", context)
+
+
+def _master_create_path(config: MasterUiConfig) -> str:
+    return f"{config.collection_path}new/"
+
+
+def _render_list_only_collection(
+    request: HttpRequest,
+    current_user: CurrentUser,
+    *,
+    title: str,
+    eyebrow: str,
+    intro: str,
+    table_headers: tuple[str, ...],
+    table_rows: list[dict],
+    empty_message: str,
+    create_label: str,
+    create_href: str,
+    filter_links: list[dict] | None = None,
+    filter_title: str = "Filters",
+) -> HttpResponse:
+    return _render_collection_page(
+        request,
+        current_user,
+        title=title,
+        eyebrow=eyebrow,
+        intro=intro,
+        table_headers=table_headers,
+        table_rows=table_rows,
+        empty_message=empty_message,
+        form_title=None,
+        filter_links=[],
+        filter_title=filter_title,
+        show_filter_panel=False,
+        inline_filter_links=filter_links or [],
+        inline_filter_title=filter_title,
+        records_heading="",
+        page_action={"label": create_label, "href": create_href},
+    )
+
+
+def _render_master_create(
+    request: HttpRequest,
+    current_user: CurrentUser,
+    *,
+    config: MasterUiConfig,
+    form_fields: list[dict],
+    form_error: str,
+    form_intro: str,
+    setup_title: str | None = None,
+    submit_label: str | None = None,
+) -> HttpResponse:
+    return _render_detail_page(
+        request,
+        current_user,
+        title=f"Create {config.singular_label}",
+        eyebrow=config.list_eyebrow,
+        intro=f"Standalone {config.singular_label.lower()} creation screen inside the shared system management shell.",
+        detail_rows=[],
+        form_sections=[
+            {
+                "form_name": "create",
+                "title": setup_title or f"{config.singular_label} Setup",
+                "intro": form_intro,
+                "submit_label": submit_label or f"Create {config.singular_label}",
+                "form_error": form_error,
+                "fields": form_fields,
+            }
+        ],
+        back_href=config.collection_path,
+        back_label=f"Back to {config.plural_label}",
+        entity_status="New",
+        show_detail_panel=False,
+        page_action={"label": f"Back to {config.plural_label}", "href": config.collection_path},
+    )
 
 
 def _employee_rows(employees: list[dict]) -> list[dict]:
@@ -3167,7 +3263,7 @@ def business_units_collection(request: HttpRequest) -> HttpResponse:
         current_user,
         status_code=_service_status_code(selected_status_code),
     )
-    return _render_collection_page(
+    return _render_list_only_collection(
         request,
         current_user,
         title=BUSINESS_UNIT_CONFIG.list_title,
@@ -3176,17 +3272,48 @@ def business_units_collection(request: HttpRequest) -> HttpResponse:
         table_headers=BUSINESS_UNIT_CONFIG.table_headers,
         table_rows=_business_unit_rows(business_units),
         empty_message=BUSINESS_UNIT_CONFIG.empty_message,
-        form_title="Create Business Unit",
+        create_label="Create Business Unit",
+        create_href="/system/business-units/new/",
+        filter_links=filter_links,
+        filter_title="Business Unit Status",
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def business_unit_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            business_unit = BusinessUnitManagementService.create_business_unit(
+                current_user,
+                {
+                    "bu_code": request.POST.get("bu_code", ""),
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/business-units/{business_unit['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=BUSINESS_UNIT_CONFIG,
+        form_fields=_business_unit_general_fields(current_user, post_data=post_data),
+        form_error=form_error,
         form_intro=(
             "Create a new Business Unit in your active office. It will inherit its "
             "operational configuration from the parent Office, and your admin scope will "
             "be extended to include it."
         ),
-        form_fields=_business_unit_general_fields(current_user, post_data=post_data),
-        submit_label="Create Business Unit",
-        form_error=form_error,
-        filter_links=filter_links,
-        filter_title="Business Unit Status",
     )
 
 
@@ -3687,27 +3814,6 @@ def employees_collection(request: HttpRequest) -> HttpResponse:
     if not isinstance(current_user, CurrentUser):
         return current_user
 
-    form_error = ""
-    post_data = request.POST if request.method == "POST" else None
-    if request.method == "POST":
-        try:
-            employee = EmployeeManagementService.create_employee(
-                current_user,
-                {
-                    "employee_code": request.POST.get("employee_code", ""),
-                    "full_name": request.POST.get("full_name", ""),
-                    "email": request.POST.get("email", ""),
-                    "status_code": request.POST.get("status_code", "ACTIVE"),
-                    "primary_business_unit_id": request.POST.get("primary_business_unit_id", ""),
-                    "business_unit_ids": request.POST.getlist("business_unit_ids"),
-                    "role_codes": request.POST.getlist("role_codes"),
-                },
-            )
-        except AuthError as error:
-            form_error = error.message
-        else:
-            return redirect(f"/system/employees/{employee['id']}/")
-
     selected_status_code, filter_links = _status_filter_links(
         request,
         domain_code="EMPLOYEE_STATUS",
@@ -3729,15 +3835,77 @@ def employees_collection(request: HttpRequest) -> HttpResponse:
         table_headers=("Employee Code", "Full Name", "Email", "Status", "Primary BU", "Roles"),
         table_rows=_employee_rows(employees),
         empty_message="No employees are available in your assigned Business Units yet.",
-        form_title="Create Employee",
-        form_intro=(
-            "Create a new internal employee record with its initial roles and Business Unit scope."
-        ),
-        form_fields=_employee_create_fields(current_user, post_data=post_data),
-        submit_label="Create Employee",
-        form_error=form_error,
-        filter_links=filter_links,
+        form_title=None,
+        filter_links=[],
         filter_title="Employee Status",
+        show_filter_panel=False,
+        inline_filter_links=filter_links,
+        inline_filter_title="Employee Status",
+        records_heading="",
+        page_action={"label": "Create Employee", "href": "/system/employees/new/"},
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def employee_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            employee = EmployeeManagementService.create_employee(
+                current_user,
+                {
+                    "employee_code": request.POST.get("employee_code", ""),
+                    "full_name": request.POST.get("full_name", ""),
+                    "email": request.POST.get("email", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                    "primary_business_unit_id": request.POST.get("primary_business_unit_id", ""),
+                    "business_unit_ids": request.POST.getlist("business_unit_ids"),
+                    "role_codes": request.POST.getlist("role_codes"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/employees/{employee['id']}/")
+
+    detail_rows = [
+        ("Office", current_user.office_name),
+        (
+            "Available Business Units",
+            ", ".join(unit.bu_code for unit in current_user.scoped_business_units),
+        ),
+    ]
+    form_sections = [
+        {
+            "form_name": "create",
+            "title": "Employee Setup",
+            "intro": (
+                "Create a new internal employee record with its initial roles and Business Unit "
+                "scope."
+            ),
+            "submit_label": "Create Employee",
+            "form_error": form_error,
+            "fields": _employee_create_fields(current_user, post_data=post_data),
+        }
+    ]
+    return _render_detail_page(
+        request,
+        current_user,
+        title="Create Employee",
+        eyebrow="SCR-110",
+        intro="Standalone employee creation screen for identity, role, and scope setup.",
+        detail_rows=detail_rows,
+        form_sections=form_sections,
+        back_href="/system/employees/",
+        back_label="Back to Employees",
+        entity_status="New",
+        show_detail_panel=False,
+        page_action={"label": "Back to Employees", "href": "/system/employees/"},
     )
 
 
@@ -3885,7 +4053,7 @@ def _render_master_collection(
     form_error: str,
     filter_links: list[dict],
 ) -> HttpResponse:
-    return _render_collection_page(
+    return _render_list_only_collection(
         request,
         current_user,
         title=config.list_title,
@@ -3894,13 +4062,8 @@ def _render_master_collection(
         table_headers=config.table_headers,
         table_rows=table_rows,
         empty_message=config.empty_message,
-        form_title=f"Create {config.singular_label}",
-        form_intro=(
-            f"Create a new {config.singular_label.lower()} in your assigned Business Unit scope."
-        ),
-        form_fields=form_fields,
-        submit_label=f"Create {config.singular_label}",
-        form_error=form_error,
+        create_label=f"Create {config.singular_label}",
+        create_href=_master_create_path(config),
         filter_links=filter_links,
         filter_title=f"{config.singular_label} Status",
     )
@@ -3980,7 +4143,7 @@ def clients_collection(request: HttpRequest) -> HttpResponse:
         current_user,
         status_code=_service_status_code(selected_status_code),
     )
-    return _render_collection_page(
+    return _render_list_only_collection(
         request,
         current_user,
         title=CLIENT_CONFIG.list_title,
@@ -3989,13 +4152,44 @@ def clients_collection(request: HttpRequest) -> HttpResponse:
         table_headers=CLIENT_CONFIG.table_headers,
         table_rows=_client_rows(clients),
         empty_message=CLIENT_CONFIG.empty_message,
-        form_title="Create Client",
-        form_intro="Create a new Client in your active Office.",
-        form_fields=_client_form_fields(current_user, post_data=post_data),
-        submit_label="Create Client",
-        form_error=form_error,
+        create_label="Create Client",
+        create_href="/system/clients/new/",
         filter_links=filter_links,
         filter_title="Client Status",
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def client_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            client = ClientManagementService.create_client(
+                current_user,
+                {
+                    "client_code": request.POST.get("client_code", ""),
+                    "name": request.POST.get("name", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                    "parent_client_id": request.POST.get("parent_client_id", ""),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/clients/{client['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=CLIENT_CONFIG,
+        form_fields=_client_form_fields(current_user, post_data=post_data),
+        form_error=form_error,
+        form_intro="Create a new Client in your active Office.",
     )
 
 
@@ -4145,6 +4339,51 @@ def internal_categories_collection(request: HttpRequest) -> HttpResponse:
 
 
 @require_http_methods(["GET", "POST"])
+def internal_category_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            category = InternalCategoryManagementService.create_category(
+                current_user,
+                {
+                    "business_unit_id": request.POST.get("business_unit_id", ""),
+                    "category_code": request.POST.get("category_code", ""),
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/internal-categories/{category['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=INTERNAL_CATEGORY_CONFIG,
+        form_fields=_simple_master_fields(
+            current_user,
+            post_data=post_data,
+            entity=None,
+            business_unit_label="Business Unit",
+            code_name="category_code",
+            code_label="Category Code",
+            name_label="Category Name",
+            description_label="Description",
+            status_domain="INTERNAL_CATEGORY_STATUS",
+        ),
+        form_error=form_error,
+        form_intro="Create a new internal category in your assigned Business Unit scope.",
+    )
+
+
+@require_http_methods(["GET", "POST"])
 def internal_category_detail(request: HttpRequest, category_id: int) -> HttpResponse:
     current_user = _require_ts_admin(request)
     if not isinstance(current_user, CurrentUser):
@@ -4271,7 +4510,7 @@ def cost_centers_collection(request: HttpRequest) -> HttpResponse:
         current_user,
         status_code=_service_status_code(selected_status_code),
     )
-    return _render_collection_page(
+    return _render_list_only_collection(
         request,
         current_user,
         title=COST_CENTER_CONFIG.list_title,
@@ -4280,13 +4519,44 @@ def cost_centers_collection(request: HttpRequest) -> HttpResponse:
         table_headers=COST_CENTER_CONFIG.table_headers,
         table_rows=_cost_center_rows(cost_centers),
         empty_message=COST_CENTER_CONFIG.empty_message,
-        form_title="Create Cost Center",
-        form_intro="Create a new Cost Center in your active Office.",
-        form_fields=_cost_center_fields(current_user, post_data=post_data),
-        submit_label="Create Cost Center",
-        form_error=form_error,
+        create_label="Create Cost Center",
+        create_href="/system/cost-centers/new/",
         filter_links=filter_links,
         filter_title="Cost Center Status",
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def cost_center_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            cost_center = CostCenterManagementService.create_cost_center(
+                current_user,
+                {
+                    "cost_center_code": request.POST.get("cost_center_code", ""),
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/cost-centers/{cost_center['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=COST_CENTER_CONFIG,
+        form_fields=_cost_center_fields(current_user, post_data=post_data),
+        form_error=form_error,
+        form_intro="Create a new Cost Center in your active Office.",
     )
 
 
@@ -4401,7 +4671,7 @@ def pricing_models_collection(request: HttpRequest) -> HttpResponse:
             return redirect(f"/system/pricing-models/{pricing_model['id']}/")
 
     pricing_models = PricingModelManagementService.list_pricing_models(current_user)
-    return _render_collection_page(
+    return _render_list_only_collection(
         request,
         current_user,
         title=PRICING_MODEL_CONFIG.list_title,
@@ -4410,12 +4680,41 @@ def pricing_models_collection(request: HttpRequest) -> HttpResponse:
         table_headers=PRICING_MODEL_CONFIG.table_headers,
         table_rows=_pricing_model_rows(pricing_models),
         empty_message=PRICING_MODEL_CONFIG.empty_message,
-        form_title="Create Pricing Model",
-        form_intro="Create a new pricing model in your active Office.",
-        form_fields=_pricing_model_fields(current_user, post_data=post_data),
-        submit_label="Create Pricing Model",
-        form_error=form_error,
+        create_label="Create Pricing Model",
+        create_href="/system/pricing-models/new/",
         filter_links=[],
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def pricing_model_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            pricing_model = PricingModelManagementService.create_pricing_model(
+                current_user,
+                {
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/pricing-models/{pricing_model['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=PRICING_MODEL_CONFIG,
+        form_fields=_pricing_model_fields(current_user, post_data=post_data),
+        form_error=form_error,
+        form_intro="Create a new pricing model in your active Office.",
     )
 
 
@@ -4553,6 +4852,41 @@ def general_charge_code_approval_roles_collection(request: HttpRequest) -> HttpR
         table_rows=_general_charge_code_approval_role_rows(approval_roles),
         form_error=form_error,
         filter_links=filter_links,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def general_charge_code_approval_role_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            approval_role = GeneralChargeCodeApprovalRoleManagementService.create_approval_role(
+                current_user,
+                {
+                    "role_code": request.POST.get("role_code", ""),
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
+                    "member_employee_ids": request.POST.getlist("member_employee_ids"),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/general-charge-code-approval-roles/{approval_role['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=GENERAL_CHARGE_CODE_APPROVAL_ROLE_CONFIG,
+        form_fields=_general_charge_code_approval_role_fields(current_user, post_data=post_data),
+        form_error=form_error,
+        form_intro="Create a new ad-hoc General Charge Code approval role in your active Office.",
     )
 
 
@@ -4700,6 +5034,52 @@ def general_charge_codes_collection(request: HttpRequest) -> HttpResponse:
         table_rows=_general_charge_code_rows(general_charge_codes),
         form_error=form_error,
         filter_links=filter_links,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def general_charge_code_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            general_charge_code = GeneralChargeCodeManagementService.create_general_charge_code(
+                current_user,
+                {
+                    "business_unit_id": request.POST.get("business_unit_id", ""),
+                    "code": request.POST.get("code", ""),
+                    "name": request.POST.get("name", ""),
+                    "charge_type_code": request.POST.get("charge_type_code", "STANDARD"),
+                    "cost_center_id": request.POST.get("cost_center_id", ""),
+                    "billable_flag": _bool_from_post(request.POST, "billable_flag"),
+                    "requires_approval_flag": _bool_from_post(
+                        request.POST, "requires_approval_flag"
+                    ),
+                    "approver_keys": request.POST.getlist("approver_keys"),
+                    "description_required_flag": _bool_from_post(
+                        request.POST, "description_required_flag"
+                    ),
+                    "valid_from": request.POST.get("valid_from", ""),
+                    "valid_to": request.POST.get("valid_to", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/general-charge-codes/{general_charge_code['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=GENERAL_CHARGE_CODE_CONFIG,
+        form_fields=_general_charge_code_fields(current_user, post_data=post_data),
+        form_error=form_error,
+        form_intro="Create a new General Charge Code in your assigned Business Unit scope.",
     )
 
 
@@ -4866,6 +5246,51 @@ def projects_collection(request: HttpRequest) -> HttpResponse:
 
 
 @require_http_methods(["GET", "POST"])
+def project_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            project = ProjectManagementService.create_project(
+                current_user,
+                {
+                    "business_unit_id": request.POST.get("business_unit_id", ""),
+                    "project_code": request.POST.get("project_code", ""),
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
+                    "project_owner_employee_id": request.POST.get("project_owner_employee_id", ""),
+                    "project_manager_employee_id": request.POST.get("project_manager_employee_id", ""),
+                    "client_id": request.POST.get("client_id", ""),
+                    "internal_category_id": request.POST.get("internal_category_id", ""),
+                    "cost_center_id": request.POST.get("cost_center_id", ""),
+                    "pricing_model_id": request.POST.get("pricing_model_id", ""),
+                    "start_date": request.POST.get("start_date", ""),
+                    "end_date": request.POST.get("end_date", ""),
+                    "close_date": request.POST.get("close_date", ""),
+                    "billable_flag": _bool_from_post(request.POST, "billable_flag"),
+                    "status_code": request.POST.get("status_code", "DRAFT"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/projects/{project['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=PROJECT_CONFIG,
+        form_fields=_project_form_fields(current_user, post_data=post_data),
+        form_error=form_error,
+        form_intro="Create a new Project in your assigned Business Unit scope.",
+    )
+
+
+@require_http_methods(["GET", "POST"])
 def project_detail(request: HttpRequest, project_id: int) -> HttpResponse:
     current_user = _require_ts_admin(request)
     if not isinstance(current_user, CurrentUser):
@@ -5008,6 +5433,41 @@ def project_assignments_collection(request: HttpRequest) -> HttpResponse:
 
 
 @require_http_methods(["GET", "POST"])
+def project_assignment_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            assignment = ProjectAssignmentManagementService.create_assignment(
+                current_user,
+                {
+                    "project_id": request.POST.get("project_id", ""),
+                    "employee_id": request.POST.get("employee_id", ""),
+                    "assignment_start_date": request.POST.get("assignment_start_date", ""),
+                    "assignment_end_date": request.POST.get("assignment_end_date", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/project-assignments/{assignment['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=PROJECT_ASSIGNMENT_CONFIG,
+        form_fields=_project_assignment_fields(current_user, post_data=post_data),
+        form_error=form_error,
+        form_intro="Create a new Project Assignment in your assigned Business Unit scope.",
+    )
+
+
+@require_http_methods(["GET", "POST"])
 def project_assignment_detail(request: HttpRequest, assignment_id: int) -> HttpResponse:
     current_user = _require_ts_admin(request)
     if not isinstance(current_user, CurrentUser):
@@ -5129,6 +5589,41 @@ def yearly_calendars_collection(request: HttpRequest) -> HttpResponse:
         table_rows=_yearly_calendar_rows(yearly_calendars),
         form_error=form_error,
         filter_links=filter_links,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def yearly_calendar_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            yearly_calendar = YearlyCalendarManagementService.create_yearly_calendar(
+                current_user,
+                {
+                    "calendar_year": request.POST.get("calendar_year", ""),
+                    "calendar_name": request.POST.get("calendar_name", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/calendars/{yearly_calendar['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=YEARLY_CALENDAR_CONFIG,
+        form_fields=_yearly_calendar_fields(current_user, post_data=post_data),
+        form_error=form_error,
+        form_intro="Create a new Yearly Calendar in your active Office.",
+        setup_title="Calendar Setup",
+        submit_label="Create Calendar",
     )
 
 
@@ -5453,6 +5948,56 @@ def calendar_period_rules_collection(request: HttpRequest) -> HttpResponse:
         table_rows=_calendar_period_rule_rows(period_rules),
         form_error=form_error,
         filter_links=filter_links,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def calendar_period_rule_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            period_rule = CalendarPeriodRuleManagementService.create_period_rule(
+                current_user,
+                {
+                    "business_unit_id": request.POST.get("business_unit_id", ""),
+                    "yearly_calendar_id": request.POST.get("yearly_calendar_id", ""),
+                    "effective_from": request.POST.get("effective_from", ""),
+                    "effective_to": request.POST.get("effective_to", ""),
+                    "monday_max_hours": request.POST.get("monday_max_hours", ""),
+                    "tuesday_max_hours": request.POST.get("tuesday_max_hours", ""),
+                    "wednesday_max_hours": request.POST.get("wednesday_max_hours", ""),
+                    "thursday_max_hours": request.POST.get("thursday_max_hours", ""),
+                    "friday_max_hours": request.POST.get("friday_max_hours", ""),
+                    "working_on_saturdays_flag": _bool_from_post(
+                        request.POST,
+                        "working_on_saturdays_flag",
+                    ),
+                    "saturday_max_hours": request.POST.get("saturday_max_hours", ""),
+                    "working_on_sundays_flag": _bool_from_post(
+                        request.POST,
+                        "working_on_sundays_flag",
+                    ),
+                    "sunday_max_hours": request.POST.get("sunday_max_hours", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/calendar-period-rules/{period_rule['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=CALENDAR_PERIOD_RULE_CONFIG,
+        form_fields=_calendar_period_rule_fields(current_user, post_data=post_data),
+        form_error=form_error,
+        form_intro="Create a new Calendar Period Rule in your assigned Business Unit scope.",
     )
 
 

@@ -237,6 +237,26 @@ def test_ts_admin_navigation_includes_pricing_models_link() -> None:
     initialize_ui_session(client, employee.email)
 
     response = client.get("/")
+    system_group = next(
+        group
+        for group in response.context["navigation_groups"]
+        if group.label == "System Management"
+    )
 
     assert response.status_code == 200
     assert "/system/pricing-models/" in response.content.decode()
+    assert [item.label for item in system_group.items] == [
+        "System Management",
+        "Employees",
+        "Clients",
+        "Projects",
+        "Project Assignments",
+        "Internal Categories",
+        "Cost Centers",
+        "Pricing Models",
+        "Business Units",
+        "Calendars",
+        "Calendar Period Rules",
+        "GCC Approval Roles",
+        "General Charge Codes",
+    ]

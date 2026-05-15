@@ -19,26 +19,73 @@
           <h1>{{ page_title }}</h1>
           <p>{{ page_intro }}</p>
         </div>
-        <span class="chip">{{ entity_status }}</span>
+        <div class="content-stack" style="justify-items: end;">
+          <span class="chip">{{ entity_status }}</span>
+          {% if page_action %}
+            <a class="button secondary" href="{{ page_action.href }}">{{ page_action.label }}</a>
+          {% endif %}
+        </div>
       </div>
     </div>
 
-    <div class="split-grid">
-      <section class="surface-card">
-        <div class="section-header">
-          <h2>Current State</h2>
-          <p><a href="{{ back_href }}">{{ back_label }}</a></p>
-        </div>
-        <dl class="meta-grid">
-          {% for label, value in detail_rows %}
-            <div class="meta-row">
-              <dt>{{ label }}</dt>
-              <dd>{{ value }}</dd>
-            </div>
-          {% endfor %}
-        </dl>
-      </section>
+    {% if show_detail_panel %}
+      <div class="split-grid">
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>Current State</h2>
+            <p><a href="{{ back_href }}">{{ back_label }}</a></p>
+          </div>
+          <dl class="meta-grid">
+            {% for label, value in detail_rows %}
+              <div class="meta-row">
+                <dt>{{ label }}</dt>
+                <dd>{{ value }}</dd>
+              </div>
+            {% endfor %}
+          </dl>
+        </section>
 
+        <div class="content-stack">
+          {% for section in form_sections %}
+            <section class="surface-card">
+              <div class="section-header">
+                <h2>{{ section.title }}</h2>
+                <p>{{ section.intro }}</p>
+              </div>
+              {% if section.form_error %}
+                <div class="banner error">{{ section.form_error }}</div>
+              {% endif %}
+              {% if section.read_only %}
+                <div class="form-stack">
+                  {% if section.detail_rows %}
+                    <dl class="meta-grid">
+                      {% for label, value in section.detail_rows %}
+                        <div class="meta-row">
+                          <dt>{{ label }}</dt>
+                          <dd>{{ value }}</dd>
+                        </div>
+                      {% endfor %}
+                    </dl>
+                  {% elif section.empty_message %}
+                    <div class="empty-state">{{ section.empty_message }}</div>
+                  {% endif %}
+                  {% include "core/partials/form_fields.html" with fields=section.fields %}
+                </div>
+              {% else %}
+                <form class="form-stack" method="post" action="">
+                  {% csrf_token %}
+                  <input type="hidden" name="form_name" value="{{ section.form_name }}">
+                  {% include "core/partials/form_fields.html" with fields=section.fields %}
+                  <div>
+                    <button class="button" type="submit">{{ section.submit_label }}</button>
+                  </div>
+                </form>
+              {% endif %}
+            </section>
+          {% endfor %}
+        </div>
+      </div>
+    {% else %}
       <div class="content-stack">
         {% for section in form_sections %}
           <section class="surface-card">
@@ -78,6 +125,6 @@
           </section>
         {% endfor %}
       </div>
-    </div>
+    {% endif %}
   </div>
 {% endblock %}

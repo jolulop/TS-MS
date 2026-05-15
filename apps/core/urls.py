@@ -25,17 +25,32 @@ urlpatterns = [
         name="system-business-units",
     ),
     path(
+        "system/business-units/new/",
+        system_views.business_unit_create,
+        name="system-business-unit-create",
+    ),
+    path(
         "system/business-units/<int:business_unit_id>/",
         system_views.business_unit_detail,
         name="system-business-unit-detail",
     ),
     path("system/employees/", system_views.employees_collection, name="system-employees"),
     path(
+        "system/employees/new/",
+        system_views.employee_create,
+        name="system-employee-create",
+    ),
+    path(
         "system/employees/<int:employee_id>/",
         system_views.employee_detail,
         name="system-employee-detail",
     ),
     path("system/clients/", system_views.clients_collection, name="system-clients"),
+    path(
+        "system/clients/new/",
+        system_views.client_create,
+        name="system-client-create",
+    ),
     path(
         "system/clients/<int:client_id>/",
         system_views.client_detail,
@@ -45,6 +60,11 @@ urlpatterns = [
         "system/internal-categories/",
         system_views.internal_categories_collection,
         name="system-internal-categories",
+    ),
+    path(
+        "system/internal-categories/new/",
+        system_views.internal_category_create,
+        name="system-internal-category-create",
     ),
     path(
         "system/internal-categories/<int:category_id>/",
@@ -57,6 +77,11 @@ urlpatterns = [
         name="system-cost-centers",
     ),
     path(
+        "system/cost-centers/new/",
+        system_views.cost_center_create,
+        name="system-cost-center-create",
+    ),
+    path(
         "system/cost-centers/<int:cost_center_id>/",
         system_views.cost_center_detail,
         name="system-cost-center-detail",
@@ -65,6 +90,11 @@ urlpatterns = [
         "system/pricing-models/",
         system_views.pricing_models_collection,
         name="system-pricing-models",
+    ),
+    path(
+        "system/pricing-models/new/",
+        system_views.pricing_model_create,
+        name="system-pricing-model-create",
     ),
     path(
         "system/pricing-models/<int:pricing_model_id>/",
@@ -77,6 +107,11 @@ urlpatterns = [
         name="system-general-charge-code-approval-roles",
     ),
     path(
+        "system/general-charge-code-approval-roles/new/",
+        system_views.general_charge_code_approval_role_create,
+        name="system-general-charge-code-approval-role-create",
+    ),
+    path(
         "system/general-charge-code-approval-roles/<int:approval_role_id>/",
         system_views.general_charge_code_approval_role_detail,
         name="system-general-charge-code-approval-role-detail",
@@ -87,11 +122,21 @@ urlpatterns = [
         name="system-general-charge-codes",
     ),
     path(
+        "system/general-charge-codes/new/",
+        system_views.general_charge_code_create,
+        name="system-general-charge-code-create",
+    ),
+    path(
         "system/general-charge-codes/<int:general_charge_code_id>/",
         system_views.general_charge_code_detail,
         name="system-general-charge-code-detail",
     ),
     path("system/projects/", system_views.projects_collection, name="system-projects"),
+    path(
+        "system/projects/new/",
+        system_views.project_create,
+        name="system-project-create",
+    ),
     path(
         "system/projects/<int:project_id>/",
         system_views.project_detail,
@@ -103,11 +148,21 @@ urlpatterns = [
         name="system-project-assignments",
     ),
     path(
+        "system/project-assignments/new/",
+        system_views.project_assignment_create,
+        name="system-project-assignment-create",
+    ),
+    path(
         "system/project-assignments/<int:assignment_id>/",
         system_views.project_assignment_detail,
         name="system-project-assignment-detail",
     ),
     path("system/calendars/", system_views.yearly_calendars_collection, name="system-calendars"),
+    path(
+        "system/calendars/new/",
+        system_views.yearly_calendar_create,
+        name="system-calendar-create",
+    ),
     path(
         "system/calendars/<int:yearly_calendar_id>/",
         system_views.yearly_calendar_detail,
@@ -127,6 +182,11 @@ urlpatterns = [
         "system/calendar-period-rules/",
         system_views.calendar_period_rules_collection,
         name="system-calendar-period-rules",
+    ),
+    path(
+        "system/calendar-period-rules/new/",
+        system_views.calendar_period_rule_create,
+        name="system-calendar-period-rule-create",
     ),
     path(
         "system/calendar-period-rules/<int:period_rule_id>/",

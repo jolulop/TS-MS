@@ -153,15 +153,6 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
             cards.extend(
                 [
                     {
-                        "title": "Business Units",
-                        "summary": (
-                            "Review Business Unit identity, lifecycle status, and "
-                            "BU-level configuration inside your admin scope."
-                        ),
-                        "status": "Ready now",
-                        "href": "/system/business-units/",
-                    },
-                    {
                         "title": "Employees",
                         "summary": (
                             "Create and maintain employee identity, internal "
@@ -171,19 +162,26 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         "href": "/system/employees/",
                     },
                     {
-                        "title": "Calendars",
-                        "summary": (
-                            "Manage yearly calendars, month views, special days, and the "
-                            "period rules attached to those calendars."
-                        ),
-                        "status": "Ready now",
-                        "href": "/system/calendars/",
-                    },
-                    {
                         "title": "Clients",
                         "summary": "Manage office-level clients inside the active Office.",
                         "status": "Ready now",
                         "href": "/system/clients/",
+                    },
+                    {
+                        "title": "Projects",
+                        "summary": (
+                            "Manage project ownership, classification, and lifecycle fields."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/projects/",
+                    },
+                    {
+                        "title": "Project Assignments",
+                        "summary": (
+                            "Manage project staffing windows and active/inactive assignment scope."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/project-assignments/",
                     },
                     {
                         "title": "Internal Categories",
@@ -211,6 +209,24 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         "href": "/system/pricing-models/",
                     },
                     {
+                        "title": "Business Units",
+                        "summary": (
+                            "Review Business Unit identity, lifecycle status, and "
+                            "BU-level configuration inside your admin scope."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/business-units/",
+                    },
+                    {
+                        "title": "Calendars",
+                        "summary": (
+                            "Manage yearly calendars, month views, special days, and the "
+                            "period rules attached to those calendars."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/calendars/",
+                    },
+                    {
                         "title": "Calendar Period Rules",
                         "summary": (
                             "Maintain BU-specific daily-hour rules inside the shared "
@@ -236,22 +252,6 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         ),
                         "status": "Ready now",
                         "href": "/system/general-charge-codes/",
-                    },
-                    {
-                        "title": "Projects",
-                        "summary": (
-                            "Manage project ownership, classification, and lifecycle fields."
-                        ),
-                        "status": "Ready now",
-                        "href": "/system/projects/",
-                    },
-                    {
-                        "title": "Project Assignments",
-                        "summary": (
-                            "Manage project staffing windows and active/inactive assignment scope."
-                        ),
-                        "status": "Ready now",
-                        "href": "/system/project-assignments/",
                     },
                 ]
             )

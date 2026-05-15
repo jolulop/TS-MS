@@ -179,7 +179,10 @@ def test_system_management_hub_shows_real_admin_screen_links() -> None:
 
     assert response.status_code == 200
     content = response.content.decode()
-    assert "Ready now" in content
+    assert "Ready now" not in content
+    assert "Open Screen" not in content
+    assert '<a href="/system/business-units/">Business Units</a>' in content
+    assert '<a href="/system/employees/">Employees</a>' in content
     assert "/system/business-units/" in content
     assert "/system/employees/" in content
     assert "/system/clients/" in content
@@ -192,6 +195,44 @@ def test_system_management_hub_shows_real_admin_screen_links() -> None:
     card_hrefs = {card["href"] for card in response.context["section_cards"]}
     assert "/system/pricing-models/" in card_hrefs
     assert "/system/calendar-period-rules/" in card_hrefs
+    assert [card["title"] for card in response.context["section_cards"]] == [
+        "Employees",
+        "Clients",
+        "Projects",
+        "Project Assignments",
+        "Internal Categories",
+        "Cost Centers",
+        "Pricing Models",
+        "Business Units",
+        "Calendars",
+        "Calendar Period Rules",
+        "GCC Approval Roles",
+        "General Charge Codes",
+    ]
+
+
+@pytest.mark.django_db
+def test_system_management_section_links_follow_requested_order() -> None:
+    client, _, _ = _build_ts_admin_client()
+
+    response = client.get("/system/employees/")
+
+    assert response.status_code == 200
+    assert [link["label"] for link in response.context["system_section_links"]] == [
+        "Overview",
+        "Employees",
+        "Clients",
+        "Projects",
+        "Project Assignments",
+        "Internal Categories",
+        "Cost Centers",
+        "Pricing Models",
+        "Business Units",
+        "Calendars",
+        "Calendar Period Rules",
+        "GCC Approval Roles",
+        "General Charge Codes",
+    ]
 
 
 @pytest.mark.django_db
@@ -202,6 +243,10 @@ def test_system_management_hub_shows_country_and_office_links_for_master_admin()
 
     assert response.status_code == 200
     content = response.content.decode()
+    assert "Ready now" not in content
+    assert "Open Screen" not in content
+    assert '<a href="/system/countries/">Countries</a>' in content
+    assert '<a href="/system/offices/">Offices</a>' in content
     assert "Countries" in content
     assert "Offices" in content
     card_hrefs = {card["href"] for card in response.context["section_cards"]}
@@ -331,7 +376,7 @@ def test_employee_management_create_and_update_flows_render_through_html() -> No
     assign_role(employee=managed_employee, role_code="USER")
 
     create_response = client.post(
-        "/system/employees/",
+        "/system/employees/new/",
         data={
             "employee_code": "EMP-NEW-1",
             "full_name": "New Employee",
@@ -411,10 +456,28 @@ def test_employee_management_create_and_update_flows_render_through_html() -> No
 
 
 @pytest.mark.django_db
-def test_employee_create_form_does_not_preselect_business_unit_scope() -> None:
+def test_employee_management_collection_hides_create_form_until_requested() -> None:
     client, _, _ = _build_ts_admin_client()
 
     response = client.get("/system/employees/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Current Records" not in content
+    assert "Create Employee" in content
+    assert 'href="/system/employees/new/"' in content
+    assert '<form class="form-stack" method="post" action="">' not in content
+    assert 'aria-label="Employee Status"' in content
+    assert 'href="/system/employees/?status=ACTIVE"' in content
+    assert 'href="/system/employees/?status=ALL"' in content
+    assert ">Filters<" not in content
+
+
+@pytest.mark.django_db
+def test_employee_create_form_does_not_preselect_business_unit_scope() -> None:
+    client, _, _ = _build_ts_admin_client()
+
+    response = client.get("/system/employees/new/")
 
     assert response.status_code == 200
     content = response.content.decode()
@@ -428,6 +491,107 @@ def test_employee_create_form_does_not_preselect_business_unit_scope() -> None:
     assert "selected" not in match.group(1)
     assert "Additional Business Units" in content
     assert "The selected primary Business Unit is always included automatically" in content
+
+
+@pytest.mark.django_db
+def test_employee_create_form_is_shown_when_requested() -> None:
+    client, _, _ = _build_ts_admin_client()
+
+    response = client.get("/system/employees/new/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Create Employee" in content
+    assert '<form class="form-stack" method="post" action="">' in content
+    assert "Back to Employees" in content
+    assert "Employee Setup" in content
+    assert "Current State" not in content
+    assert ">Filters<" not in content
+
+
+@pytest.mark.django_db
+def test_employee_create_route_renders_standalone_screen() -> None:
+    client, _, _ = _build_ts_admin_client()
+
+    response = client.get("/system/employees/new/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Standalone employee creation screen" in content
+    assert "Back to Employees" in content
+    assert 'name="form_name" value="create"' in content
+    assert "Current State" not in content
+
+
+@pytest.mark.parametrize(
+    ("collection_path", "create_path", "filter_label", "setup_title"),
+    [
+        ("/system/business-units/", "/system/business-units/new/", "Business Unit Status", "Business Unit Setup"),
+        ("/system/clients/", "/system/clients/new/", "Client Status", "Client Setup"),
+        ("/system/projects/", "/system/projects/new/", "Project Status", "Project Setup"),
+        (
+            "/system/project-assignments/",
+            "/system/project-assignments/new/",
+            "Project Assignment Status",
+            "Project Assignment Setup",
+        ),
+        (
+            "/system/internal-categories/",
+            "/system/internal-categories/new/",
+            "Internal Category Status",
+            "Internal Category Setup",
+        ),
+        ("/system/cost-centers/", "/system/cost-centers/new/", "Cost Center Status", "Cost Center Setup"),
+        ("/system/pricing-models/", "/system/pricing-models/new/", None, "Pricing Model Setup"),
+        ("/system/calendars/", "/system/calendars/new/", "Calendar Status", "Calendar Setup"),
+        (
+            "/system/calendar-period-rules/",
+            "/system/calendar-period-rules/new/",
+            "Calendar Period Rule Status",
+            "Calendar Period Rule Setup",
+        ),
+        (
+            "/system/general-charge-code-approval-roles/",
+            "/system/general-charge-code-approval-roles/new/",
+            "General Charge Code Approval Role Status",
+            "General Charge Code Approval Role Setup",
+        ),
+        (
+            "/system/general-charge-codes/",
+            "/system/general-charge-codes/new/",
+            "General Charge Code Status",
+            "General Charge Code Setup",
+        ),
+    ],
+)
+@pytest.mark.django_db
+def test_system_management_collection_pages_use_standalone_create_screen_layout(
+    collection_path: str,
+    create_path: str,
+    filter_label: str | None,
+    setup_title: str,
+) -> None:
+    client, _, _ = _build_ts_admin_client()
+
+    collection_response = client.get(collection_path)
+    create_response = client.get(create_path)
+
+    assert collection_response.status_code == 200
+    collection_content = collection_response.content.decode()
+    assert "Current Records" not in collection_content
+    assert ">Filters<" not in collection_content
+    assert f'href="{create_path}"' in collection_content
+    assert '<form class="form-stack" method="post" action="">' not in collection_content
+    if filter_label is None:
+        assert 'aria-label="' not in collection_content or filter_label is None
+    else:
+        assert f'aria-label="{filter_label}"' in collection_content
+
+    assert create_response.status_code == 200
+    create_content = create_response.content.decode()
+    assert "Current State" not in create_content
+    assert setup_title in create_content
+    assert 'name="form_name" value="create"' in create_content
 
 
 @pytest.mark.django_db
@@ -464,7 +628,7 @@ def test_employee_create_without_scope_selection_uses_only_primary_business_unit
     client, _, business_units = _build_ts_admin_client()
 
     response = client.post(
-        "/system/employees/",
+        "/system/employees/new/",
         data={
             "employee_code": "EMP-NEW-PRIMARY-ONLY",
             "full_name": "Primary Only Employee",
@@ -497,7 +661,7 @@ def test_employee_management_can_delete_unused_employee_via_html() -> None:
     client, _, business_units = _build_ts_admin_client()
 
     create_response = client.post(
-        "/system/employees/",
+        "/system/employees/new/",
         data={
             "employee_code": "EMP-DELETE-1",
             "full_name": "Delete Me",
@@ -699,7 +863,7 @@ def test_client_management_create_and_update_via_html() -> None:
     assert created_client.status.value_code == "INACTIVE"
     assert created_client.parent_client_id is None
 
-    collection_response = client.get("/system/clients/")
+    collection_response = client.get("/system/clients/new/")
     assert collection_response.status_code == 200
     assert 'name="business_unit_id"' not in collection_response.content.decode()
 
@@ -961,7 +1125,7 @@ def test_country_bound_forms_show_read_only_country_context() -> None:
         effective_to=date(2026, 3, 31),
     )
 
-    collection_response = client.get("/system/clients/")
+    collection_response = client.get("/system/clients/new/")
     client_detail_response = client.get(f"/system/clients/{managed_client.id}/")
     period_rule_detail_response = client.get(f"/system/calendar-period-rules/{period_rule.id}/")
 
@@ -1168,7 +1332,7 @@ def test_general_charge_code_management_requires_cost_center_via_html() -> None:
     client, _, business_units = _build_ts_admin_client()
 
     response = client.post(
-        "/system/general-charge-codes/",
+        "/system/general-charge-codes/new/",
         data={
             "business_unit_id": str(business_units[0].id),
             "code": "GCC-NO-CC",
@@ -1539,12 +1703,12 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
         start_date=date(2026, 4, 1),
     )
 
-    collection_response = client.get("/system/project-assignments/")
+    collection_response = client.get("/system/project-assignments/new/")
     assert collection_response.status_code == 200
     assert "EMP-ASSIGN-1" in collection_response.content.decode()
 
     create_response = client.post(
-        "/system/project-assignments/",
+        "/system/project-assignments/new/",
         data={
             "project_id": str(project.id),
             "employee_id": str(assigned_employee.id),
@@ -1659,12 +1823,12 @@ def test_calendar_period_rule_management_create_and_update_via_html() -> None:
     assign_role(employee=base_employee, role_code="USER")
     assign_calendar(employee=base_employee, yearly_calendar=yearly_calendar)
 
-    collection_response = client.get("/system/calendar-period-rules/")
+    collection_response = client.get("/system/calendar-period-rules/new/")
     assert collection_response.status_code == 200
     assert 'name="business_unit_id"' in collection_response.content.decode()
 
     create_response = client.post(
-        "/system/calendar-period-rules/",
+        "/system/calendar-period-rules/new/",
         data={
             "business_unit_id": str(business_units[0].id),
             "yearly_calendar_id": str(yearly_calendar.id),
@@ -1930,7 +2094,7 @@ def test_calendar_management_rejects_second_calendar_for_same_office_year() -> N
     )
 
     response = client.post(
-        "/system/calendars/",
+        "/system/calendars/new/",
         data={
             "calendar_year": "2027",
             "calendar_name": "Second Office Calendar",

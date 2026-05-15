@@ -12,12 +12,12 @@
   <div class="card-grid">
     {% for card in section_cards %}
       <article class="info-panel">
-        <span class="chip">{{ card.status }}</span>
-        <h2 style="margin: 0.85rem 0 0;">{{ card.title }}</h2>
-        <p>{{ card.summary }}</p>
         {% if card.href %}
-          <p><a href="{{ card.href }}">Open Screen</a></p>
+          <h2 style="margin: 0.85rem 0 0;"><a href="{{ card.href }}">{{ card.title }}</a></h2>
+        {% else %}
+          <h2 style="margin: 0.85rem 0 0;">{{ card.title }}</h2>
         {% endif %}
+        <p>{{ card.summary }}</p>
       </article>
     {% endfor %}
   </div>
