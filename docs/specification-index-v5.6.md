@@ -1,4 +1,4 @@
-# Specification Index v5.5
+# Specification Index v5.6
 
 ## Purpose
 
@@ -11,21 +11,21 @@ It supersedes the incremental markdown delta notes in:
 
 It also provides a code-aligned working reference alongside the legacy `.docx` documents in this folder.
 
-## v5.5 Documents
+## v5.6 Documents
 
-- [functional-spec-v5.5.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.5.md)
-- [ui-screen-spec-v5.5.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.5.md)
-- [integration-api-spec-v5.5.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.5.md)
-- [authorization-matrix-v5.5.md](/home/jolulop/code/TS-MS/docs/authorization-matrix-v5.5.md)
-- [business-rules-catalog-v5.5.md](/home/jolulop/code/TS-MS/docs/business-rules-catalog-v5.5.md)
-- [use-cases-acceptance-v5.5.md](/home/jolulop/code/TS-MS/docs/use-cases-acceptance-v5.5.md)
-- [non-functional-requirements-v5.5.md](/home/jolulop/code/TS-MS/docs/non-functional-requirements-v5.5.md)
-- [data-model-erd-v5.5.md](/home/jolulop/code/TS-MS/docs/data-model-erd-v5.5.md)
+- [functional-spec-v5.6.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.6.md)
+- [ui-screen-spec-v5.6.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.6.md)
+- [integration-api-spec-v5.6.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.6.md)
+- [authorization-matrix-v5.6.md](/home/jolulop/code/TS-MS/docs/authorization-matrix-v5.6.md)
+- [business-rules-catalog-v5.6.md](/home/jolulop/code/TS-MS/docs/business-rules-catalog-v5.6.md)
+- [use-cases-acceptance-v5.6.md](/home/jolulop/code/TS-MS/docs/use-cases-acceptance-v5.6.md)
+- [non-functional-requirements-v5.6.md](/home/jolulop/code/TS-MS/docs/non-functional-requirements-v5.6.md)
+- [data-model-erd-v5.6.md](/home/jolulop/code/TS-MS/docs/data-model-erd-v5.6.md)
 - [database-schema-diagram.md](/home/jolulop/code/TS-MS/docs/database-schema-diagram.md)
 
 ## Version Notes
 
-v5.5 captures these major implemented changes relative to the older baseline docs:
+v5.6 captures these major implemented changes relative to the older baseline docs:
 - Country was renamed to Office.
 - Office-level configuration replaced Business Unit-owned configuration.
 - Office creation now bootstraps an initial Business Unit and Office admin employee.
@@ -50,6 +50,8 @@ v5.5 captures these major implemented changes relative to the older baseline doc
   previously lived under the personal history report.
 - System Management collections use the first-column item link as the visible navigation path and keep the old action column hidden.
 - The missing-timesheets report is now project-scoped for `PROJECT_OWNER`, `PROJECT_MANAGER`, and `TS_ADMIN`, with CSV export in UI and API.
+- `PROJECT_OWNER` can now manage owned projects and owned-project assignments from System Management.
+- `PROJECT_MANAGER` can now manage assignments for managed projects from System Management.
 
 ## Reading Order
 

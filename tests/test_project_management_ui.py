@@ -224,6 +224,8 @@ def test_project_owner_project_management_grid_shows_summary_links(monkeypatch) 
     assert response.status_code == 200
     content = response.content.decode()
     assert "Project Management" in content
+    assert "Pend. Appr." in content
+    assert "Pend. TS" not in content
     assert '<a href="/system/projects/%d/">Project Mgmt Project</a>' % context["project"].id in content
     assert 'href="/reports/project-time/?project_id=%d">6.00</a>' % context["project"].id in content
     assert 'href="/approvals/?project_id=%d">1</a>' % context["project"].id in content

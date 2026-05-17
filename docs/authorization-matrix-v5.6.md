@@ -1,4 +1,4 @@
-# Authorization Matrix v5.5
+# Authorization Matrix v5.6
 
 ## 1. Principles
 

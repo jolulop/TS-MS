@@ -36,18 +36,22 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
             current_path=current_path,
         ),
         _nav_item(
-            label="Dashboard",
-            href="/",
-            summary="Role-aware dashboard and quick actions.",
-            current_path=current_path,
-        ),
-        _nav_item(
             label="My Timesheets",
             href="/ts/",
             summary="Create, edit, submit, and review current and historical weekly timesheets.",
             current_path=current_path,
         ),
     ]
+    if not current_user.is_basic_user:
+        my_info_items.insert(
+            1,
+            _nav_item(
+                label="Dashboard",
+                href="/",
+                summary="Role-aware dashboard and quick actions.",
+                current_path=current_path,
+            ),
+        )
 
     project_items = []
     if (
@@ -63,14 +67,15 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                 current_path=current_path,
             )
         )
-    project_items.append(
-        _nav_item(
-            label="Reports",
-            href="/reports/",
-            summary="Role-aware report hub and scoped viewers.",
-            current_path=current_path,
+    if not current_user.is_basic_user:
+        project_items.append(
+            _nav_item(
+                label="Reports",
+                href="/reports/",
+                summary="Role-aware report hub and scoped viewers.",
+                current_path=current_path,
+            )
         )
-    )
     if AuthorizationPolicyService.can_access_approval_worklist(current_user):
         project_items.append(
             _nav_item(
@@ -90,15 +95,15 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
             )
         )
 
-    groups = [
-        NavGroup(label="My info", items=tuple(my_info_items)),
-        NavGroup(label="TS/Project Management", items=tuple(project_items)),
-    ]
+    groups = [NavGroup(label="My info", items=tuple(my_info_items))]
+    if project_items:
+        groups.append(NavGroup(label="TS/Project Management", items=tuple(project_items)))
 
     if (
         current_user.is_ts_admin
         or current_user.is_ts_admin_master
         or current_user.has_role("PROJECT_OWNER")
+        or current_user.has_role("PROJECT_MANAGER")
     ):
         system_items = [
             _nav_item(
@@ -204,6 +209,34 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                             "Scoped general charge code management with "
                             "Office Cost Center assignment."
                         ),
+                        current_path=current_path,
+                    ),
+                ]
+            )
+        elif current_user.has_role("PROJECT_OWNER"):
+            system_items.extend(
+                [
+                    _nav_item(
+                        label="Projects",
+                        href="/system/projects/",
+                        summary="Owned project setup and lifecycle management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Project Assignments",
+                        href="/system/project-assignments/",
+                        summary="Owned project staffing and assignment lifecycle management screens.",
+                        current_path=current_path,
+                    ),
+                ]
+            )
+        elif current_user.has_role("PROJECT_MANAGER"):
+            system_items.extend(
+                [
+                    _nav_item(
+                        label="Project Assignments",
+                        href="/system/project-assignments/",
+                        summary="Managed project staffing and assignment lifecycle management screens.",
                         current_path=current_path,
                     ),
                 ]

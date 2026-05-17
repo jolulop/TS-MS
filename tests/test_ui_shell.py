@@ -23,7 +23,7 @@ def test_access_entry_page_is_shown_for_unauthenticated_user() -> None:
 
 
 @pytest.mark.django_db
-def test_user_dashboard_hides_system_and_approval_navigation() -> None:
+def test_basic_user_is_redirected_to_my_timesheets_and_sees_trimmed_navigation() -> None:
     seed_reference_data()
     business_unit = create_business_unit(bu_code="BU-UI-1", name="UI BU 1")
     employee = create_employee(
@@ -41,17 +41,21 @@ def test_user_dashboard_hides_system_and_approval_navigation() -> None:
 
     client = Client()
     initialize_ui_session(client, employee.email)
-    response = client.get("/")
+    response = client.get("/", follow=False)
 
-    assert response.status_code == 200
-    content = response.content.decode()
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/ts/"
+
+    timesheets_response = client.get("/ts/")
+    assert timesheets_response.status_code == 200
+    content = timesheets_response.content.decode()
     assert "My info" in content
-    assert "TS/Project Management" in content
+    assert "TS/Project Management" not in content
     assert "Profile" in content
-    assert "Dashboard" in content
+    assert "Dashboard" not in content
     assert "My Timesheets" in content
     assert "/ts/projects/" not in content
-    assert "Reports" in content
+    assert "Reports" not in content
     assert "My History" not in content
     assert "System Management" not in content
     assert "Approval Worklist" not in content
@@ -84,11 +88,15 @@ def test_project_owner_sees_project_management_and_approval_worklist() -> None:
     approval_response = client.get("/approvals/")
 
     dashboard_content = dashboard_response.content.decode()
+    system_content = system_response.content.decode()
     assert dashboard_response.status_code == 200
     assert "System Management" in dashboard_content
     assert '/ts/projects/' in dashboard_content
+    assert "/system/projects/" in dashboard_content
+    assert "/system/project-assignments/" in dashboard_content
     assert system_response.status_code == 200
-    assert "Project Management" in system_response.content.decode()
+    assert "Projects" in system_content
+    assert "Project Assignments" in system_content
     assert project_management_response.status_code == 200
     assert "Project Summary" in project_management_response.content.decode()
     assert approval_response.status_code == 200
@@ -117,11 +125,14 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     initialize_ui_session(client, employee.email)
 
     dashboard_response = client.get("/")
+    system_response = client.get("/system/")
+    assignments_response = client.get("/system/project-assignments/")
     profile_response = client.get("/profile/")
     approval_response = client.get("/approvals/")
     inquiry_response = client.get("/ts/inquiry/")
 
     dashboard_content = dashboard_response.content.decode()
+    system_content = system_response.content.decode()
     profile_content = profile_response.content.decode()
 
     assert dashboard_response.status_code == 200
@@ -130,7 +141,14 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     assert '/ts/projects/' in dashboard_content
     assert "Approval Worklist" in dashboard_content
     assert "Project Time Inquiry" in dashboard_content
-    assert "System Management" not in dashboard_content
+    assert "System Management" in dashboard_content
+    assert "/system/project-assignments/" in dashboard_content
+    assert "/system/projects/" not in dashboard_content
+    assert system_response.status_code == 200
+    assert "Project Assignments" in system_content
+    assert "Projects" not in system_content
+    assert assignments_response.status_code == 200
+    assert "Project Assignment Management" in assignments_response.content.decode()
     assert profile_response.status_code == 200
     assert "Profile" in profile_content
     assert "Project Manager User" in profile_content

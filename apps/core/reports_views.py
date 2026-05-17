@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 from django.db.models import Q, Sum
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET
 
 from apps.audit.services import write_audit_event
@@ -353,6 +353,8 @@ def _report_count(current_user: CurrentUser, report_code: str) -> int:
 def _report_cards(current_user: CurrentUser) -> list[dict]:
     cards = []
     for report_code, definition in REPORT_DEFINITIONS.items():
+        if report_code == "my-timesheet-history":
+            continue
         if not AuthorizationPolicyService.can_run_report(current_user, report_code):
             continue
         cards.append(
@@ -1034,15 +1036,18 @@ def reports_hub(request: HttpRequest) -> HttpResponse:
     current_user = _require_user(request)
     if not isinstance(current_user, CurrentUser):
         return current_user
+    if current_user.is_basic_user:
+        return _render_access_denied(
+            request,
+            message="You do not have permission to open the reports hub.",
+            status=403,
+        )
 
     context = _reports_context(
         request,
         title="Reports Hub",
         eyebrow="SCR-230",
-        intro=(
-            "Entry point for the reports currently supported by the live backend, "
-            "with cards shown only when your TS role is allowed to run them."
-        ),
+        intro="",
     )
     context["report_cards"] = _report_cards(current_user)
     return render(request, "core/reports_hub.html", context)
@@ -1117,6 +1122,11 @@ def report_viewer(request: HttpRequest, report_code: str) -> HttpResponse:
     current_user = _require_user(request)
     if not isinstance(current_user, CurrentUser):
         return current_user
+
+    if report_code == "my-timesheet-history":
+        query_string = request.GET.urlencode()
+        redirect_path = f"/ts/?{query_string}" if query_string else "/ts/"
+        return redirect(redirect_path)
 
     return render_report_view(request, current_user, report_code)
 

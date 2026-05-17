@@ -41,6 +41,36 @@
       <div class="banner error">{{ create_error }}</div>
     {% endif %}
 
+    <section class="surface-card">
+      <div class="section-header">
+        <h2>Filter Panel</h2>
+        <p>Filter your personal weekly timeline without leaving the merged timesheet list.</p>
+      </div>
+      <form class="timesheet-filter-form" method="get" action="/ts/">
+        <div class="timesheet-filter-row">
+          {% for field in filter_fields %}
+            <div class="field">
+              <label for="{{ field.name }}">{{ field.label }}</label>
+              {% if field.type == "select" %}
+                <select id="{{ field.name }}" name="{{ field.name }}">
+                  <option value="">All</option>
+                  {% for option in field.options %}
+                    <option value="{{ option.value }}"{% if option.selected or option.value == field.value %} selected{% endif %}>{{ option.label }}</option>
+                  {% endfor %}
+                </select>
+              {% else %}
+                <input id="{{ field.name }}" name="{{ field.name }}" type="date" value="{{ field.value }}">
+              {% endif %}
+            </div>
+          {% endfor %}
+          <div class="timesheet-filter-actions">
+            <button class="button" type="submit">Apply Filters</button>
+            <a class="button secondary" href="/ts/">Reset Filters</a>
+          </div>
+        </div>
+      </form>
+    </section>
+
     <section class="surface-card surface-card-wide">
       {% if table_rows %}
         <div class="table-wrap">

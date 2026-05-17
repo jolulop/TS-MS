@@ -35,5 +35,9 @@ class CurrentUser:
     def is_ts_admin_master(self) -> bool:
         return "TS_ADMIN_MASTER" in self.role_codes
 
+    @property
+    def is_basic_user(self) -> bool:
+        return self.role_codes == ("USER",)
+
     def has_role(self, role_code: str) -> bool:
         return role_code in self.role_codes

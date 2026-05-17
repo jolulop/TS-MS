@@ -248,16 +248,21 @@ def test_reports_hub_is_role_aware() -> None:
     pm_response = context["pm_client"].get("/reports/")
     admin_response = context["admin_client"].get("/reports/")
 
-    user_content = user_response.content.decode()
     pm_content = pm_response.content.decode()
     admin_content = admin_response.content.decode()
 
-    assert "My Timesheet History" in user_content
-    assert "Project Time Report" not in user_content
+    assert user_response.status_code == 403
+    assert "Access Denied" in user_response.content.decode()
     assert "Missing Timesheets by Project" in pm_content
     assert "Missing Timesheets by Project" in context["owner_client"].get("/reports/").content.decode()
     assert "Pending Approvals" in pm_content
     assert "Project Time Report" in pm_content
+    assert "Open Report" not in pm_content
+    assert '<a href="/reports/project-time/">Project Time Report' in pm_content
+    assert '<span class="report-card-count">-> ' in pm_content
+    assert (
+        "Entry point for the reports currently supported by the live backend" not in pm_content
+    )
     assert "Missing Timesheets by Project" in admin_content
     assert "Audit History" in admin_content
     assert "Integration Jobs" in admin_content
@@ -267,13 +272,21 @@ def test_reports_hub_is_role_aware() -> None:
 def test_user_can_open_only_own_timesheet_history_report() -> None:
     context = _setup_reports_context()
 
-    history_response = context["user_client"].get("/reports/my-timesheet-history/")
+    history_response = context["user_client"].get(
+        "/reports/my-timesheet-history/",
+        data={
+            "status": "SUBMITTED",
+            "week_start_from": context["week_start"].isoformat(),
+        },
+        follow=False,
+    )
     project_time_response = context["user_client"].get("/reports/project-time/")
 
-    history_content = history_response.content.decode()
-    assert history_response.status_code == 200
-    assert "My Timesheet History" in history_content
-    assert context["week_start"].isoformat() in history_content
+    assert history_response.status_code == 302
+    assert (
+        history_response.headers["Location"]
+        == f"/ts/?status=SUBMITTED&week_start_from={context['week_start'].isoformat()}"
+    )
     assert project_time_response.status_code == 403
     assert "Access Denied" in project_time_response.content.decode()
 

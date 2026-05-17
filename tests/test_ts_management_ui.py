@@ -179,6 +179,7 @@ def test_my_timesheets_page_uses_header_create_controls_and_no_inline_create_pan
     assert response.status_code == 200
     content = response.content.decode()
     assert 'action="/ts/"' in content
+    assert "Filter Panel" in content
     assert "Create Weekly Timesheet" not in content
     assert "Weekly Timesheets" not in content
     assert "My History" not in content
@@ -228,6 +229,69 @@ def test_my_timesheets_page_shows_missing_weeks_and_links_to_preselected_create_
 
     assert preselected_response.status_code == 200
     assert f'value="{two_weeks_ago.isoformat()}"' in preselected_response.content.decode()
+
+
+@pytest.mark.django_db
+def test_my_timesheets_page_filters_real_and_missing_rows() -> None:
+    client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-filtered@example.com",
+        employee_code="EMP-TS-FILTER",
+    )
+    previous_week = fixtures["week_start"] - timedelta(days=7)
+    two_weeks_ago = fixtures["week_start"] - timedelta(days=14)
+    Employee.objects.filter(id=employee.id).update(
+        created_at=datetime.combine(two_weeks_ago, datetime.min.time(), tzinfo=UTC)
+    )
+
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": previous_week.isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+    timesheet = WeeklyTimesheet.objects.get(employee=employee, week_start_date=previous_week)
+    lines_response = client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "lines",
+            "row_count": "8",
+            "line_0_work_date": previous_week.isoformat(),
+            "line_0_hours": "4.00",
+            "line_0_project_id": str(fixtures["project"].id),
+            "line_0_general_charge_code_id": "",
+            "line_0_comment_text": "Submitted filter work",
+        },
+        follow=False,
+    )
+    assert lines_response.status_code == 302
+    submit_response = client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={"form_name": "submit", "comment_text": "Filter test submit"},
+        follow=False,
+    )
+    assert submit_response.status_code == 302
+
+    missing_only_response = client.get("/ts/", data={"status": "Missing"})
+    submitted_only_response = client.get(
+        "/ts/",
+        data={
+            "status": "SUBMITTED",
+            "week_start_from": previous_week.isoformat(),
+            "week_start_to": previous_week.isoformat(),
+        },
+    )
+
+    missing_content = missing_only_response.content.decode()
+    submitted_content = submitted_only_response.content.decode()
+
+    assert missing_only_response.status_code == 200
+    assert two_weeks_ago.strftime("%m/%d/%Y") in missing_content
+    assert previous_week.strftime("%m/%d/%Y") not in missing_content
+    assert fixtures["week_start"].strftime("%m/%d/%Y") in missing_content
+    assert submitted_only_response.status_code == 200
+    assert previous_week.strftime("%m/%d/%Y") in submitted_content
+    assert two_weeks_ago.strftime("%m/%d/%Y") not in submitted_content
+    assert fixtures["week_start"].strftime("%m/%d/%Y") not in submitted_content
 
 
 @pytest.mark.django_db

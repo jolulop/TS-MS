@@ -1,6 +1,6 @@
 # Functional Specification v5.2
 
-Superseded by [functional-spec-v5.5.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.5.md).
+Superseded by [functional-spec-v5.6.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.6.md).
 
 Historical note only. Do not use this file as the current implementation source of truth.
 

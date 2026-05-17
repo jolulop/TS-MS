@@ -1,6 +1,6 @@
 # Integration API Specification v5.2
 
-Superseded by [integration-api-spec-v5.5.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.5.md).
+Superseded by [integration-api-spec-v5.6.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.6.md).
 
 Historical note only. Do not use this file as the current implementation source of truth.
 

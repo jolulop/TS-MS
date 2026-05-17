@@ -256,16 +256,42 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                 ]
             )
         if current_user.has_role("PROJECT_OWNER"):
-            cards.append(
-                {
-                    "title": "Project Management",
-                    "summary": (
-                        "TS Admin screens for project and assignment management are now available."
-                    ),
-                    "status": "Ready now",
-                    "href": "/system/projects/",
-                }
-            )
+            if not current_user.is_ts_admin:
+                cards.extend(
+                    [
+                        {
+                            "title": "Projects",
+                            "summary": (
+                                "Create, edit, and delete projects that you own inside "
+                                "your active Business Unit scope."
+                            ),
+                            "status": "Ready now",
+                            "href": "/system/projects/",
+                        },
+                        {
+                            "title": "Project Assignments",
+                            "summary": (
+                                "Create, edit, and delete assignments for the projects "
+                                "you own."
+                            ),
+                            "status": "Ready now",
+                            "href": "/system/project-assignments/",
+                        },
+                    ]
+                )
+        if current_user.has_role("PROJECT_MANAGER"):
+            if not current_user.is_ts_admin and not current_user.has_role("PROJECT_OWNER"):
+                cards.append(
+                    {
+                        "title": "Project Assignments",
+                        "summary": (
+                            "Create, edit, and delete assignments for the projects "
+                            "you manage."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/project-assignments/",
+                    }
+                )
         return cards
 
     if section == "ts":
@@ -354,6 +380,8 @@ def home(request: HttpRequest) -> HttpResponse:
 
     if current_user is None:
         return render(request, "core/access_entry.html")
+    if current_user.is_basic_user:
+        return redirect("/ts/")
 
     context = _page_context(
         request,
@@ -423,10 +451,16 @@ def system_management(request: HttpRequest) -> HttpResponse:
     current_user = _require_user(request)
     if not isinstance(current_user, CurrentUser):
         return current_user
+    if current_user.is_basic_user:
+        return _render_access_denied(
+            request,
+            message="You do not have permission to open System Management.",
+        )
     if not (
         current_user.is_ts_admin
         or current_user.is_ts_admin_master
         or current_user.has_role("PROJECT_OWNER")
+        or current_user.has_role("PROJECT_MANAGER")
     ):
         return _render_access_denied(
             request,
@@ -438,8 +472,8 @@ def system_management(request: HttpRequest) -> HttpResponse:
         title="System Management",
         eyebrow="Phase 5 Milestone 2",
         intro=(
-            "Role-aware overview for the current administrative screens, with "
-            "project-oriented pages still deferred to later milestones."
+            "Role-aware overview for the current administrative and project "
+            "management screens in your active office scope."
         ),
     )
     context["section_cards"] = _overview_cards("system", current_user)

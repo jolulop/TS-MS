@@ -7,7 +7,9 @@
     <div class="page-header">
       <p class="eyebrow">{{ page_eyebrow }}</p>
       <h1>{{ page_title }}</h1>
-      <p>{{ page_intro }}</p>
+      {% if page_intro %}
+        <p>{{ page_intro }}</p>
+      {% endif %}
     </div>
 
     <section class="surface-card">
@@ -19,11 +21,14 @@
         <div class="card-grid">
           {% for card in report_cards %}
             <article class="tile">
-              <strong>{{ card.title }}</strong>
-              <span class="tile-value">{{ card.count }}</span>
+              <div class="report-card-title">
+                <strong>
+                  <a href="{{ card.href }}">{{ card.title }}</a>
+                  <span class="report-card-count">-> {{ card.count }}</span>
+                </strong>
+              </div>
               <p>{{ card.summary }}</p>
               <p><strong>Audience:</strong> {{ card.audience }}</p>
-              <p><a href="{{ card.href }}">Open Report</a></p>
             </article>
           {% endfor %}
         </div>

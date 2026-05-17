@@ -112,6 +112,65 @@ def _build_ts_admin_master_client() -> tuple[Client, Employee, list]:
     return client, employee, [primary_business_unit]
 
 
+def _build_project_owner_client(
+    *,
+    include_project_manager_role: bool = False,
+) -> tuple[Client, Employee, list]:
+    seed_reference_data()
+    primary_business_unit = create_business_unit(bu_code="BU-OWNER-1", name="Owner BU 1")
+    secondary_business_unit = create_business_unit(bu_code="BU-OWNER-2", name="Owner BU 2")
+    employee = create_employee(
+        employee_code="EMP-SYS-OWNER",
+        full_name="Scoped Project Owner",
+        email="scoped-project-owner@example.com",
+        primary_business_unit=primary_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=primary_business_unit,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=secondary_business_unit,
+    )
+    assign_role(employee=employee, role_code="USER")
+    assign_role(employee=employee, role_code="PROJECT_OWNER")
+    if include_project_manager_role:
+        assign_role(employee=employee, role_code="PROJECT_MANAGER")
+
+    client = Client()
+    initialize_ui_session(client, employee.email)
+    return client, employee, [primary_business_unit, secondary_business_unit]
+
+
+def _build_project_manager_client() -> tuple[Client, Employee, list]:
+    seed_reference_data()
+    primary_business_unit = create_business_unit(bu_code="BU-MGR-1", name="Manager BU 1")
+    secondary_business_unit = create_business_unit(bu_code="BU-MGR-2", name="Manager BU 2")
+    employee = create_employee(
+        employee_code="EMP-SYS-MANAGER",
+        full_name="Scoped Project Manager",
+        email="scoped-project-manager@example.com",
+        primary_business_unit=primary_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=primary_business_unit,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=secondary_business_unit,
+    )
+    assign_role(employee=employee, role_code="USER")
+    assign_role(employee=employee, role_code="PROJECT_MANAGER")
+
+    client = Client()
+    initialize_ui_session(client, employee.email)
+    return client, employee, [primary_business_unit, secondary_business_unit]
+
+
 def _build_project_management_context(
     business_unit,
 ) -> tuple[
@@ -1778,6 +1837,103 @@ def test_project_management_create_and_update_via_html() -> None:
 
 
 @pytest.mark.django_db
+def test_project_owner_can_create_update_and_delete_owned_project_via_system_management() -> None:
+    client, project_owner, business_units = _build_project_owner_client(
+        include_project_manager_role=True
+    )
+    other_project_owner, _, project_client, category, cost_center, pricing_model = (
+        _build_project_management_context(business_units[0])
+    )
+
+    create_response = client.post(
+        "/system/projects/new/",
+        data={
+            "business_unit_id": str(business_units[0].id),
+            "project_code": "PRJ-OWNER-NEW",
+            "name": "Owned Project",
+            "description": "Created by owner",
+            "project_owner_employee_id": str(other_project_owner.id),
+            "project_manager_employee_id": str(project_owner.id),
+            "client_id": str(project_client.id),
+            "internal_category_id": str(category.id),
+            "cost_center_id": str(cost_center.id),
+            "pricing_model_id": str(pricing_model.id),
+            "start_date": date(2026, 5, 1).isoformat(),
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    project = Project.objects.get(project_code="PRJ-OWNER-NEW")
+    assert project.project_owner_employee_id == project_owner.id
+    assert project.project_manager_employee_id == project_owner.id
+
+    update_response = client.post(
+        f"/system/projects/{project.id}/",
+        data={
+            "project_code": "PRJ-OWNER-UPD",
+            "name": "Owned Project Updated",
+            "description": "Updated by owner",
+            "project_owner_employee_id": str(other_project_owner.id),
+            "project_manager_employee_id": str(project_owner.id),
+            "client_id": str(project_client.id),
+            "internal_category_id": str(category.id),
+            "cost_center_id": str(cost_center.id),
+            "pricing_model_id": str(pricing_model.id),
+            "start_date": date(2026, 5, 1).isoformat(),
+            "end_date": date(2026, 12, 31).isoformat(),
+            "close_date": "",
+            "billable_flag": "on",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    project.refresh_from_db()
+    assert project.project_code == "PRJ-OWNER-UPD"
+    assert project.name == "Owned Project Updated"
+    assert project.project_owner_employee_id == project_owner.id
+    assert project.billable_flag is True
+
+    delete_response = client.post(
+        f"/system/projects/{project.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert delete_response.status_code == 302
+    assert delete_response.headers["Location"] == "/system/projects/"
+    assert not Project.objects.filter(id=project.id).exists()
+
+
+@pytest.mark.django_db
+def test_project_owner_cannot_open_project_outside_owned_scope() -> None:
+    client, _, business_units = _build_project_owner_client()
+    other_project_owner, project_manager, project_client, category, cost_center, pricing_model = (
+        _build_project_management_context(business_units[0])
+    )
+    project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-NOT-OWNED",
+        name="Not Owned Project",
+        project_owner_employee=other_project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 5, 1),
+    )
+
+    response = client.get(f"/system/projects/{project.id}/")
+
+    assert response.status_code == 403
+    assert "owned-project scope" in response.content.decode()
+
+
+@pytest.mark.django_db
 def test_project_management_can_delete_unused_project_via_html() -> None:
     client, _, business_units = _build_ts_admin_client()
     project_owner, project_manager, project_client, category, cost_center, pricing_model = (
@@ -1996,7 +2152,7 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
     update_response = client.post(
         f"/system/project-assignments/{assignment.id}/",
         data={
-            "assignment_start_date": date(2026, 4, 7).isoformat(),
+            "assignment_start_date": date(2026, 4, 21).isoformat(),
             "assignment_end_date": date(2026, 9, 30).isoformat(),
             "status_code": "INACTIVE",
         },
@@ -2007,6 +2163,296 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
     assignment.refresh_from_db()
     assert assignment.assignment_end_date == date(2026, 9, 30)
     assert assignment.status.value_code == "INACTIVE"
+
+
+@pytest.mark.django_db
+def test_project_owner_can_create_update_and_delete_assignments_for_owned_projects() -> None:
+    client, project_owner, business_units = _build_project_owner_client()
+    _, project_manager, project_client, category, cost_center, pricing_model = (
+        _build_project_management_context(business_units[0])
+    )
+    other_project_owner = create_employee(
+        employee_code="EMP-OTHER-OWNER",
+        full_name="Other Owner",
+        email="other-owner@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=other_project_owner,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=other_project_owner, role_code="USER")
+    assign_role(employee=other_project_owner, role_code="PROJECT_OWNER")
+    assigned_employee = create_employee(
+        employee_code="EMP-OWNER-ASN",
+        full_name="Owner Assignment Employee",
+        email="owner-assignment@example.com",
+        primary_business_unit=business_units[1],
+    )
+    assign_employee_to_business_unit(
+        employee=assigned_employee,
+        business_unit=business_units[1],
+        is_primary_flag=True,
+    )
+    assign_role(employee=assigned_employee, role_code="USER")
+    owned_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-OWNER-ASN",
+        name="Owned Assignment Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+    foreign_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-FOREIGN-ASN",
+        name="Foreign Assignment Project",
+        project_owner_employee=other_project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+
+    create_page = client.get("/system/project-assignments/new/")
+    create_content = create_page.content.decode()
+    assert create_page.status_code == 200
+    assert "PRJ-OWNER-ASN" in create_content
+    assert "PRJ-FOREIGN-ASN" not in create_content
+
+    create_response = client.post(
+        "/system/project-assignments/new/",
+        data={
+            "project_id": str(owned_project.id),
+            "employee_id": str(assigned_employee.id),
+            "assignment_start_date": date(2026, 4, 7).isoformat(),
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    assignment = ProjectAssignment.objects.get(project=owned_project, employee=assigned_employee)
+
+    update_response = client.post(
+        f"/system/project-assignments/{assignment.id}/",
+        data={
+            "assignment_start_date": date(2026, 4, 21).isoformat(),
+            "assignment_end_date": date(2026, 9, 30).isoformat(),
+            "status_code": "INACTIVE",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    assignment.refresh_from_db()
+    assert assignment.assignment_end_date == date(2026, 9, 30)
+    assert assignment.status.value_code == "INACTIVE"
+
+    delete_response = client.post(
+        f"/system/project-assignments/{assignment.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert delete_response.status_code == 302
+    assert delete_response.headers["Location"] == "/system/project-assignments/"
+    assert not ProjectAssignment.objects.filter(id=assignment.id).exists()
+
+    foreign_assignment = ProjectAssignment.objects.create(
+        project=foreign_project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 4, 7),
+        assignment_end_date=None,
+        status=ref_value("PROJECT_ASSIGNMENT_STATUS", "ACTIVE"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+
+    forbidden_response = client.get(f"/system/project-assignments/{foreign_assignment.id}/")
+    assert forbidden_response.status_code == 403
+    assert "owned or managed project scope" in forbidden_response.content.decode()
+
+
+@pytest.mark.django_db
+def test_project_manager_can_manage_assignments_for_managed_projects_only() -> None:
+    client, project_manager, business_units = _build_project_manager_client()
+    project_owner = create_employee(
+        employee_code="EMP-MGR-OWNER",
+        full_name="Manager Test Owner",
+        email="manager-test-owner@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=project_owner,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_owner, role_code="USER")
+    assign_role(employee=project_owner, role_code="PROJECT_OWNER")
+    other_project_manager = create_employee(
+        employee_code="EMP-OTHER-MGR",
+        full_name="Other Project Manager",
+        email="other-project-manager@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=other_project_manager,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=other_project_manager, role_code="USER")
+    assign_role(employee=other_project_manager, role_code="PROJECT_MANAGER")
+    project_client = create_client(
+        business_unit=business_units[0],
+        client_code="CLI-MGR-ASN",
+        name="Manager Assignment Client",
+    )
+    category = create_internal_category(
+        business_unit=business_units[0],
+        category_code="CAT-MGR-ASN",
+        name="Manager Assignment Category",
+    )
+    cost_center = create_cost_center(
+        business_unit=business_units[0],
+        cost_center_code="CC-MGR-ASN",
+        name="Manager Assignment Cost Center",
+    )
+    pricing_model = create_pricing_model(
+        business_unit=business_units[0],
+        name="Manager Assignment Pricing",
+    )
+    assigned_employee = create_employee(
+        employee_code="EMP-MGR-ASN",
+        full_name="Managed Assignment Employee",
+        email="managed-assignment@example.com",
+        primary_business_unit=business_units[1],
+    )
+    assign_employee_to_business_unit(
+        employee=assigned_employee,
+        business_unit=business_units[1],
+        is_primary_flag=True,
+    )
+    assign_role(employee=assigned_employee, role_code="USER")
+    managed_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-MANAGED-ASN",
+        name="Managed Assignment Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+    foreign_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-FOREIGN-MGR-ASN",
+        name="Foreign Managed Assignment Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=other_project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+    managed_assignment = ProjectAssignment.objects.create(
+        project=managed_project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 4, 7),
+        assignment_end_date=None,
+        status=ref_value("PROJECT_ASSIGNMENT_STATUS", "ACTIVE"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+    ProjectAssignment.objects.create(
+        project=foreign_project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 4, 14),
+        assignment_end_date=None,
+        status=ref_value("PROJECT_ASSIGNMENT_STATUS", "ACTIVE"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+
+    collection_response = client.get("/system/project-assignments/")
+    collection_content = collection_response.content.decode()
+    assert collection_response.status_code == 200
+    assert "PRJ-MANAGED-ASN" in collection_content
+    assert "PRJ-FOREIGN-MGR-ASN" not in collection_content
+
+    create_page = client.get("/system/project-assignments/new/")
+    create_content = create_page.content.decode()
+    assert create_page.status_code == 200
+    assert "PRJ-MANAGED-ASN" in create_content
+    assert "PRJ-FOREIGN-MGR-ASN" not in create_content
+
+    create_response = client.post(
+        "/system/project-assignments/new/",
+        data={
+            "project_id": str(managed_project.id),
+            "employee_id": str(assigned_employee.id),
+            "assignment_start_date": date(2026, 4, 21).isoformat(),
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    assignment = ProjectAssignment.objects.get(
+        project=managed_project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 4, 21),
+    )
+
+    update_response = client.post(
+        f"/system/project-assignments/{assignment.id}/",
+        data={
+            "assignment_start_date": date(2026, 4, 21).isoformat(),
+            "assignment_end_date": date(2026, 9, 30).isoformat(),
+            "status_code": "INACTIVE",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    assignment.refresh_from_db()
+    assert assignment.assignment_end_date == date(2026, 9, 30)
+    assert assignment.status.value_code == "INACTIVE"
+
+    delete_response = client.post(
+        f"/system/project-assignments/{assignment.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert delete_response.status_code == 302
+    assert delete_response.headers["Location"] == "/system/project-assignments/"
+    assert not ProjectAssignment.objects.filter(id=assignment.id).exists()
+    assert ProjectAssignment.objects.filter(id=managed_assignment.id).exists()
+
+    foreign_assignment = ProjectAssignment.objects.create(
+        project=foreign_project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 4, 7),
+        assignment_end_date=None,
+        status=ref_value("PROJECT_ASSIGNMENT_STATUS", "ACTIVE"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+
+    forbidden_response = client.get(f"/system/project-assignments/{foreign_assignment.id}/")
+    assert forbidden_response.status_code == 403
+    assert "owned or managed project scope" in forbidden_response.content.decode()
 
 
 @pytest.mark.django_db

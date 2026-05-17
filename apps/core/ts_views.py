@@ -297,6 +297,88 @@ def _default_week_start_date_value() -> str:
     return _current_monday().isoformat()
 
 
+def _parse_date_query(value: str) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _selected_filter_value(request: HttpRequest, name: str) -> str:
+    return request.GET.get(name, "").strip()
+
+
+def _timesheet_status_options(timesheets: list[dict], *, selected: str) -> list[dict]:
+    ordered_statuses = []
+    for status_code in ("Missing", "CREATED", "SUBMITTED", "APPROVED", "REJECTED", "ARCHIVED"):
+        if any(timesheet["status"] == status_code for timesheet in timesheets):
+            ordered_statuses.append(status_code)
+    remaining_statuses = sorted(
+        {
+            timesheet["status"]
+            for timesheet in timesheets
+            if timesheet["status"] not in ordered_statuses
+        }
+    )
+    return [
+        {
+            "value": status_code,
+            "label": status_code,
+            "selected": status_code == selected,
+        }
+        for status_code in [*ordered_statuses, *remaining_statuses]
+    ]
+
+
+def _filtered_timesheets(request: HttpRequest, timesheets: list[dict]) -> tuple[list[dict], list[dict]]:
+    status_code = _selected_filter_value(request, "status")
+    week_start_from = _selected_filter_value(request, "week_start_from")
+    week_start_to = _selected_filter_value(request, "week_start_to")
+    parsed_start = _parse_date_query(week_start_from)
+    parsed_end = _parse_date_query(week_start_to)
+
+    filtered = timesheets
+    if status_code:
+        filtered = [timesheet for timesheet in filtered if timesheet["status"] == status_code]
+    if parsed_start is not None:
+        filtered = [
+            timesheet
+            for timesheet in filtered
+            if date.fromisoformat(timesheet["week_start_date"]) >= parsed_start
+        ]
+    if parsed_end is not None:
+        filtered = [
+            timesheet
+            for timesheet in filtered
+            if date.fromisoformat(timesheet["week_start_date"]) <= parsed_end
+        ]
+
+    filter_fields = [
+        {
+            "label": "Status",
+            "name": "status",
+            "type": "select",
+            "value": status_code,
+            "options": _timesheet_status_options(timesheets, selected=status_code),
+        },
+        {
+            "label": "Week Start From",
+            "name": "week_start_from",
+            "type": "date",
+            "value": week_start_from,
+        },
+        {
+            "label": "Week Start To",
+            "name": "week_start_to",
+            "type": "date",
+            "value": week_start_to,
+        },
+    ]
+    return filtered, filter_fields
+
+
 def _selected_week_start_date_value(request: HttpRequest) -> str:
     if request.method == "POST":
         candidate = request.POST.get("week_start_date", "")
@@ -503,7 +585,10 @@ def my_timesheets(request: HttpRequest) -> HttpResponse:
         else:
             return redirect(f"/ts/timesheets/{timesheet['id']}/")
 
-    timesheets = TimesheetService.list_timesheets(current_user)
+    timesheets, filter_fields = _filtered_timesheets(
+        request,
+        TimesheetService.list_timesheets(current_user),
+    )
     context = _ts_context(
         request,
         current_user,
@@ -515,6 +600,7 @@ def my_timesheets(request: HttpRequest) -> HttpResponse:
     )
     context.update(
         {
+            "filter_fields": filter_fields,
             "table_headers": (
                 "Week Start",
                 "Week End",

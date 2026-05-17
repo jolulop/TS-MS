@@ -72,6 +72,28 @@ def _ensure_ts_admin(current_user: CurrentUser) -> None:
         )
 
 
+def _ensure_ts_admin_or_project_owner(current_user: CurrentUser) -> None:
+    if not (current_user.is_ts_admin or current_user.has_role("PROJECT_OWNER")):
+        raise AuthError(
+            "AUTH_ACCESS_DENIED",
+            "You are not authorized to perform this project administrative action.",
+            403,
+        )
+
+
+def _ensure_ts_admin_or_project_assignment_manager(current_user: CurrentUser) -> None:
+    if not (
+        current_user.is_ts_admin
+        or current_user.has_role("PROJECT_OWNER")
+        or current_user.has_role("PROJECT_MANAGER")
+    ):
+        raise AuthError(
+            "AUTH_ACCESS_DENIED",
+            "You are not authorized to perform this project assignment administrative action.",
+            403,
+        )
+
+
 def _ensure_ts_admin_master(current_user: CurrentUser) -> None:
     if not current_user.is_ts_admin_master:
         raise AuthError(
@@ -5871,38 +5893,39 @@ class ProjectManagementService:
         *,
         status_code: str | None = None,
     ) -> list[dict]:
-        _ensure_ts_admin(current_user)
+        _ensure_ts_admin_or_project_owner(current_user)
+        projects = Project.objects.select_related(
+            "business_unit",
+            "office",
+            "project_owner_employee",
+            "project_manager_employee",
+            "client",
+            "internal_category",
+            "cost_center",
+            "pricing_model",
+            "status",
+        ).filter(
+            business_unit_id__in=current_user.scoped_business_unit_ids,
+            office_id=current_user.office_id,
+        )
+        if not current_user.is_ts_admin:
+            projects = projects.filter(project_owner_employee_id=current_user.employee_id)
         projects = _apply_status_filter(
-            Project.objects.select_related(
-                "business_unit",
-                "office",
-                "project_owner_employee",
-                "project_manager_employee",
-                "client",
-                "internal_category",
-                "cost_center",
-                "pricing_model",
-                "status",
-            )
-            .filter(
-                business_unit_id__in=current_user.scoped_business_unit_ids,
-                office_id=current_user.office_id,
-            )
-            .order_by("business_unit__bu_code", "project_code"),
+            projects.order_by("business_unit__bu_code", "project_code"),
             _parse_status_filter(status_code, domain_code="PROJECT_STATUS"),
         )
         return [_serialize_project(project) for project in projects]
 
     @staticmethod
     def get_project(current_user: CurrentUser, project_id: int) -> dict:
-        _ensure_ts_admin(current_user)
+        _ensure_ts_admin_or_project_owner(current_user)
         project = ProjectManagementService._get_scoped_project(current_user, project_id)
         return _serialize_project(project)
 
     @staticmethod
     @transaction.atomic
     def create_project(current_user: CurrentUser, payload: dict) -> dict:
-        _ensure_ts_admin(current_user)
+        _ensure_ts_admin_or_project_owner(current_user)
         _ensure_current_office_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         business_unit = _get_scoped_business_unit(
@@ -5925,12 +5948,10 @@ class ProjectManagementService:
             raise AuthError("PROJECT_CODE_REQUIRED", "Project code is required.", 400)
         if not name:
             raise AuthError("PROJECT_NAME_REQUIRED", "Project name is required.", 400)
-        project_owner = ProjectManagementService._resolve_project_employee(
+        project_owner = ProjectManagementService._resolve_project_owner_for_write(
             current_user,
             employee_id=payload.get("project_owner_employee_id"),
             business_unit_id=business_unit.id,
-            required_role_code="PROJECT_OWNER",
-            code_prefix="PROJECT_OWNER",
         )
         project_manager = ProjectManagementService._resolve_project_employee(
             current_user,
@@ -6022,14 +6043,14 @@ class ProjectManagementService:
             actor_employee=actor_employee,
             actor_email=current_user.email,
             business_unit=project.business_unit,
-            reason_text="Project created by Timesheet Administrator.",
+            reason_text="Project created by authorized project administration.",
         )
         return _serialize_project(ProjectManagementService._refresh_project(project.id))
 
     @staticmethod
     @transaction.atomic
     def update_project(current_user: CurrentUser, project_id: int, payload: dict) -> dict:
-        _ensure_ts_admin(current_user)
+        _ensure_ts_admin_or_project_owner(current_user)
         _ensure_current_office_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         project = ProjectManagementService._get_scoped_project(current_user, project_id)
@@ -6080,7 +6101,7 @@ class ProjectManagementService:
             if new_description != project.description:
                 changed_fields.append(("description", project.description, new_description))
                 project.description = new_description
-        if "project_owner_employee_id" in payload:
+        if current_user.is_ts_admin and "project_owner_employee_id" in payload:
             new_project_owner = ProjectManagementService._resolve_project_employee(
                 current_user,
                 employee_id=payload.get("project_owner_employee_id"),
@@ -6248,14 +6269,14 @@ class ProjectManagementService:
                 field_name=field_name,
                 old_value=old_value,
                 new_value=new_value,
-                reason_text="Project updated by Timesheet Administrator.",
+                reason_text="Project updated by authorized project administration.",
             )
         return _serialize_project(ProjectManagementService._refresh_project(project.id))
 
     @staticmethod
     @transaction.atomic
     def delete_project(current_user: CurrentUser, project_id: int) -> None:
-        _ensure_ts_admin(current_user)
+        _ensure_ts_admin_or_project_owner(current_user)
         _ensure_current_office_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         project = ProjectManagementService._get_scoped_project(current_user, project_id)
@@ -6286,7 +6307,7 @@ class ProjectManagementService:
             actor_email=current_user.email,
             business_unit=business_unit,
             old_value=project_code,
-            reason_text="Project deleted by Timesheet Administrator.",
+            reason_text="Project deleted by authorized project administration.",
         )
 
     @staticmethod
@@ -6323,7 +6344,15 @@ class ProjectManagementService:
             code=f"{code_prefix}_REQUIRED",
             message=f"{code_prefix.lower()}_employee_id is required.",
         )
-        employee = _get_scoped_employee_for_management(current_user, resolved_employee_id)
+        try:
+            employee = Employee.objects.select_related("office", "status").get(id=resolved_employee_id)
+        except Employee.DoesNotExist as exc:
+            raise AuthError("EMPLOYEE_NOT_FOUND", "Employee not found.", 404) from exc
+        _ensure_office_in_scope(
+            current_user,
+            employee.office_id,
+            message="Selected employee is outside your active office.",
+        )
         if employee.status.value_code != "ACTIVE":
             raise AuthError(
                 f"{code_prefix}_INACTIVE",
@@ -6350,6 +6379,29 @@ class ProjectManagementService:
                 400,
             )
         return employee
+
+    @staticmethod
+    def _resolve_project_owner_for_write(
+        current_user: CurrentUser,
+        *,
+        employee_id: object,
+        business_unit_id: int,
+    ) -> Employee:
+        if current_user.is_ts_admin:
+            return ProjectManagementService._resolve_project_employee(
+                current_user,
+                employee_id=employee_id,
+                business_unit_id=business_unit_id,
+                required_role_code="PROJECT_OWNER",
+                code_prefix="PROJECT_OWNER",
+            )
+        return ProjectManagementService._resolve_project_employee(
+            current_user,
+            employee_id=current_user.employee_id,
+            business_unit_id=business_unit_id,
+            required_role_code="PROJECT_OWNER",
+            code_prefix="PROJECT_OWNER",
+        )
 
     @staticmethod
     def _resolve_project_client(
@@ -6468,6 +6520,18 @@ class ProjectManagementService:
             project.office_id,
             message="Project is outside your active office.",
         )
+        if current_user.is_ts_admin:
+            return project
+        if (
+            current_user.has_role("PROJECT_OWNER")
+            and project.project_owner_employee_id == current_user.employee_id
+        ):
+            return project
+        raise AuthError(
+            "AUTH_ACCESS_DENIED",
+            "Project is outside your owned-project scope.",
+            403,
+        )
         return project
 
     @staticmethod
@@ -6492,21 +6556,25 @@ class ProjectAssignmentManagementService:
         *,
         status_code: str | None = None,
     ) -> list[dict]:
-        _ensure_ts_admin(current_user)
+        _ensure_ts_admin_or_project_assignment_manager(current_user)
+        assignments = ProjectAssignment.objects.select_related(
+            "project",
+            "project__office",
+            "project__business_unit",
+            "employee",
+            "employee__primary_business_unit",
+            "status",
+        ).filter(
+            project__business_unit_id__in=current_user.scoped_business_unit_ids,
+            project__office_id=current_user.office_id,
+        )
+        if not current_user.is_ts_admin:
+            assignments = assignments.filter(
+                Q(project__project_owner_employee_id=current_user.employee_id)
+                | Q(project__project_manager_employee_id=current_user.employee_id)
+            )
         assignments = _apply_status_filter(
-            ProjectAssignment.objects.select_related(
-                "project",
-                "project__office",
-                "project__business_unit",
-                "employee",
-                "employee__primary_business_unit",
-                "status",
-            )
-            .filter(
-                project__business_unit_id__in=current_user.scoped_business_unit_ids,
-                project__office_id=current_user.office_id,
-            )
-            .order_by(
+            assignments.order_by(
                 "project__business_unit__bu_code",
                 "project__project_code",
                 "employee__employee_code",
@@ -6518,7 +6586,7 @@ class ProjectAssignmentManagementService:
 
     @staticmethod
     def get_assignment(current_user: CurrentUser, assignment_id: int) -> dict:
-        _ensure_ts_admin(current_user)
+        _ensure_ts_admin_or_project_assignment_manager(current_user)
         assignment = ProjectAssignmentManagementService._get_scoped_assignment(
             current_user,
             assignment_id,
@@ -6528,10 +6596,10 @@ class ProjectAssignmentManagementService:
     @staticmethod
     @transaction.atomic
     def create_assignment(current_user: CurrentUser, payload: dict) -> dict:
-        _ensure_ts_admin(current_user)
+        _ensure_ts_admin_or_project_assignment_manager(current_user)
         _ensure_current_office_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
-        project = ProjectManagementService._get_scoped_project(
+        project = ProjectAssignmentManagementService._get_scoped_project_for_assignment_management(
             current_user,
             _parse_required_int(
                 payload.get("project_id"),
@@ -6599,7 +6667,7 @@ class ProjectAssignmentManagementService:
             actor_employee=actor_employee,
             actor_email=current_user.email,
             business_unit=project.business_unit,
-            reason_text="Project assignment created by Timesheet Administrator.",
+            reason_text="Project assignment created by authorized project administration.",
         )
         return _serialize_project_assignment(
             ProjectAssignmentManagementService._refresh_assignment(assignment.id)
@@ -6608,7 +6676,7 @@ class ProjectAssignmentManagementService:
     @staticmethod
     @transaction.atomic
     def update_assignment(current_user: CurrentUser, assignment_id: int, payload: dict) -> dict:
-        _ensure_ts_admin(current_user)
+        _ensure_ts_admin_or_project_assignment_manager(current_user)
         _ensure_current_office_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         assignment = ProjectAssignmentManagementService._get_scoped_assignment(
@@ -6722,7 +6790,7 @@ class ProjectAssignmentManagementService:
                 field_name=field_name,
                 old_value=old_value,
                 new_value=new_value,
-                reason_text="Project assignment updated by Timesheet Administrator.",
+                reason_text="Project assignment updated by authorized project administration.",
             )
         return _serialize_project_assignment(
             ProjectAssignmentManagementService._refresh_assignment(assignment.id)
@@ -6731,7 +6799,7 @@ class ProjectAssignmentManagementService:
     @staticmethod
     @transaction.atomic
     def delete_assignment(current_user: CurrentUser, assignment_id: int) -> None:
-        _ensure_ts_admin(current_user)
+        _ensure_ts_admin_or_project_assignment_manager(current_user)
         _ensure_current_office_active_for_write(current_user)
         actor_employee = _actor_employee(current_user)
         assignment = ProjectAssignmentManagementService._get_scoped_assignment(
@@ -6768,7 +6836,7 @@ class ProjectAssignmentManagementService:
             actor_email=current_user.email,
             business_unit=business_unit,
             old_value=assignment_label,
-            reason_text="Project assignment deleted by Timesheet Administrator.",
+            reason_text="Project assignment deleted by authorized project administration.",
         )
 
     @staticmethod
@@ -6828,7 +6896,63 @@ class ProjectAssignmentManagementService:
             assignment.project.office_id,
             message="Project assignment is outside your active office.",
         )
+        if current_user.is_ts_admin:
+            return assignment
+        if (
+            current_user.has_role("PROJECT_OWNER")
+            and assignment.project.project_owner_employee_id == current_user.employee_id
+        ):
+            return assignment
+        if (
+            current_user.has_role("PROJECT_MANAGER")
+            and assignment.project.project_manager_employee_id == current_user.employee_id
+        ):
+            return assignment
+        raise AuthError(
+            "AUTH_ACCESS_DENIED",
+            "Project assignment is outside your owned or managed project scope.",
+            403,
+        )
         return assignment
+
+    @staticmethod
+    def _get_scoped_project_for_assignment_management(
+        current_user: CurrentUser,
+        project_id: int,
+    ) -> Project:
+        try:
+            project = Project.objects.select_related(
+                "business_unit",
+                "office",
+                "project_owner_employee",
+                "project_manager_employee",
+                "status",
+            ).get(id=project_id)
+        except Project.DoesNotExist as exc:
+            raise AuthError("PROJECT_NOT_FOUND", "Project not found.", 404) from exc
+        _ensure_business_units_in_scope(current_user, {project.business_unit_id})
+        _ensure_office_in_scope(
+            current_user,
+            project.office_id,
+            message="Project is outside your active office.",
+        )
+        if current_user.is_ts_admin:
+            return project
+        if (
+            current_user.has_role("PROJECT_OWNER")
+            and project.project_owner_employee_id == current_user.employee_id
+        ):
+            return project
+        if (
+            current_user.has_role("PROJECT_MANAGER")
+            and project.project_manager_employee_id == current_user.employee_id
+        ):
+            return project
+        raise AuthError(
+            "AUTH_ACCESS_DENIED",
+            "Project is outside your owned or managed project scope.",
+            403,
+        )
 
     @staticmethod
     def _refresh_assignment(assignment_id: int) -> ProjectAssignment:
