@@ -28,7 +28,13 @@ def _nav_item(*, label: str, href: str, summary: str, current_path: str) -> NavI
 
 
 def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[NavGroup, ...]:
-    work_items = [
+    my_info_items = [
+        _nav_item(
+            label="Profile",
+            href="/profile/",
+            summary="Employee identity, roles, and current Business Unit scope.",
+            current_path=current_path,
+        ),
         _nav_item(
             label="Dashboard",
             href="/",
@@ -38,15 +44,12 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
         _nav_item(
             label="My Timesheets",
             href="/ts/",
-            summary="Create, edit, submit, and review your weekly timesheets.",
+            summary="Create, edit, submit, and review current and historical weekly timesheets.",
             current_path=current_path,
         ),
-        _nav_item(
-            label="My History",
-            href="/ts/history/",
-            summary="Read-only history of your submitted and completed weeks.",
-            current_path=current_path,
-        ),
+    ]
+
+    project_items = [
         _nav_item(
             label="Reports",
             href="/reports/",
@@ -55,7 +58,7 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
         ),
     ]
     if AuthorizationPolicyService.can_access_approval_worklist(current_user):
-        work_items.append(
+        project_items.append(
             _nav_item(
                 label="Approval Worklist",
                 href="/approvals/",
@@ -64,7 +67,7 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
             )
         )
     if current_user.has_role("PROJECT_OWNER") or current_user.has_role("PROJECT_MANAGER"):
-        work_items.append(
+        project_items.append(
             _nav_item(
                 label="Project Time Inquiry",
                 href="/ts/inquiry/",
@@ -73,7 +76,10 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
             )
         )
 
-    groups = [NavGroup(label="TS Management", items=tuple(work_items))]
+    groups = [
+        NavGroup(label="My info", items=tuple(my_info_items)),
+        NavGroup(label="TS/Project Management", items=tuple(project_items)),
+    ]
 
     if (
         current_user.is_ts_admin
@@ -190,17 +196,4 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
             )
         groups.append(NavGroup(label="System Management", items=tuple(system_items)))
 
-    groups.append(
-        NavGroup(
-            label="Session",
-            items=(
-                _nav_item(
-                    label="Profile",
-                    href="/profile/",
-                    summary="Employee identity, roles, and scope.",
-                    current_path=current_path,
-                ),
-            ),
-        )
-    )
     return tuple(groups)

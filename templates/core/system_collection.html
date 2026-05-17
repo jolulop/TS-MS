@@ -60,7 +60,7 @@
                     {% for header in table_headers %}
                       <th>{{ header }}</th>
                     {% endfor %}
-                    <th>Action</th>
+                    <th class="system-action-column" hidden>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -75,7 +75,7 @@
                           {% endif %}
                         </td>
                       {% endfor %}
-                      <td><a href="{{ row.href }}">Open / Edit</a></td>
+                      <td class="system-action-column" hidden><a href="{{ row.href }}">Open / Edit</a></td>
                     </tr>
                   {% endfor %}
                 </tbody>
@@ -125,7 +125,7 @@
                   {% for header in table_headers %}
                     <th>{{ header }}</th>
                   {% endfor %}
-                  <th>Action</th>
+                  <th class="system-action-column" hidden>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,7 +140,7 @@
                         {% endif %}
                       </td>
                     {% endfor %}
-                    <td><a href="{{ row.href }}">Open / Edit</a></td>
+                    <td class="system-action-column" hidden><a href="{{ row.href }}">Open / Edit</a></td>
                   </tr>
                 {% endfor %}
               </tbody>

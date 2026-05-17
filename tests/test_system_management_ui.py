@@ -40,6 +40,7 @@ from apps.timesheets.models import TimesheetLine, WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
     assign_employee_to_business_unit,
+    assign_project,
     assign_role,
     create_business_unit,
     create_business_unit_configuration,
@@ -50,6 +51,7 @@ from tests.helpers import (
     create_country,
     create_employee,
     create_general_charge_code,
+    create_general_charge_code_approval_role,
     create_internal_category,
     create_office,
     create_pricing_model,
@@ -350,6 +352,98 @@ def test_business_unit_management_can_create_new_business_unit_through_html() ->
 
 
 @pytest.mark.django_db
+def test_system_management_collections_hide_action_column_but_keep_row_targets() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    managed_business_unit = business_units[0]
+    managed_employee = create_employee(
+        employee_code="EMP-COLL-1",
+        full_name="Collection Employee",
+        email="collection-employee@example.com",
+        primary_business_unit=managed_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=managed_employee,
+        business_unit=managed_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=managed_employee, role_code="USER")
+
+    project_owner, project_manager, client_record, category, cost_center, pricing_model = (
+        _build_project_management_context(managed_business_unit)
+    )
+    project = create_project(
+        business_unit=managed_business_unit,
+        project_code="PRJ-COLL",
+        name="Collection Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=client_record,
+        internal_category=category,
+        cost_center=cost_center,
+        start_date=date(2026, 1, 5),
+    )
+    assignment = assign_project(
+        project=project,
+        employee=managed_employee,
+        assignment_start_date=date(2026, 1, 5),
+    )
+    calendar = create_yearly_calendar(
+        business_unit=managed_business_unit,
+        calendar_year=2026,
+        calendar_name="Collection Calendar",
+    )
+    period_rule = create_calendar_period_rule(
+        yearly_calendar=calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+    approval_role = create_general_charge_code_approval_role(
+        office=managed_business_unit.office,
+        role_code="GCC-COLL",
+        name="Collection GCC Role",
+    )
+    general_charge_code = create_general_charge_code(
+        business_unit=managed_business_unit,
+        code="GCC-COLL",
+        name="Collection General Charge Code",
+        valid_from=date(2026, 1, 1),
+    )
+
+    pages = [
+        ("/system/employees/", f"/system/employees/{managed_employee.id}/"),
+        ("/system/clients/", f"/system/clients/{client_record.id}/"),
+        ("/system/projects/", f"/system/projects/{project.id}/"),
+        ("/system/project-assignments/", f"/system/project-assignments/{assignment.id}/"),
+        ("/system/internal-categories/", f"/system/internal-categories/{category.id}/"),
+        ("/system/cost-centers/", f"/system/cost-centers/{cost_center.id}/"),
+        ("/system/pricing-models/", f"/system/pricing-models/{pricing_model.id}/"),
+        ("/system/business-units/", f"/system/business-units/{managed_business_unit.id}/"),
+        ("/system/calendars/", f"/system/calendars/{calendar.id}/"),
+        (
+            "/system/calendar-period-rules/",
+            f"/system/calendar-period-rules/{period_rule.id}/",
+        ),
+        (
+            "/system/general-charge-code-approval-roles/",
+            f"/system/general-charge-code-approval-roles/{approval_role.id}/",
+        ),
+        (
+            "/system/general-charge-codes/",
+            f"/system/general-charge-codes/{general_charge_code.id}/",
+        ),
+    ]
+
+    for url, detail_url in pages:
+        response = client.get(url)
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert '<th class="system-action-column" hidden>Action</th>' in content
+        assert 'class="system-action-column" hidden><a href="' in content
+        assert detail_url in content
+
+
+@pytest.mark.django_db
 def test_ts_admin_cannot_open_country_management_screen() -> None:
     client, _, _ = _build_ts_admin_client()
 
@@ -595,6 +689,146 @@ def test_system_management_collection_pages_use_standalone_create_screen_layout(
 
 
 @pytest.mark.django_db
+def test_shared_system_management_detail_screens_use_standalone_edit_layout() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    business_unit = business_units[0]
+    project_owner, project_manager, project_client, category, cost_center, pricing_model = (
+        _build_project_management_context(business_unit)
+    )
+    managed_client = create_client(
+        business_unit=business_unit,
+        client_code="CLI-LAYOUT",
+        name="Layout Client",
+    )
+    managed_category = create_internal_category(
+        business_unit=business_unit,
+        category_code="CAT-LAYOUT",
+        name="Layout Category",
+    )
+    managed_cost_center = create_cost_center(
+        business_unit=business_unit,
+        cost_center_code="CC-LAYOUT",
+        name="Layout Cost Center",
+    )
+    managed_pricing_model = create_pricing_model(
+        business_unit=business_unit,
+        name="Layout Pricing Model",
+    )
+    project = create_project(
+        business_unit=business_unit,
+        project_code="PRJ-LAYOUT",
+        name="Layout Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 1, 1),
+    )
+    assignee = create_employee(
+        employee_code="EMP-ASN-LAYOUT",
+        full_name="Layout Assignee",
+        email="layout-assignee@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=assignee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=assignee, role_code="USER")
+    assignment = ProjectAssignment.objects.create(
+        project=project,
+        employee=assignee,
+        assignment_start_date=date(2026, 1, 1),
+        status=ref_value("PROJECT_ASSIGNMENT_STATUS", "ACTIVE"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+    approval_role = create_general_charge_code_approval_role(
+        office=business_unit.office,
+        role_code="GCC-LAYOUT",
+        name="Layout GCC Role",
+    )
+    general_charge_code = create_general_charge_code(
+        business_unit=business_unit,
+        code="GCC-LAYOUT",
+        name="Layout General Charge Code",
+        cost_center=managed_cost_center,
+        valid_from=date(2026, 1, 1),
+    )
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="Layout Calendar",
+    )
+    period_rule = create_calendar_period_rule(
+        yearly_calendar=yearly_calendar,
+        business_unit=business_unit,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+
+    cases = [
+        (f"/system/clients/{managed_client.id}/", "Edit Client", "Delete Client", "Back to Clients"),
+        (f"/system/projects/{project.id}/", "Edit Project", "Delete Project", "Back to Projects"),
+        (
+            f"/system/project-assignments/{assignment.id}/",
+            "Edit Project Assignment",
+            "Delete Project Assignment",
+            "Back to Project Assignments",
+        ),
+        (
+            f"/system/internal-categories/{managed_category.id}/",
+            "Edit Internal Category",
+            "Delete Internal Category",
+            "Back to Internal Categories",
+        ),
+        (
+            f"/system/cost-centers/{managed_cost_center.id}/",
+            "Edit Cost Center",
+            "Delete Cost Center",
+            "Back to Cost Centers",
+        ),
+        (
+            f"/system/pricing-models/{managed_pricing_model.id}/",
+            "Edit Pricing Model",
+            "Delete Pricing Model",
+            "Back to Pricing Models",
+        ),
+        (
+            f"/system/general-charge-code-approval-roles/{approval_role.id}/",
+            "Edit General Charge Code Approval Role",
+            "Delete General Charge Code Approval Role",
+            "Back to General Charge Code Approval Roles",
+        ),
+        (
+            f"/system/general-charge-codes/{general_charge_code.id}/",
+            "Edit General Charge Code",
+            "Delete General Charge Code",
+            "Back to General Charge Codes",
+        ),
+        (
+            f"/system/calendar-period-rules/{period_rule.id}/",
+            "Edit Calendar Period Rule",
+            "Delete Calendar Period Rule",
+            "Back to Calendar Period Rules",
+        ),
+    ]
+
+    for url, edit_heading, delete_label, back_label in cases:
+        response = client.get(url)
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Current State" not in content
+        assert edit_heading in content
+        assert delete_label in content
+        assert back_label in content
+        assert 'class="detail-action-form"' in content
+
+
+@pytest.mark.django_db
 def test_employee_detail_business_unit_form_explains_primary_scope_is_automatic() -> None:
     client, _, business_units = _build_ts_admin_client()
     managed_employee = create_employee(
@@ -613,6 +847,19 @@ def test_employee_detail_business_unit_form_explains_primary_scope_is_automatic(
 
     assert response.status_code == 200
     content = response.content.decode()
+    assert "Current State" not in content
+    assert "employee-detail-layout" in content
+    assert "Employee Core Data" in content
+    assert "Role Assignments" in content
+    assert "Business Unit Scope" in content
+    assert "Delete Employee" in content
+    primary_match = re.search(
+        r'<select\s+id="primary_business_unit_id"\s+name="primary_business_unit_id"\s+size="(\d+)".*?>(.*?)</select>',
+        content,
+        re.S,
+    )
+    assert primary_match is not None
+    assert 'selected' in primary_match.group(2)
     match = re.search(
         r'<select\s+id="business_unit_ids"\s+name="business_unit_ids"\s+multiple.*?>(.*?)</select>',
         content,
@@ -620,7 +867,26 @@ def test_employee_detail_business_unit_form_explains_primary_scope_is_automatic(
     )
     assert match is not None
     assert "required" not in match.group(0)
+    assert "selected" not in match.group(1)
     assert "so leaving this empty keeps only the primary Business Unit" in content
+
+
+@pytest.mark.django_db
+def test_business_unit_detail_uses_standalone_edit_layout() -> None:
+    client, admin_employee, _ = _build_ts_admin_client()
+    managed_business_unit = create_business_unit(bu_code="BU-LAYOUT", name="Layout BU")
+    assign_employee_to_business_unit(employee=admin_employee, business_unit=managed_business_unit)
+
+    response = client.get(f"/system/business-units/{managed_business_unit.id}/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Current State" not in content
+    assert "General" in content
+    assert "Inherited Configuration" in content
+    assert "Delete Business Unit" in content
+    assert "Back to Business Units" in content
+    assert 'class="detail-action-form"' in content
 
 
 @pytest.mark.django_db
@@ -2081,7 +2347,28 @@ def test_calendar_management_create_update_and_filter_via_html() -> None:
     assert filtered_response.status_code == 200
     filtered_content = filtered_response.content.decode()
     assert 'href="/system/calendars/?status=ALL"' in filtered_content
-    assert f"/system/calendars/{yearly_calendar.id}/" in filtered_content
+
+
+@pytest.mark.django_db
+def test_calendar_detail_uses_standalone_edit_layout() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    yearly_calendar = create_yearly_calendar(
+        business_unit=business_units[0],
+        calendar_year=2026,
+        calendar_name="Layout Calendar",
+    )
+
+    response = client.get(f"/system/calendars/{yearly_calendar.id}/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Current State" not in content
+    assert "Edit Calendar" in content
+    assert "Delete Calendar" in content
+    assert "Back to Calendars" in content
+    assert "Year Summary" in content
+    assert "Month View" in content
+    assert 'class="detail-action-form"' in content
 
 
 @pytest.mark.django_db

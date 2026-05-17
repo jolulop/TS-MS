@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from django.test import Client
@@ -181,7 +181,79 @@ def test_my_timesheets_page_uses_header_create_controls_and_no_inline_create_pan
     assert 'action="/ts/"' in content
     assert "Create Weekly Timesheet" not in content
     assert "Weekly Timesheets" not in content
-    assert fixtures["week_start"].isoformat() in content
+    assert "My History" not in content
+    assert "Submitted At" in content
+    assert "Approved At" in content
+    assert "Lines" not in content
+    assert "Submission No." not in content
+    assert fixtures["week_start"].strftime("%m/%d/%Y") in content
+
+
+@pytest.mark.django_db
+def test_my_timesheets_page_shows_missing_weeks_and_links_to_preselected_create_date() -> None:
+    client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-missing@example.com",
+        employee_code="EMP-TS-MISSING",
+    )
+    previous_week = fixtures["week_start"] - timedelta(days=7)
+    two_weeks_ago = fixtures["week_start"] - timedelta(days=14)
+    Employee.objects.filter(id=employee.id).update(
+        created_at=datetime.combine(two_weeks_ago, datetime.min.time(), tzinfo=UTC)
+    )
+
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": previous_week.isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    response = client.get("/ts/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Missing" in content
+    assert two_weeks_ago.strftime("%m/%d/%Y") in content
+    assert fixtures["week_start"].strftime("%m/%d/%Y") in content
+    assert (
+        f'href="/ts/?week_start_date={fixtures["week_start"].isoformat()}#create-timesheet"'
+        in content
+    )
+    assert (
+        f'href="/ts/?week_start_date={two_weeks_ago.isoformat()}#create-timesheet"' in content
+    )
+    assert f"/ts/timesheets/{WeeklyTimesheet.objects.get(employee=employee).id}/" in content
+
+    preselected_response = client.get(f"/ts/?week_start_date={two_weeks_ago.isoformat()}")
+
+    assert preselected_response.status_code == 200
+    assert f'value="{two_weeks_ago.isoformat()}"' in preselected_response.content.decode()
+
+
+@pytest.mark.django_db
+def test_missing_timesheets_start_from_first_monday_after_employee_creation_date() -> None:
+    client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-missing-start@example.com",
+        employee_code="EMP-TS-MISS-START",
+    )
+    last_tuesday = fixtures["week_start"] - timedelta(days=6)
+    previous_monday = fixtures["week_start"] - timedelta(days=7)
+    Employee.objects.filter(id=employee.id).update(
+        created_at=datetime.combine(last_tuesday, datetime.min.time(), tzinfo=UTC)
+    )
+
+    response = client.get("/ts/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert (
+        f'href="/ts/?week_start_date={fixtures["week_start"].isoformat()}#create-timesheet"'
+        in content
+    )
+    assert (
+        f'href="/ts/?week_start_date={previous_monday.isoformat()}#create-timesheet"'
+        not in content
+    )
 
 
 @pytest.mark.django_db
@@ -523,7 +595,7 @@ def test_submitted_timesheet_can_be_withdrawn_from_ui() -> None:
 
 
 @pytest.mark.django_db
-def test_my_history_lists_timesheets_in_read_only_view() -> None:
+def test_my_history_redirects_to_the_merged_my_timesheets_view() -> None:
     client, employee, fixtures = _build_timesheet_ui_client(
         employee_email="history-user@example.com"
     )
@@ -534,12 +606,17 @@ def test_my_history_lists_timesheets_in_read_only_view() -> None:
     )
     timesheet = WeeklyTimesheet.objects.get(employee=employee)
 
-    history_response = client.get("/ts/history/")
+    history_response = client.get("/ts/history/", follow=False)
 
-    assert history_response.status_code == 200
-    content = history_response.content.decode()
-    assert "My History" in content
-    assert fixtures["week_start"].isoformat() in content
+    assert history_response.status_code == 302
+    assert history_response.headers["Location"] == "/ts/"
+
+    merged_response = client.get("/ts/")
+
+    assert merged_response.status_code == 200
+    content = merged_response.content.decode()
+    assert "My History" not in content
+    assert fixtures["week_start"].strftime("%m/%d/%Y") in content
     assert f"/ts/timesheets/{timesheet.id}/" in content
 
 

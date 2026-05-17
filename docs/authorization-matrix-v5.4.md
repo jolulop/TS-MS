@@ -11,10 +11,10 @@
 
 | Capability | USER | PROJECT_OWNER | PROJECT_MANAGER | TS_ADMIN | TS_ADMIN_MASTER |
 | --- | --- | --- | --- | --- | --- |
-| Open own profile/session | Yes | Yes | Yes | Yes | Yes |
+| Open own profile | Yes | Yes | Yes | Yes | Yes |
 | View/edit own timesheets | Yes | Yes | Yes | Yes if self | Yes if self |
 | Submit/withdraw own timesheets | Yes | Yes | Yes | Yes if self | Yes if self |
-| Open My History | Yes | Yes | Yes | Yes | Yes |
+| Open merged My Timesheets history view | Yes | Yes | Yes | Yes | Yes |
 | Open Project Time Inquiry | No | Yes | Yes | If also PO/PM or via reports | No direct role grant |
 | Open Approval Worklist | If matching GCC approver role | If matching GCC approver role | Yes, plus matching GCC approver role items | If matching GCC approver role | If matching GCC approver role |
 | Approve/reject approval items | If matching GCC approver role items | If matching GCC approver role items | Yes, assigned project items plus matching GCC approver role items | If matching GCC approver role items | If matching GCC approver role items |

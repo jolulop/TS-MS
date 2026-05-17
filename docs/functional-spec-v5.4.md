@@ -274,6 +274,9 @@ Delete behavior:
 ### 9.1 My Timesheets
 
 - Employees manage their own weekly Monday-starting timesheets.
+- The personal weekly list combines current and historical timesheets in one screen.
+- The personal weekly list also shows missing Monday-starting weeks since
+  employee record creation.
 - One employee can have at most one weekly timesheet per week.
 - Timesheet lines charge either:
   - a Project
@@ -283,7 +286,8 @@ Delete behavior:
 
 ### 9.2 History
 
-- Employees can view read-only historical timesheets.
+- Historical weekly records are accessed from the shared personal timesheet list.
+- The legacy history route redirects to the merged personal timesheet screen.
 
 ### 9.3 Project Time Inquiry
 

@@ -1,4 +1,4 @@
-<div class="form-grid two-column">
+<div class="form-grid {% if field_grid_class %}{{ field_grid_class }}{% else %}two-column{% endif %}">
   {% for field in fields %}
     <div class="field{% if field.kind == 'checkbox' %} full-width{% endif %}">
       {% if field.kind == "checkbox" %}
@@ -25,6 +25,17 @@
           <select
             id="{{ field.name }}"
             name="{{ field.name }}"
+            {% if field.disabled %}disabled{% endif %}
+            {% if field.required %}required{% endif %}>
+            {% for option in field.options %}
+              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        {% elif field.kind == "listbox" %}
+          <select
+            id="{{ field.name }}"
+            name="{{ field.name }}"
+            size="{{ field.size|default:6 }}"
             {% if field.disabled %}disabled{% endif %}
             {% if field.required %}required{% endif %}>
             {% for option in field.options %}

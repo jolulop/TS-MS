@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
@@ -19,11 +19,6 @@ def _timesheet_section_links(current_user: CurrentUser, current_path: str) -> li
             "label": "My Timesheets",
             "href": "/ts/",
             "active": current_path == "/ts/",
-        },
-        {
-            "label": "My History",
-            "href": "/ts/history/",
-            "active": current_path == "/ts/history/",
         },
     ]
     if current_user.has_role("PROJECT_OWNER") or current_user.has_role("PROJECT_MANAGER"):
@@ -87,36 +82,62 @@ def _default_week_start_date_value() -> str:
     return _current_monday().isoformat()
 
 
+def _selected_week_start_date_value(request: HttpRequest) -> str:
+    if request.method == "POST":
+        candidate = request.POST.get("week_start_date", "")
+    else:
+        candidate = request.GET.get("week_start_date", "")
+    if candidate:
+        try:
+            return date.fromisoformat(candidate).isoformat()
+        except ValueError:
+            pass
+    return _default_week_start_date_value()
+
+
 def _editor_row_count(existing_line_count: int) -> int:
     return max(INITIAL_EMPTY_EDITOR_ROWS, existing_line_count + 1)
 
 
 def _timesheet_rows(timesheets: list[dict]) -> list[dict]:
+    def _short_date(value: str | None) -> str:
+        if not value:
+            return ""
+        return date.fromisoformat(value).strftime("%m/%d/%Y")
+
+    def _short_datetime(value: str | None, *, empty_label: str) -> str:
+        if not value:
+            return empty_label
+        normalized_value = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(normalized_value).strftime("%m/%d/%Y")
+
     return [
         {
-            "href": f"/ts/timesheets/{timesheet['id']}/",
+            "href": (
+                f"/ts/?week_start_date={timesheet['week_start_date']}#create-timesheet"
+                if timesheet.get("is_missing")
+                else f"/ts/timesheets/{timesheet['id']}/"
+            ),
             "cells": [
-                timesheet["week_start_date"],
-                timesheet["week_end_date"],
+                _short_date(timesheet["week_start_date"]),
+                _short_date(timesheet["week_end_date"]),
                 timesheet["status"],
-                str(timesheet["line_count"]),
-                str(timesheet["current_submission_no"]),
-            ],
-        }
-        for timesheet in timesheets
-    ]
-
-
-def _history_rows(timesheets: list[dict]) -> list[dict]:
-    return [
-        {
-            "href": f"/ts/timesheets/{timesheet['id']}/",
-            "cells": [
-                timesheet["week_start_date"],
-                timesheet["week_end_date"],
-                timesheet["status"],
-                timesheet["submission_datetime"] or "Not submitted",
-                timesheet["final_approval_datetime"] or "Not approved",
+                (
+                    "-"
+                    if timesheet.get("is_missing")
+                    else _short_datetime(
+                        timesheet["submission_datetime"],
+                        empty_label="Not submitted",
+                    )
+                ),
+                (
+                    "-"
+                    if timesheet.get("is_missing")
+                    else _short_datetime(
+                        timesheet["final_approval_datetime"],
+                        empty_label="Not approved",
+                    )
+                ),
             ],
         }
         for timesheet in timesheets
@@ -274,18 +295,21 @@ def my_timesheets(request: HttpRequest) -> HttpResponse:
         title="My Timesheets",
         eyebrow="SCR-200",
         intro=(
-            "Create a weekly timesheet, open editable weeks, and track the current lifecycle state."
+            "Create a weekly timesheet, open editable weeks, and review your personal week history in one list."
         ),
     )
     context.update(
         {
-            "table_headers": ("Week Start", "Week End", "Status", "Lines", "Submission No."),
+            "table_headers": (
+                "Week Start",
+                "Week End",
+                "Status",
+                "Submitted At",
+                "Approved At",
+            ),
             "table_rows": _timesheet_rows(timesheets),
             "empty_message": "No weekly timesheets exist yet. Create your first week to begin.",
-            "create_week_start_date": request.POST.get(
-                "week_start_date",
-                _default_week_start_date_value(),
-            ),
+            "create_week_start_date": _selected_week_start_date_value(request),
             "create_error": create_error,
         }
     )
@@ -298,31 +322,7 @@ def my_history(request: HttpRequest) -> HttpResponse:
     if not isinstance(current_user, CurrentUser):
         return current_user
 
-    timesheets = TimesheetService.list_timesheets(current_user)
-    context = _ts_context(
-        request,
-        current_user,
-        title="My History",
-        eyebrow="SCR-220",
-        intro=(
-            "Read-only history of your weekly timesheets across submitted, "
-            "approved, rejected, and archived states."
-        ),
-    )
-    context.update(
-        {
-            "table_headers": (
-                "Week Start",
-                "Week End",
-                "Status",
-                "Submitted At",
-                "Approved At",
-            ),
-            "table_rows": _history_rows(timesheets),
-            "empty_message": "Your timesheet history is empty.",
-        }
-    )
-    return render(request, "core/ts_history.html", context)
+    return redirect("/ts/")
 
 
 @require_http_methods(["GET", "POST"])

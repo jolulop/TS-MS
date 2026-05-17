@@ -19,27 +19,14 @@
           <h1>{{ page_title }}</h1>
           <p>{{ page_intro }}</p>
         </div>
-        <span class="chip">{{ entity_status }}</span>
+        <div class="content-stack" style="justify-items: end;">
+          <span class="chip">{{ entity_status }}</span>
+          <a class="button secondary" href="{{ back_href }}">{{ back_label }}</a>
+        </div>
       </div>
     </div>
 
-    <div class="split-grid">
-      <section class="surface-card">
-        <div class="section-header">
-          <h2>Current State</h2>
-          <p><a href="{{ back_href }}">{{ back_label }}</a></p>
-        </div>
-        <dl class="meta-grid">
-          {% for label, value in detail_rows %}
-            <div class="meta-row">
-              <dt>{{ label }}</dt>
-              <dd>{{ value }}</dd>
-            </div>
-          {% endfor %}
-        </dl>
-      </section>
-
-      <div class="content-stack">
+    <div class="content-stack">
         <section class="surface-card">
           <div class="section-header">
             <h2>Edit Calendar</h2>
@@ -177,23 +164,16 @@
           {% endif %}
         </section>
 
-        <section class="surface-card">
-          <div class="section-header">
-            <h2>Delete Calendar</h2>
-            <p>Delete this calendar only when no employees, special days, period rules, or other records still reference it.</p>
-          </div>
+        <form class="detail-action-form" method="post" action="">
+          {% csrf_token %}
+          <input type="hidden" name="form_name" value="delete">
           {% if delete_form_error %}
             <div class="banner error">{{ delete_form_error }}</div>
           {% endif %}
-          <form class="form-stack" method="post" action="">
-            {% csrf_token %}
-            <input type="hidden" name="form_name" value="delete">
-            <div>
-              <button class="button" type="submit">Delete Calendar</button>
-            </div>
-          </form>
-        </section>
-      </div>
+          <div class="button-row">
+            <button class="button danger" type="submit">Delete Calendar</button>
+          </div>
+        </form>
     </div>
   </div>
 {% endblock %}

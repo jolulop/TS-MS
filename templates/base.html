@@ -144,6 +144,16 @@
         opacity: 0.5;
       }
 
+      .detail-action-form {
+        display: grid;
+        gap: 0.9rem;
+      }
+
+      .employee-detail-layout {
+        display: grid;
+        gap: 1.2rem;
+      }
+
       .icon-button {
         display: inline-flex;
         align-items: center;
@@ -313,12 +323,25 @@
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
+        .form-grid.employee-core-grid {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+
         .split-grid.split-grid-primary-wide {
           grid-template-columns: minmax(0, 1.7fr) minmax(22rem, 1fr);
         }
 
         .meta-grid.meta-grid-inline {
           grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+
+        .employee-detail-layout {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .employee-detail-section-wide,
+        .detail-action-form {
+          grid-column: 1 / -1;
         }
       }
 

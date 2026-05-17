@@ -239,6 +239,42 @@ def _serialize_timesheet_summary(timesheet: WeeklyTimesheet) -> dict:
     }
 
 
+def _current_monday() -> date:
+    today = timezone.localdate()
+    return today - timedelta(days=today.weekday())
+
+
+def _first_monday_on_or_after(start_date: date) -> date:
+    return start_date + timedelta(days=(7 - start_date.weekday()) % 7)
+
+
+def _missing_timesheet_summaries(employee: Employee, existing_week_starts: set[date]) -> list[dict]:
+    first_week_start = _first_monday_on_or_after(employee.created_at.date())
+    current_week_start = _current_monday()
+    if first_week_start > current_week_start:
+        return []
+
+    missing_summaries: list[dict] = []
+    week_start = first_week_start
+    while week_start <= current_week_start:
+        if week_start not in existing_week_starts:
+            missing_summaries.append(
+                {
+                    "id": None,
+                    "week_start_date": week_start.isoformat(),
+                    "week_end_date": (week_start + timedelta(days=6)).isoformat(),
+                    "status": "Missing",
+                    "current_submission_no": 0,
+                    "submission_datetime": None,
+                    "final_approval_datetime": None,
+                    "line_count": 0,
+                    "is_missing": True,
+                }
+            )
+        week_start += timedelta(days=7)
+    return missing_summaries
+
+
 def _get_timesheet_for_view(current_user: CurrentUser, timesheet_id: int) -> WeeklyTimesheet:
     try:
         timesheet = (
@@ -792,13 +828,18 @@ def _submission_blockers(timesheet: WeeklyTimesheet) -> list[str]:
 class TimesheetService:
     @staticmethod
     def list_timesheets(current_user: CurrentUser) -> list[dict]:
+        employee = _employee_for_current_user(current_user)
         timesheets = (
             WeeklyTimesheet.objects.select_related("status")
             .prefetch_related("lines")
             .filter(employee_id=current_user.employee_id)
             .order_by("-week_start_date", "id")
         )
-        return [_serialize_timesheet_summary(timesheet) for timesheet in timesheets]
+        summaries = [_serialize_timesheet_summary(timesheet) for timesheet in timesheets]
+        existing_week_starts = {timesheet.week_start_date for timesheet in timesheets}
+        summaries.extend(_missing_timesheet_summaries(employee, existing_week_starts))
+        summaries.sort(key=lambda item: item["week_start_date"], reverse=True)
+        return summaries
 
     @staticmethod
     def get_timesheet_editor_context(current_user: CurrentUser, timesheet_id: int) -> dict:

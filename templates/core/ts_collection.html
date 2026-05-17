@@ -19,7 +19,7 @@
           <h1>{{ page_title }}</h1>
           <p>{{ page_intro }}</p>
         </div>
-        <form class="toolbar-form" method="post" action="/ts/">
+        <form id="create-timesheet" class="toolbar-form" method="post" action="/ts/">
           {% csrf_token %}
           <div class="field toolbar-field">
             <label for="week_start_date">Week Start Date</label>

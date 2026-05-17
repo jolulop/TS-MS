@@ -390,11 +390,11 @@ def profile(request: HttpRequest) -> HttpResponse:
     ).get(id=current_user.employee_id)
     context = _page_context(
         request,
-        title="Session Context",
+        title="Profile",
         eyebrow="SCR-004",
         intro=(
             "Current employee identity, internal roles, and Business Unit "
-            "scope loaded into this session."
+            "scope loaded into your personal TS view."
         ),
     )
     context["profile_rows"] = [

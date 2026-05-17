@@ -47,7 +47,19 @@
 
         <div class="content-stack">
           {% for section in form_sections %}
-            <section class="surface-card">
+            {% if section.action_only %}
+              <form class="detail-action-form" method="post" action="">
+                {% csrf_token %}
+                <input type="hidden" name="form_name" value="{{ section.form_name }}">
+                {% if section.form_error %}
+                  <div class="banner error">{{ section.form_error }}</div>
+                {% endif %}
+                <div class="button-row">
+                  <button class="{{ section.button_class|default:'button' }}" type="submit">{{ section.submit_label }}</button>
+                </div>
+              </form>
+            {% else %}
+            <section class="surface-card{% if section.section_class %} {{ section.section_class }}{% endif %}">
               <div class="section-header">
                 <h2>{{ section.title }}</h2>
                 <p>{{ section.intro }}</p>
@@ -69,26 +81,39 @@
                   {% elif section.empty_message %}
                     <div class="empty-state">{{ section.empty_message }}</div>
                   {% endif %}
-                  {% include "core/partials/form_fields.html" with fields=section.fields %}
+                  {% include "core/partials/form_fields.html" with fields=section.fields field_grid_class=section.fields_grid_class %}
                 </div>
               {% else %}
                 <form class="form-stack" method="post" action="">
                   {% csrf_token %}
                   <input type="hidden" name="form_name" value="{{ section.form_name }}">
-                  {% include "core/partials/form_fields.html" with fields=section.fields %}
+                  {% include "core/partials/form_fields.html" with fields=section.fields field_grid_class=section.fields_grid_class %}
                   <div>
                     <button class="button" type="submit">{{ section.submit_label }}</button>
                   </div>
                 </form>
               {% endif %}
             </section>
+            {% endif %}
           {% endfor %}
         </div>
       </div>
     {% else %}
-      <div class="content-stack">
+      <div class="{{ detail_content_class }}">
         {% for section in form_sections %}
-          <section class="surface-card">
+          {% if section.action_only %}
+            <form class="detail-action-form" method="post" action="">
+              {% csrf_token %}
+              <input type="hidden" name="form_name" value="{{ section.form_name }}">
+              {% if section.form_error %}
+                <div class="banner error">{{ section.form_error }}</div>
+              {% endif %}
+              <div class="button-row">
+                <button class="{{ section.button_class|default:'button' }}" type="submit">{{ section.submit_label }}</button>
+              </div>
+            </form>
+          {% else %}
+          <section class="surface-card{% if section.section_class %} {{ section.section_class }}{% endif %}">
             <div class="section-header">
               <h2>{{ section.title }}</h2>
               <p>{{ section.intro }}</p>
@@ -110,19 +135,20 @@
                 {% elif section.empty_message %}
                   <div class="empty-state">{{ section.empty_message }}</div>
                 {% endif %}
-                {% include "core/partials/form_fields.html" with fields=section.fields %}
+                {% include "core/partials/form_fields.html" with fields=section.fields field_grid_class=section.fields_grid_class %}
               </div>
             {% else %}
               <form class="form-stack" method="post" action="">
                 {% csrf_token %}
                 <input type="hidden" name="form_name" value="{{ section.form_name }}">
-                {% include "core/partials/form_fields.html" with fields=section.fields %}
+                {% include "core/partials/form_fields.html" with fields=section.fields field_grid_class=section.fields_grid_class %}
                 <div>
                   <button class="button" type="submit">{{ section.submit_label }}</button>
                 </div>
               </form>
             {% endif %}
           </section>
+          {% endif %}
         {% endfor %}
       </div>
     {% endif %}

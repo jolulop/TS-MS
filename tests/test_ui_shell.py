@@ -45,10 +45,13 @@ def test_user_dashboard_hides_system_and_approval_navigation() -> None:
 
     assert response.status_code == 200
     content = response.content.decode()
+    assert "My info" in content
+    assert "TS/Project Management" in content
+    assert "Profile" in content
     assert "Dashboard" in content
     assert "My Timesheets" in content
-    assert "My History" in content
     assert "Reports" in content
+    assert "My History" not in content
     assert "System Management" not in content
     assert "Approval Worklist" not in content
 
@@ -117,11 +120,13 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     profile_content = profile_response.content.decode()
 
     assert dashboard_response.status_code == 200
+    assert "My info" in dashboard_content
+    assert "TS/Project Management" in dashboard_content
     assert "Approval Worklist" in dashboard_content
     assert "Project Time Inquiry" in dashboard_content
     assert "System Management" not in dashboard_content
     assert profile_response.status_code == 200
-    assert "Session Context" in profile_content
+    assert "Profile" in profile_content
     assert "Project Manager User" in profile_content
     assert "Active Office" in profile_content
     assert "Holding" in profile_content
@@ -242,8 +247,10 @@ def test_ts_admin_navigation_includes_pricing_models_link() -> None:
         for group in response.context["navigation_groups"]
         if group.label == "System Management"
     )
+    navigation_labels = [group.label for group in response.context["navigation_groups"]]
 
     assert response.status_code == 200
+    assert navigation_labels == ["My info", "TS/Project Management", "System Management"]
     assert "/system/pricing-models/" in response.content.decode()
     assert [item.label for item in system_group.items] == [
         "System Management",

@@ -6,14 +6,22 @@ Describe the current server-rendered UI screens and behaviors implemented in the
 
 ## 2. Navigation
 
-Top-level areas:
+Authenticated left-panel sections:
+- `My info`
+- `TS/Project Management`
 - `System Management`
-- `TS Management`
-- `Approvals`
-- `Reports`
-- `Profile`
 
-Role-aware visibility applies to menus and actions.
+Role-aware visibility applies to sections, menus, and actions.
+
+`My info` contains:
+- `Profile`
+- `Dashboard`
+- `My Timesheets`
+
+`TS/Project Management` contains:
+- `Reports`
+- `Approval Worklist` when authorized
+- `Project Time Inquiry` when authorized
 
 ## 3. System Management Navigation
 
@@ -278,10 +286,20 @@ Important UI behavior:
 
 - Access: authenticated `USER`
 - features:
-  - view current/available weekly timesheets
+  - merged personal weekly list for current and historical timesheets
+  - includes synthetic missing-week rows for Monday-starting weeks with no
+    created timesheet since employee record creation
   - header-level `Week Start Date` selector and `Create Timesheet` action
   - create flow opens the weekly editor directly for the selected date
   - open weekly timesheets into the dedicated edit/detail screen
+  - list columns:
+    - `Week Start`
+    - `Week End`
+    - `Status`
+    - `Submitted At`
+    - `Approved At`
+  - list dates are shown using short-date formatting
+  - clicking a missing week preloads the create controls with that week start
   - submit
   - withdraw if allowed
   - delete draft timesheets only when deletion is allowed by backend rules
@@ -290,8 +308,8 @@ Important UI behavior:
 
 - Access: authenticated `USER`
 - features:
-  - read-only historical list
-  - open a historical timesheet detail
+  - compatibility route only
+  - redirects to `SCR-200 My Timesheets`
 
 ### SCR-220 Project Time Inquiry
 

@@ -302,6 +302,7 @@ def _field(
     checked: bool = False,
     readonly: bool = False,
     disabled: bool = False,
+    size: int | None = None,
 ) -> dict:
     return {
         "name": name,
@@ -314,6 +315,7 @@ def _field(
         "checked": checked,
         "readonly": readonly,
         "disabled": disabled,
+        "size": size,
     }
 
 
@@ -723,6 +725,13 @@ def _employee_core_fields(employee: dict, *, post_data: QueryDict | None = None)
     return [
         _office_display_field(employee["office"]["office_name"]),
         _field(
+            name="employee_code",
+            label="Employee Code",
+            kind="text",
+            value=employee["employee_code"],
+            readonly=True,
+        ),
+        _field(
             name="full_name",
             label="Full Name",
             kind="text",
@@ -785,7 +794,11 @@ def _employee_business_unit_fields(
     selected_scope = (
         post_data.getlist("business_unit_ids")
         if post_data is not None
-        else [business_unit["id"] for business_unit in employee["business_units"]]
+        else [
+            business_unit["id"]
+            for business_unit in employee["business_units"]
+            if business_unit["id"] != employee["primary_business_unit"]["id"]
+        ]
     )
     help_text = "The primary Business Unit must also be part of the employee scope."
     if has_ts_admin_role:
@@ -803,9 +816,10 @@ def _employee_business_unit_fields(
         _field(
             name="primary_business_unit_id",
             label="Primary Business Unit",
-            kind="select",
+            kind="listbox",
             options=_scoped_business_unit_options(current_user, selected=selected_primary),
             required=True,
+            size=max(4, len(current_user.scoped_business_units)),
         ),
         _field(
             name="business_unit_ids",
@@ -1954,6 +1968,7 @@ def _render_detail_page(
     back_label: str,
     entity_status: str,
     show_detail_panel: bool = True,
+    detail_content_class: str = "content-stack",
     page_action: dict | None = None,
 ) -> HttpResponse:
     context = _system_context(
@@ -1971,6 +1986,7 @@ def _render_detail_page(
             "back_label": back_label,
             "entity_status": entity_status,
             "show_detail_panel": show_detail_panel,
+            "detail_content_class": detail_content_class,
             "page_action": page_action,
         }
     )
@@ -2050,6 +2066,22 @@ def _render_master_create(
         show_detail_panel=False,
         page_action={"label": f"Back to {config.plural_label}", "href": config.collection_path},
     )
+
+
+def _delete_action_section(
+    *,
+    form_name: str = "delete",
+    submit_label: str,
+    form_error: str = "",
+) -> dict:
+    return {
+        "form_name": form_name,
+        "submit_label": submit_label,
+        "form_error": form_error,
+        "fields": [],
+        "action_only": True,
+        "button_class": "button danger",
+    }
 
 
 def _employee_rows(employees: list[dict]) -> list[dict]:
@@ -3402,18 +3434,10 @@ def business_unit_detail(request: HttpRequest, business_unit_id: int) -> HttpRes
                 read_only=True,
             ),
         },
-        {
-            "form_name": "delete",
-            "title": "Delete Business Unit",
-            "intro": (
-                "Delete this Business Unit only if it has no dependent operational records. "
-                "Lightweight admin scope links will be removed automatically, but in-use "
-                "Business Units stay protected."
-            ),
-            "submit_label": "Delete Business Unit",
-            "form_error": form_error if active_form == "delete" else "",
-            "fields": [],
-        },
+        _delete_action_section(
+            submit_label="Delete Business Unit",
+            form_error=form_error if active_form == "delete" else "",
+        ),
     ]
     return _render_detail_page(
         request,
@@ -3426,6 +3450,8 @@ def business_unit_detail(request: HttpRequest, business_unit_id: int) -> HttpRes
         back_href=BUSINESS_UNIT_CONFIG.collection_path,
         back_label="Back to Business Units",
         entity_status=business_unit["status"],
+        show_detail_panel=False,
+        page_action={"label": "Back to Business Units", "href": BUSINESS_UNIT_CONFIG.collection_path},
     )
 
 
@@ -3982,6 +4008,8 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
             "intro": "Update identity and lifecycle fields for the selected employee.",
             "submit_label": "Save Core Data",
             "form_error": form_error if active_form == "core" else "",
+            "section_class": "employee-detail-section employee-detail-section-wide",
+            "fields_grid_class": "employee-core-grid",
             "fields": _employee_core_fields(
                 employee,
                 post_data=post_data if active_form == "core" else None,
@@ -3993,6 +4021,7 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
             "intro": "Replace the employee's active internal roles in one action.",
             "submit_label": "Save Roles",
             "form_error": form_error if active_form == "roles" else "",
+            "section_class": "employee-detail-section",
             "fields": _employee_role_fields(
                 employee,
                 post_data=post_data if active_form == "roles" else None,
@@ -4006,6 +4035,7 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
             ),
             "submit_label": "Save Business Units",
             "form_error": form_error if active_form == "business_units" else "",
+            "section_class": "employee-detail-section",
             "fields": _employee_business_unit_fields(
                 current_user,
                 employee,
@@ -4014,15 +4044,11 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
         },
         {
             "form_name": "delete",
-            "title": "Delete Employee",
-            "intro": (
-                "Delete this employee only if it has no dependent operational records. "
-                "Role and Business Unit scope rows created for the employee will be removed "
-                "with the employee when it is safe to do so."
-            ),
             "submit_label": "Delete Employee",
             "form_error": form_error if active_form == "delete" else "",
             "fields": [],
+            "action_only": True,
+            "button_class": "button danger",
         },
     ]
     return _render_detail_page(
@@ -4039,6 +4065,9 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
         back_href="/system/employees/",
         back_label="Back to Employee List",
         entity_status=employee["status"],
+        show_detail_panel=False,
+        detail_content_class="employee-detail-layout",
+        page_action={"label": "Back to Employees", "href": "/system/employees/"},
     )
 
 
@@ -4107,6 +4136,8 @@ def _render_master_detail(
         back_href=config.collection_path,
         back_label=f"Back to {config.plural_label}",
         entity_status=entity["status"],
+        show_detail_panel=False,
+        page_action={"label": f"Back to {config.plural_label}", "href": config.collection_path},
     )
 
 
@@ -4243,42 +4274,25 @@ def client_detail(request: HttpRequest, client_id: int) -> HttpResponse:
             error=error,
         )
 
-    return _render_detail_page(
+    return _render_master_detail(
         request,
         current_user,
-        title=client["name"],
-        eyebrow=CLIENT_CONFIG.detail_eyebrow,
-        intro=CLIENT_CONFIG.detail_intro,
+        config=CLIENT_CONFIG,
+        entity=client,
         detail_rows=_client_detail_rows(client),
-        form_sections=[
-            {
-                "form_name": "edit",
-                "title": "Edit Client",
-                "intro": "Update the selected client without leaving the shared shell.",
-                "submit_label": "Save Client",
-                "form_error": form_error if active_form == "edit" else "",
-                "fields": _client_form_fields(
-                    current_user,
-                    post_data=post_data if active_form == "edit" else None,
-                    entity=client,
-                ),
-            },
-            {
-                "form_name": "delete",
-                "title": "Delete Client",
-                "intro": (
-                    "Delete this Client only if it has no protected references. "
-                    "If Projects, child Clients, or other records still depend on it, "
-                    "deletion will be blocked."
-                ),
-                "submit_label": "Delete Client",
-                "form_error": form_error if active_form == "delete" else "",
-                "fields": [],
-            },
+        form_fields=_client_form_fields(
+            current_user,
+            post_data=post_data if active_form == "edit" else None,
+            entity=client,
+        ),
+        form_error=form_error,
+        active_form=active_form,
+        extra_form_sections=[
+            _delete_action_section(
+                submit_label="Delete Client",
+                form_error=form_error if active_form == "delete" else "",
+            )
         ],
-        back_href=CLIENT_CONFIG.collection_path,
-        back_label=f"Back to {CLIENT_CONFIG.plural_label}",
-        entity_status=client["status"],
     )
 
 
@@ -4433,47 +4447,31 @@ def internal_category_detail(request: HttpRequest, category_id: int) -> HttpResp
             error=error,
         )
 
-    return _render_detail_page(
+    return _render_master_detail(
         request,
         current_user,
-        title=category["name"],
-        eyebrow=INTERNAL_CATEGORY_CONFIG.detail_eyebrow,
-        intro=INTERNAL_CATEGORY_CONFIG.detail_intro,
+        config=INTERNAL_CATEGORY_CONFIG,
+        entity=category,
         detail_rows=_internal_category_detail_rows(category),
-        form_sections=[
-            {
-                "form_name": "edit",
-                "title": "Edit Internal Category",
-                "intro": "Update the selected internal category without leaving the shared shell.",
-                "submit_label": "Save Internal Category",
-                "form_error": form_error if active_form == "edit" else "",
-                "fields": _simple_master_fields(
-                    current_user,
-                    post_data=post_data if active_form == "edit" else None,
-                    entity=category,
-                    business_unit_label="Business Unit",
-                    code_name="category_code",
-                    code_label="Category Code",
-                    name_label="Category Name",
-                    description_label="Description",
-                    status_domain="INTERNAL_CATEGORY_STATUS",
-                ),
-            },
-            {
-                "form_name": "delete",
-                "title": "Delete Internal Category",
-                "intro": (
-                    "Delete this Internal Category only if it has no protected references. "
-                    "If Projects or other records still depend on it, deletion will be blocked."
-                ),
-                "submit_label": "Delete Internal Category",
-                "form_error": form_error if active_form == "delete" else "",
-                "fields": [],
-            },
+        form_fields=_simple_master_fields(
+            current_user,
+            post_data=post_data if active_form == "edit" else None,
+            entity=category,
+            business_unit_label="Business Unit",
+            code_name="category_code",
+            code_label="Category Code",
+            name_label="Category Name",
+            description_label="Description",
+            status_domain="INTERNAL_CATEGORY_STATUS",
+        ),
+        form_error=form_error,
+        active_form=active_form,
+        extra_form_sections=[
+            _delete_action_section(
+                submit_label="Delete Internal Category",
+                form_error=form_error if active_form == "delete" else "",
+            )
         ],
-        back_href=INTERNAL_CATEGORY_CONFIG.collection_path,
-        back_label=f"Back to {INTERNAL_CATEGORY_CONFIG.plural_label}",
-        entity_status=category["status"],
     )
 
 
@@ -4610,41 +4608,25 @@ def cost_center_detail(request: HttpRequest, cost_center_id: int) -> HttpRespons
             error=error,
         )
 
-    return _render_detail_page(
+    return _render_master_detail(
         request,
         current_user,
-        title=cost_center["name"],
-        eyebrow=COST_CENTER_CONFIG.detail_eyebrow,
-        intro=COST_CENTER_CONFIG.detail_intro,
+        config=COST_CENTER_CONFIG,
+        entity=cost_center,
         detail_rows=_cost_center_detail_rows(cost_center),
-        form_sections=[
-            {
-                "form_name": "edit",
-                "title": "Edit Cost Center",
-                "intro": "Update the selected cost center without leaving the shared shell.",
-                "submit_label": "Save Cost Center",
-                "form_error": form_error if active_form == "edit" else "",
-                "fields": _cost_center_fields(
-                    current_user,
-                    post_data=post_data if active_form == "edit" else None,
-                    entity=cost_center,
-                ),
-            },
-            {
-                "form_name": "delete",
-                "title": "Delete Cost Center",
-                "intro": (
-                    "Delete this Cost Center only if it has no protected references. "
-                    "If Projects or other records still depend on it, deletion will be blocked."
-                ),
-                "submit_label": "Delete Cost Center",
-                "form_error": form_error if active_form == "delete" else "",
-                "fields": [],
-            },
+        form_fields=_cost_center_fields(
+            current_user,
+            post_data=post_data if active_form == "edit" else None,
+            entity=cost_center,
+        ),
+        form_error=form_error,
+        active_form=active_form,
+        extra_form_sections=[
+            _delete_action_section(
+                submit_label="Delete Cost Center",
+                form_error=form_error if active_form == "delete" else "",
+            )
         ],
-        back_href=COST_CENTER_CONFIG.collection_path,
-        back_label=f"Back to {COST_CENTER_CONFIG.plural_label}",
-        entity_status=cost_center["status"],
     )
 
 
@@ -4769,41 +4751,25 @@ def pricing_model_detail(request: HttpRequest, pricing_model_id: int) -> HttpRes
             error=error,
         )
 
-    return _render_detail_page(
+    return _render_master_detail(
         request,
         current_user,
-        title=pricing_model["name"],
-        eyebrow=PRICING_MODEL_CONFIG.detail_eyebrow,
-        intro=PRICING_MODEL_CONFIG.detail_intro,
+        config=PRICING_MODEL_CONFIG,
+        entity={"name": pricing_model["name"], "status": "Managed", **pricing_model},
         detail_rows=_pricing_model_detail_rows(pricing_model),
-        form_sections=[
-            {
-                "form_name": "edit",
-                "title": "Edit Pricing Model",
-                "intro": "Update the selected pricing model without leaving the shared shell.",
-                "submit_label": "Save Pricing Model",
-                "form_error": form_error if active_form == "edit" else "",
-                "fields": _pricing_model_fields(
-                    current_user,
-                    post_data=post_data if active_form == "edit" else None,
-                    entity=pricing_model,
-                ),
-            },
-            {
-                "form_name": "delete",
-                "title": "Delete Pricing Model",
-                "intro": (
-                    "Delete this Pricing Model only if it has no protected references. "
-                    "If Projects or other records still depend on it, deletion will be blocked."
-                ),
-                "submit_label": "Delete Pricing Model",
-                "form_error": form_error if active_form == "delete" else "",
-                "fields": [],
-            },
+        form_fields=_pricing_model_fields(
+            current_user,
+            post_data=post_data if active_form == "edit" else None,
+            entity=pricing_model,
+        ),
+        form_error=form_error,
+        active_form=active_form,
+        extra_form_sections=[
+            _delete_action_section(
+                submit_label="Delete Pricing Model",
+                form_error=form_error if active_form == "delete" else "",
+            )
         ],
-        back_href=PRICING_MODEL_CONFIG.collection_path,
-        back_label=f"Back to {PRICING_MODEL_CONFIG.plural_label}",
-        entity_status="Managed",
     )
 
 
@@ -4964,18 +4930,10 @@ def general_charge_code_approval_role_detail(
         form_error=form_error,
         active_form=active_form,
         extra_form_sections=[
-            {
-                "form_name": "delete",
-                "title": "Delete General Charge Code Approval Role",
-                "intro": (
-                    "Delete this ad-hoc approval role only when it is no longer linked to "
-                    "General Charge Codes or approval history. Protected references will "
-                    "block deletion."
-                ),
-                "submit_label": "Delete General Charge Code Approval Role",
-                "form_error": form_error if active_form == "delete" else "",
-                "fields": [],
-            }
+            _delete_action_section(
+                submit_label="Delete General Charge Code Approval Role",
+                form_error=form_error if active_form == "delete" else "",
+            )
         ],
     )
 
@@ -5167,18 +5125,10 @@ def general_charge_code_detail(
         form_error=form_error,
         active_form=active_form,
         extra_form_sections=[
-            {
-                "form_name": "delete",
-                "title": "Delete General Charge Code",
-                "intro": (
-                    "Delete this General Charge Code only if it has no protected references. "
-                    "If timesheets, approvals, or other records still depend on it, "
-                    "deletion will be blocked."
-                ),
-                "submit_label": "Delete General Charge Code",
-                "form_error": form_error if active_form == "delete" else "",
-                "fields": [],
-            }
+            _delete_action_section(
+                submit_label="Delete General Charge Code",
+                form_error=form_error if active_form == "delete" else "",
+            )
         ],
     )
 
@@ -5370,18 +5320,10 @@ def project_detail(request: HttpRequest, project_id: int) -> HttpResponse:
         form_error=form_error,
         active_form=active_form,
         extra_form_sections=[
-            {
-                "form_name": "delete",
-                "title": "Delete Project",
-                "intro": (
-                    "Delete this Project only if it has no protected references. "
-                    "If assignments, timesheets, approvals, or other records still depend on it, "
-                    "deletion will be blocked."
-                ),
-                "submit_label": "Delete Project",
-                "form_error": form_error if active_form == "delete" else "",
-                "fields": [],
-            }
+            _delete_action_section(
+                submit_label="Delete Project",
+                form_error=form_error if active_form == "delete" else "",
+            )
         ],
     )
 
@@ -5533,17 +5475,10 @@ def project_assignment_detail(request: HttpRequest, assignment_id: int) -> HttpR
         form_error=form_error,
         active_form=active_form,
         extra_form_sections=[
-            {
-                "form_name": "delete",
-                "title": "Delete Project Assignment",
-                "intro": (
-                    "Delete this Project Assignment only if it has no protected references. "
-                    "If other records still depend on it, deletion will be blocked."
-                ),
-                "submit_label": "Delete Project Assignment",
-                "form_error": form_error if active_form == "delete" else "",
-                "fields": [],
-            }
+            _delete_action_section(
+                submit_label="Delete Project Assignment",
+                form_error=form_error if active_form == "delete" else "",
+            )
         ],
     )
 
@@ -6066,43 +6001,23 @@ def calendar_period_rule_detail(request: HttpRequest, period_rule_id: int) -> Ht
             error=error,
         )
 
-    return _render_detail_page(
+    return _render_master_detail(
         request,
         current_user,
-        title=period_rule["name"],
-        eyebrow=CALENDAR_PERIOD_RULE_CONFIG.detail_eyebrow,
-        intro=CALENDAR_PERIOD_RULE_CONFIG.detail_intro,
+        config=CALENDAR_PERIOD_RULE_CONFIG,
+        entity=period_rule,
         detail_rows=_calendar_period_rule_detail_rows(period_rule),
-        form_sections=[
-            {
-                "form_name": "edit",
-                "title": "Edit Calendar Period Rule",
-                "intro": (
-                    "Update the selected calendar period rule without leaving "
-                    "the shared shell."
-                ),
-                "submit_label": "Save Calendar Period Rule",
-                "form_error": form_error if active_form == "edit" else "",
-                "fields": _calendar_period_rule_fields(
-                    current_user,
-                    post_data=post_data if active_form == "edit" else None,
-                    entity=period_rule,
-                ),
-            },
-            {
-                "form_name": "delete",
-                "title": "Delete Calendar Period Rule",
-                "intro": (
-                    "Delete this Calendar Period Rule only if it has no protected "
-                    "references. If other records still depend on it, deletion "
-                    "will be blocked."
-                ),
-                "submit_label": "Delete Calendar Period Rule",
-                "form_error": form_error if active_form == "delete" else "",
-                "fields": [],
-            },
+        form_fields=_calendar_period_rule_fields(
+            current_user,
+            post_data=post_data if active_form == "edit" else None,
+            entity=period_rule,
+        ),
+        form_error=form_error,
+        active_form=active_form,
+        extra_form_sections=[
+            _delete_action_section(
+                submit_label="Delete Calendar Period Rule",
+                form_error=form_error if active_form == "delete" else "",
+            )
         ],
-        back_href=CALENDAR_PERIOD_RULE_CONFIG.collection_path,
-        back_label=f"Back to {CALENDAR_PERIOD_RULE_CONFIG.plural_label}",
-        entity_status=period_rule["status"],
     )
