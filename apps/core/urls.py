@@ -195,6 +195,7 @@ urlpatterns = [
     ),
     path("ts/", ts_views.my_timesheets, name="ts-management"),
     path("ts/history/", ts_views.my_history, name="ts-history"),
+    path("ts/projects/", ts_views.project_management, name="ts-project-management"),
     path("ts/inquiry/", ts_views.project_time_inquiry, name="ts-project-inquiry"),
     path(
         "ts/timesheets/<int:timesheet_id>/",
@@ -208,5 +209,10 @@ urlpatterns = [
         name="approval-detail",
     ),
     path("reports/", reports_views.reports_hub, name="reports"),
+    path(
+        "reports/missing-timesheets/export/",
+        reports_views.export_missing_timesheets_csv,
+        name="report-missing-timesheets-export",
+    ),
     path("reports/<slug:report_code>/", reports_views.report_viewer, name="report-viewer"),
 ]

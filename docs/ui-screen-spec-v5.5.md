@@ -19,6 +19,7 @@ Role-aware visibility applies to sections, menus, and actions.
 - `My Timesheets`
 
 `TS/Project Management` contains:
+- `Project Management` when authorized
 - `Reports`
 - `Approval Worklist` when authorized
 - `Project Time Inquiry` when authorized
@@ -345,6 +346,29 @@ Important UI behavior:
   - compatibility route only
   - redirects to `SCR-200 My Timesheets`
 
+### SCR-211 Project Management
+
+- Access: `TS_ADMIN`, `PROJECT_OWNER`, `PROJECT_MANAGER`
+- features:
+  - status filters:
+    - `All`
+    - `Active`
+    - `Closed`
+    - `Draft`
+  - summary grid columns:
+    - `Name`
+    - `Status`
+    - `Appr. Hours`
+    - `Pend. TS`
+    - `Missing TS`
+  - project name opens:
+    - editable System Management project detail for `TS_ADMIN`
+    - read-only owned-project detail for `PROJECT_OWNER`
+    - no link for `PROJECT_MANAGER`
+  - approved-hours value opens the project-time report preloaded to that project
+  - pending-timesheet value opens the approval worklist for owned projects only
+  - missing-timesheet value opens the missing-timesheets report preloaded to that project
+
 ### SCR-220 Project Time Inquiry
 
 - Access: `PROJECT_OWNER` or `PROJECT_MANAGER`
@@ -357,12 +381,13 @@ Important UI behavior:
 
 ### SCR-300 Approval Worklist
 
-- Access: `PROJECT_MANAGER`
+- Access: `PROJECT_MANAGER`, `PROJECT_OWNER` owned-project visibility, or
+  matching General Charge Code approver scope
 - features:
   - pending approval list
   - approval detail
-  - approve
-  - reject
+  - approve when the current user is an actual approver for the item
+  - reject when the current user is an actual approver for the item
 
 ## 12. Report Screens
 
@@ -374,11 +399,32 @@ Important UI behavior:
   - summary
   - audience
   - scoped count
+- includes `Missing Timesheets by Project` for `PROJECT_OWNER`, `PROJECT_MANAGER`, and `TS_ADMIN`
 
 ### SCR-410 Report Viewer
 
 - Access: enforced per report
 - supports report-specific filters and scoped result grids
+
+### SCR-420 Missing Timesheets By Project Report
+
+- Access: `PROJECT_OWNER`, `PROJECT_MANAGER`, `TS_ADMIN`
+- filter panel:
+  - multi-select `Projects`
+  - `PROJECT_OWNER` options are owned projects
+  - `PROJECT_MANAGER` options are managed projects
+  - combined owner/manager roles see the union of both
+  - `TS_ADMIN` options come from current Office and Business Unit project scope
+  - `Export CSV` button next to report actions
+- result grid columns:
+  - `Project Name`
+  - `Employee Name`
+  - `Employee Email`
+  - `Missing TS Week Start`
+- behavior:
+  - empty project selection means all accessible projects
+  - explicit out-of-scope selections do not widen the report scope
+  - CSV export is downloaded as an attachment from the browser
 
 ## 13. Detail Screen Delete Pattern
 

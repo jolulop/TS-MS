@@ -1,5 +1,8 @@
+from collections import defaultdict
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
+from django.db.models import Count, Sum, Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_http_methods
@@ -8,6 +11,8 @@ from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
 from apps.core.reports_views import render_report_view
 from apps.core.views import _page_context, _render_access_denied, _require_user
+from apps.master_data.models import Project, ProjectAssignment
+from apps.timesheets.models import TimesheetLine, WeeklyTimesheet
 from apps.timesheets.services import TimesheetService
 
 INITIAL_EMPTY_EDITOR_ROWS = 5
@@ -21,6 +26,14 @@ def _timesheet_section_links(current_user: CurrentUser, current_path: str) -> li
             "active": current_path == "/ts/",
         },
     ]
+    if _can_open_project_management(current_user):
+        links.append(
+            {
+                "label": "Project Management",
+                "href": "/ts/projects/",
+                "active": current_path == "/ts/projects/",
+            }
+        )
     if current_user.has_role("PROJECT_OWNER") or current_user.has_role("PROJECT_MANAGER"):
         links.append(
             {
@@ -76,6 +89,208 @@ def _render_timesheet_auth_error(
 def _current_monday(today: date | None = None) -> date:
     current_date = today or date.today()
     return current_date - timedelta(days=current_date.weekday())
+
+
+def _first_monday_on_or_after(start_date: date) -> date:
+    return start_date + timedelta(days=(7 - start_date.weekday()) % 7)
+
+
+def _monday_on_or_before(end_date: date) -> date:
+    return end_date - timedelta(days=end_date.weekday())
+
+
+def _can_open_project_management(current_user: CurrentUser) -> bool:
+    return (
+        current_user.is_ts_admin
+        or current_user.has_role("PROJECT_OWNER")
+        or current_user.has_role("PROJECT_MANAGER")
+    )
+
+
+def _scoped_project_queryset(current_user: CurrentUser):
+    queryset = Project.objects.select_related(
+        "business_unit",
+        "project_owner_employee",
+        "project_manager_employee",
+        "status",
+    ).filter(office_id=current_user.office_id)
+    if current_user.is_ts_admin:
+        return queryset.filter(business_unit_id__in=current_user.scoped_business_unit_ids)
+
+    project_scope = Q()
+    if current_user.has_role("PROJECT_OWNER"):
+        project_scope |= Q(project_owner_employee_id=current_user.employee_id)
+    if current_user.has_role("PROJECT_MANAGER"):
+        project_scope |= Q(project_manager_employee_id=current_user.employee_id)
+    return queryset.filter(project_scope)
+
+
+def _project_management_status_links(request: HttpRequest) -> tuple[str, list[dict]]:
+    allowed_codes = ("ALL", "ACTIVE", "CLOSED", "DRAFT")
+    selected_code = str(request.GET.get("status", "ALL")).strip().upper() or "ALL"
+    if selected_code not in allowed_codes:
+        selected_code = "ALL"
+    links = []
+    for status_code, label in (
+        ("ALL", "All"),
+        ("ACTIVE", "Active"),
+        ("CLOSED", "Closed"),
+        ("DRAFT", "Draft"),
+    ):
+        href = request.path if status_code == "ALL" else f"{request.path}?status={status_code}"
+        links.append(
+            {
+                "label": label,
+                "href": href,
+                "active": selected_code == status_code,
+            }
+        )
+    return selected_code, links
+
+
+def _format_hours(value: Decimal | None) -> str:
+    if value is None:
+        return "0.00"
+    return f"{value:.2f}"
+
+
+def _project_missing_timesheet_counts(project_ids: list[int]) -> dict[int, int]:
+    if not project_ids:
+        return {}
+
+    assignments = list(
+        ProjectAssignment.objects.select_related("employee", "project")
+        .filter(
+            project_id__in=project_ids,
+            employee__status__value_code="ACTIVE",
+            status__value_code="ACTIVE",
+        )
+        .order_by(
+            "project__project_code",
+            "employee__employee_code",
+            "assignment_start_date",
+        )
+    )
+    if not assignments:
+        return {}
+
+    current_week_start = _current_monday()
+    employee_ids: set[int] = set()
+    assignment_windows: list[tuple[int, int, date, date]] = []
+    global_start: date | None = None
+    global_end: date | None = None
+
+    for assignment in assignments:
+        effective_start = max(
+            assignment.employee.created_at.date(),
+            assignment.assignment_start_date,
+            assignment.project.start_date,
+        )
+        end_candidates = [current_week_start]
+        if assignment.assignment_end_date is not None:
+            end_candidates.append(assignment.assignment_end_date)
+        if assignment.project.end_date is not None:
+            end_candidates.append(assignment.project.end_date)
+        if assignment.project.close_date is not None:
+            end_candidates.append(assignment.project.close_date)
+        if assignment.employee.employment_end_date is not None:
+            end_candidates.append(assignment.employee.employment_end_date)
+        effective_end = min(end_candidates)
+
+        first_week_start = _first_monday_on_or_after(effective_start)
+        last_week_start = _monday_on_or_before(effective_end)
+        if first_week_start > last_week_start:
+            continue
+
+        assignment_windows.append(
+            (
+                assignment.project_id,
+                assignment.employee_id,
+                first_week_start,
+                last_week_start,
+            )
+        )
+        employee_ids.add(assignment.employee_id)
+        global_start = (
+            first_week_start if global_start is None else min(global_start, first_week_start)
+        )
+        global_end = last_week_start if global_end is None else max(global_end, last_week_start)
+
+    if not assignment_windows or global_start is None or global_end is None:
+        return {}
+
+    qualifying_weeks_by_employee: dict[int, set[date]] = defaultdict(set)
+    for employee_id, week_start_date in WeeklyTimesheet.objects.filter(
+        employee_id__in=employee_ids,
+        week_start_date__gte=global_start,
+        week_start_date__lte=global_end,
+        status__value_code__in=("SUBMITTED", "APPROVED"),
+    ).values_list("employee_id", "week_start_date"):
+        qualifying_weeks_by_employee[employee_id].add(week_start_date)
+
+    missing_employee_weeks_by_project: dict[int, set[tuple[int, date]]] = defaultdict(set)
+    for project_id, employee_id, first_week_start, last_week_start in assignment_windows:
+        qualifying_weeks = qualifying_weeks_by_employee.get(employee_id, set())
+        week_start = first_week_start
+        while week_start <= last_week_start:
+            if week_start not in qualifying_weeks:
+                missing_employee_weeks_by_project[project_id].add((employee_id, week_start))
+            week_start += timedelta(days=7)
+
+    return {
+        project_id: len(missing_employee_weeks_by_project.get(project_id, set()))
+        for project_id in project_ids
+    }
+
+
+def _project_management_rows(current_user: CurrentUser, projects: list[Project]) -> list[dict]:
+    project_ids = [project.id for project in projects]
+    approved_hours_by_project = {
+        row["project_id"]: row["approved_hours"] or Decimal("0.00")
+        for row in TimesheetLine.objects.filter(
+            project_id__in=project_ids,
+            weekly_timesheet__status__value_code="APPROVED",
+        )
+        .values("project_id")
+        .annotate(approved_hours=Sum("hours"))
+    }
+    pending_timesheets_by_project = {
+        row["lines__project_id"]: row["pending_timesheet_count"]
+        for row in WeeklyTimesheet.objects.filter(
+            status__value_code="SUBMITTED",
+            lines__project_id__in=project_ids,
+        )
+        .values("lines__project_id")
+        .annotate(pending_timesheet_count=Count("id", distinct=True))
+    }
+    missing_counts_by_project = _project_missing_timesheet_counts(project_ids)
+
+    rows = []
+    for project in projects:
+        can_open_detail = current_user.is_ts_admin or (
+            current_user.has_role("PROJECT_OWNER")
+            and project.project_owner_employee_id == current_user.employee_id
+        )
+        can_open_pending = (
+            current_user.has_role("PROJECT_OWNER")
+            and project.project_owner_employee_id == current_user.employee_id
+        )
+        rows.append(
+            {
+                "name": project.name,
+                "name_href": f"/system/projects/{project.id}/" if can_open_detail else "",
+                "status": project.status.value_code,
+                "approved_hours": _format_hours(approved_hours_by_project.get(project.id)),
+                "approved_hours_href": f"/reports/project-time/?project_id={project.id}",
+                "pending_timesheets": str(pending_timesheets_by_project.get(project.id, 0)),
+                "pending_timesheets_href": (
+                    f"/approvals/?project_id={project.id}" if can_open_pending else ""
+                ),
+                "missing_timesheets": str(missing_counts_by_project.get(project.id, 0)),
+                "missing_timesheets_href": f"/reports/missing-timesheets/?project_ids={project.id}",
+            }
+        )
+    return rows
 
 
 def _default_week_start_date_value() -> str:
@@ -323,6 +538,45 @@ def my_history(request: HttpRequest) -> HttpResponse:
         return current_user
 
     return redirect("/ts/")
+
+
+@require_GET
+def project_management(request: HttpRequest) -> HttpResponse:
+    current_user = _require_user(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+    if not _can_open_project_management(current_user):
+        return _render_access_denied(
+            request,
+            message="You do not have permission to open project management.",
+        )
+
+    selected_status_code, status_links = _project_management_status_links(request)
+    queryset = _scoped_project_queryset(current_user).order_by(
+        "business_unit__bu_code",
+        "project_code",
+    )
+    if selected_status_code != "ALL":
+        queryset = queryset.filter(status__value_code=selected_status_code)
+    projects = list(queryset)
+
+    context = _ts_context(
+        request,
+        current_user,
+        title="Project Management",
+        eyebrow="SCR-211",
+        intro=(
+            "Role-aware project summary with drill-down access into project "
+            "details, approval worklists, and scoped reports."
+        ),
+    )
+    context.update(
+        {
+            "filter_links": status_links,
+            "table_rows": _project_management_rows(current_user, projects),
+        }
+    )
+    return render(request, "core/project_management.html", context)
 
 
 @require_http_methods(["GET", "POST"])

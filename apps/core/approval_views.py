@@ -4,7 +4,9 @@ from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
+from apps.auth.policies import AuthorizationPolicyService
 from apps.core.views import _page_context, _render_access_denied, _require_user
+from apps.timesheets.models import ApprovalItem
 from apps.timesheets.services import TimesheetService
 
 
@@ -102,6 +104,15 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
             error=error,
         )
 
+    selected_project_id = request.GET.get("project_id", "").strip()
+    if selected_project_id.isdigit():
+        project_id = int(selected_project_id)
+        approval_items = [
+            item
+            for item in approval_items
+            if item.get("project") is not None and item["project"]["id"] == project_id
+        ]
+
     pending_items = [item for item in approval_items if item["status"] == "PENDING"]
     decided_items = [item for item in approval_items if item["status"] != "PENDING"]
 
@@ -110,8 +121,8 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
         title="Approval Worklist",
         eyebrow="SCR-205",
         intro=(
-            "Routed approval items waiting for your decision, with completed items "
-            "kept visible for audit-friendly follow-up."
+            "Routed approval items waiting for your review or decision, with "
+            "completed items kept visible for audit-friendly follow-up."
         ),
     )
     context.update(
@@ -186,6 +197,18 @@ def approval_detail(request: HttpRequest, approval_item_id: int) -> HttpResponse
             error=error,
         )
 
+    approval_item_record = (
+        ApprovalItem.objects.select_related(
+            "project",
+            "submission_cycle",
+            "submission_cycle__weekly_timesheet",
+        )
+        .prefetch_related(
+            "approver_roles__existing_role",
+            "approver_roles__approval_role",
+        )
+        .get(id=approval_item_id)
+    )
     context = _approval_context(
         request,
         title=f"Approval Item #{approval_item_id}",
@@ -197,7 +220,10 @@ def approval_detail(request: HttpRequest, approval_item_id: int) -> HttpResponse
             "approval_item": approval_item,
             "approval_project_label": _approval_target_label(approval_item),
             "timesheet_employee_label": _employee_label(approval_item),
-            "can_decide": approval_item["status"] == "PENDING",
+            "can_decide": AuthorizationPolicyService.can_approve_approval_item(
+                current_user,
+                approval_item_record,
+            ),
             "line_rows": [
                 {
                     "work_date": line["work_date"],

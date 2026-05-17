@@ -103,6 +103,10 @@
 - One employee can have at most one weekly timesheet per week.
 - Timesheet week starts on Monday and may include configured working weekend days.
 - The personal weekly list shows missing timesheet gaps as synthetic rows for Monday-starting weeks with no record since employee creation.
+- The TS Project Management missing-timesheet counter treats only `SUBMITTED`
+  or `APPROVED` weekly timesheets as present when evaluating assignment-week
+  gaps.
+- The project missing-timesheets report shows missing employee weeks only within active project-assignment windows and deduplicates rows by employee and week.
 - Weekend entry is allowed only when the active Business Unit Calendar Period Rule enables it and no active Special Day overrides it.
 - A line charges exactly one target:
   - Project
@@ -112,6 +116,9 @@
 - Archived timesheets are not editable.
 
 ## 9. Approval Rules
+
+- Project Owners may review approval items for owned projects in the approval
+  worklist but do not gain approve or reject authority from ownership alone.
 
 - Project approval items route to the assigned Project Manager.
 - General Charge Code approval items route to a snapped set of approver roles.
@@ -142,3 +149,5 @@ Audit is required for:
 - timesheet submit, withdraw, reopen, archive, restore
 - approval approve/reject
 - guarded administrative deletes
+- project missing-timesheets report generation
+- project missing-timesheets CSV export

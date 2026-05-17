@@ -49,8 +49,12 @@ class AuthorizationPolicyService:
 
     @staticmethod
     def can_access_approval_worklist(current_user: CurrentUser) -> bool:
-        return current_user.has_role("PROJECT_MANAGER") or (
+        return (
+            current_user.has_role("PROJECT_MANAGER")
+            or current_user.has_role("PROJECT_OWNER")
+            or (
             AuthorizationPolicyService.has_general_charge_code_approval_access(current_user)
+            )
         )
 
     @staticmethod
@@ -157,6 +161,11 @@ class AuthorizationPolicyService:
     def can_view_approval_item(current_user: CurrentUser, approval_item) -> bool:
         if approval_item.approver_employee_id == current_user.employee_id:
             return True
+        if (
+            approval_item.project_id is not None
+            and approval_item.project.project_owner_employee_id == current_user.employee_id
+        ):
+            return True
         if approval_item.general_charge_code_id is None:
             return False
         active_ad_hoc_role_ids = AuthorizationPolicyService._active_general_charge_code_approval_role_ids(
@@ -169,13 +178,21 @@ class AuthorizationPolicyService:
 
     @staticmethod
     def can_approve_approval_item(current_user: CurrentUser, approval_item) -> bool:
-        if not AuthorizationPolicyService.can_view_approval_item(current_user, approval_item):
-            return False
         if approval_item.status.value_code != "PENDING":
             return False
-        return (
-            approval_item.submission_cycle.weekly_timesheet.employee_id != current_user.employee_id
+        if approval_item.submission_cycle.weekly_timesheet.employee_id == current_user.employee_id:
+            return False
+        if approval_item.approver_employee_id == current_user.employee_id:
+            return True
+        if approval_item.general_charge_code_id is None:
+            return False
+        active_ad_hoc_role_ids = AuthorizationPolicyService._active_general_charge_code_approval_role_ids(
+            current_user
         )
+        return approval_item.approver_roles.filter(
+            Q(existing_role__value_code__in=current_user.role_codes)
+            | Q(approval_role_id__in=active_ad_hoc_role_ids)
+        ).exists()
 
     @staticmethod
     def can_reject_approval_item(current_user: CurrentUser, approval_item) -> bool:
@@ -197,11 +214,12 @@ class AuthorizationPolicyService:
             return current_user.is_ts_admin or AuthorizationPolicyService.can_access_approval_worklist(
                 current_user
             )
-        if report_code in {
-            "missing-timesheets",
-            "archived-timesheets",
-            "audit-history",
-            "integration-jobs",
-        }:
+        if report_code == "missing-timesheets":
+            return (
+                current_user.is_ts_admin
+                or current_user.has_role("PROJECT_OWNER")
+                or current_user.has_role("PROJECT_MANAGER")
+            )
+        if report_code in {"archived-timesheets", "audit-history", "integration-jobs"}:
             return current_user.is_ts_admin
         return False

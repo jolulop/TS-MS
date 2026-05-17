@@ -234,6 +234,47 @@ A Project Owner or Project Manager views live project time.
 - inquiry screen is available to `PROJECT_OWNER` and `PROJECT_MANAGER`
 - only owned or managed project scope is visible
 
+## 11A. Project Management Summary
+
+### Use Case
+
+`TS_ADMIN`, `PROJECT_OWNER`, or `PROJECT_MANAGER` opens the TS Project
+Management summary.
+
+### Acceptance
+
+- status filters support `All`, `Active`, `Closed`, and `Draft`
+- rows show project name, status, approved hours, pending submitted
+  timesheets, and missing timesheets
+- `TS_ADMIN` can open the project detail screen from the project name
+- `PROJECT_OWNER` can open owned-project detail in read-only mode from the
+  project name
+- `PROJECT_MANAGER` does not get the project-name detail link
+- approved-hours drill-down opens the project-time report preloaded to the
+  selected project
+- pending-timesheet drill-down opens the approval worklist for owned projects
+- missing-timesheet drill-down opens the missing-timesheets report preloaded to
+  the selected project
+
+## 11B. Project Missing Timesheets Report
+
+### Use Case
+
+`PROJECT_OWNER`, `PROJECT_MANAGER`, or `TS_ADMIN` runs a project-scoped missing-timesheets report and exports the result to CSV.
+
+### Acceptance
+
+- `PROJECT_OWNER` can multi-select from owned projects only
+- `PROJECT_MANAGER` can multi-select from managed projects only
+- users holding both roles can multi-select from the union of owned and managed projects
+- `TS_ADMIN` can multi-select from projects visible in current Office and Business Unit scope
+- rows show project name, employee name, employee email, and missing timesheet week start date
+- missing weeks are limited to the assigned project scope and are deduplicated by employee and week
+- UI export downloads a CSV attachment directly
+- API export creation returns a CSV download URI
+- report generation is audited
+- CSV export is audited
+
 ## 12. Guarded Deletes
 
 ### Use Case

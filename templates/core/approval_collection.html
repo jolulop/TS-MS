@@ -14,7 +14,7 @@
       <article class="tile">
         <strong>Pending Approval Items</strong>
         <span class="tile-value">{{ pending_count }}</span>
-        <p>Approval items still waiting for your project-manager decision.</p>
+        <p>Approval items still waiting for a scoped review or decision.</p>
       </article>
       <article class="tile">
         <strong>Completed Decisions</strong>
@@ -54,7 +54,7 @@
           </table>
         </div>
       {% else %}
-        <div class="empty-state">No pending approval items are waiting in your current managed-project scope.</div>
+        <div class="empty-state">No pending approval items are waiting in your current approval scope.</div>
       {% endif %}
     </section>
 

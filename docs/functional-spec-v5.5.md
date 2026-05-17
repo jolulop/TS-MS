@@ -40,7 +40,8 @@ Role behavior is additive. A user may hold multiple roles at once.
   - `TS/Project Management`
   - `System Management`
 - `Profile` is part of `My info`.
-- `Reports`, `Approval Worklist`, and `Project Time Inquiry` are grouped under `TS/Project Management` with role-aware visibility.
+- `Project Management`, `Reports`, `Approval Worklist`, and `Project Time Inquiry`
+  are grouped under `TS/Project Management` with role-aware visibility.
 
 ## 5. Organizational Model
 
@@ -307,7 +308,32 @@ Delete behavior:
 - Historical weekly records are accessed from the shared personal timesheet list.
 - The legacy history route redirects to the merged personal timesheet screen.
 
-### 9.3 Project Time Inquiry
+### 9.3 Project Management UI
+
+- Available to `TS_ADMIN`, `PROJECT_OWNER`, and `PROJECT_MANAGER`.
+- Shows role-scoped projects with status filters:
+  - `All`
+  - `Active`
+  - `Closed`
+  - `Draft`
+- Summary grid shows:
+  - project name
+  - project status
+  - approved hours
+  - pending submitted timesheets
+  - missing timesheets
+- Drill-down behavior:
+  - `TS_ADMIN` can open the System Management project detail screen from the
+    project name
+  - `PROJECT_OWNER` can open a read-only project detail screen for owned
+    projects from the project name
+  - `PROJECT_MANAGER` does not get the project-name detail link
+  - approved hours open the project-time report preloaded to the project
+  - pending timesheets open the approval worklist for owned projects only
+  - missing timesheets open the project missing-timesheets report preloaded to
+    the project
+
+### 9.4 Project Time Inquiry
 
 - Available to `PROJECT_OWNER` and `PROJECT_MANAGER`.
 - Shows live project-charged time in the caller’s owned or managed project scope.
@@ -321,7 +347,8 @@ Delete behavior:
   one of the snapped approver roles for that item.
 - The first approval or rejection decision closes the General Charge Code approval item.
 - Project Managers can still view and act on project approval items assigned to them.
-- Project Owners currently do not get approval authority from ownership alone.
+- Project Owners can review approval items for owned projects but do not get
+  approval authority from ownership alone.
 - `TS_ADMIN` has reporting visibility over approvals but is not the primary approver role in the current UI workflow.
 
 ## 11. Reports
@@ -330,16 +357,30 @@ Implemented reports:
 - My Timesheet History
 - Project Time
 - Pending Approvals
-- Missing Timesheets
+- Missing Timesheets by Project
 - Archived Timesheets
 - Audit History
 - Integration Jobs
 
 Audience highlights:
 - `USER`: My Timesheet History
-- `PROJECT_OWNER`: Project Time
-- `PROJECT_MANAGER`: Project Time, Pending Approvals
-- `TS_ADMIN`: administrative reports across scoped Business Units
+- `PROJECT_OWNER`: Project Time, Missing Timesheets by Project
+- `PROJECT_MANAGER`: Project Time, Pending Approvals, Missing Timesheets by Project
+- `TS_ADMIN`: administrative reports across scoped Business Units, including Missing Timesheets by Project
+
+Missing Timesheets by Project behavior:
+- filters by one or more accessible projects
+- `PROJECT_OWNER` sees owned projects
+- `PROJECT_MANAGER` sees managed projects
+- users with both roles see the union of owned and managed projects
+- `TS_ADMIN` sees projects in current Office and Business Unit scope
+- report rows show:
+  - project name
+  - employee name
+  - employee email
+  - missing week start date
+- missing weeks are derived from active project assignments and missing weekly timesheets
+- CSV export is available in the UI and through the API
 
 ## 12. Audit Expectations
 
@@ -350,6 +391,7 @@ Audit coverage is required for sensitive state changes, including:
 - timesheet submit, withdraw, reopen, archive, restore
 - approval approve and reject
 - guarded administrative deletes
+- project missing-timesheet report generation and export
 
 ## 13. Out Of Scope For v5.5
 

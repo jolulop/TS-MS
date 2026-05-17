@@ -1,19 +1,21 @@
+import csv
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from urllib.parse import urlencode
 
 from django.db.models import Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
+from apps.audit.services import write_audit_event
 from apps.audit.models import AuditLog
 from apps.auth.context import CurrentUser
 from apps.auth.policies import AuthorizationPolicyService
-from apps.auth.policies import AuthorizationPolicyService
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.integrations.models import IntegrationJob
-from apps.master_data.models import Employee, Project
+from apps.master_data.models import BusinessUnit, Employee, Project, ProjectAssignment
 from apps.timesheets.models import ApprovalItem, TimesheetLine, WeeklyTimesheet
 
 
@@ -46,11 +48,11 @@ REPORT_DEFINITIONS = {
     ),
     "missing-timesheets": ReportDefinition(
         code="missing-timesheets",
-        title="Missing Timesheets",
+        title="Missing Timesheets by Project",
         summary=(
-            "Active employees in scope who do not have a weekly timesheet for the selected week."
+            "Assigned employees with missing weekly timesheets across the selected project scope."
         ),
-        audience="TS_ADMIN",
+        audience="PROJECT_OWNER, PROJECT_MANAGER, TS_ADMIN",
     ),
     "archived-timesheets": ReportDefinition(
         code="archived-timesheets",
@@ -114,6 +116,14 @@ def _report_url(report_code: str) -> str:
     return f"/reports/{report_code}/"
 
 
+def _report_export_url(report_code: str) -> str:
+    return f"/reports/{report_code}/export/"
+
+
+def _selected_values(request: HttpRequest, name: str) -> list[str]:
+    return [value.strip() for value in request.GET.getlist(name) if value.strip()]
+
+
 def _scoped_project_queryset(current_user: CurrentUser):
     queryset = Project.objects.select_related(
         "business_unit", "project_owner_employee", "project_manager_employee"
@@ -131,6 +141,176 @@ def _scoped_project_queryset(current_user: CurrentUser):
 
 def _scoped_project_ids(current_user: CurrentUser) -> list[int]:
     return list(_scoped_project_queryset(current_user).values_list("id", flat=True))
+
+
+def _first_monday_on_or_after(start_date: date) -> date:
+    return start_date + timedelta(days=(7 - start_date.weekday()) % 7)
+
+
+def _monday_on_or_before(end_date: date) -> date:
+    return end_date - timedelta(days=end_date.weekday())
+
+
+def _selected_project_values(request: HttpRequest) -> list[str]:
+    return _selected_values(request, "project_ids")
+
+
+def _project_filter_options(current_user: CurrentUser, *, selected_values: set[str] | None = None) -> list[dict]:
+    selected = selected_values or set()
+    return [
+        {
+            "value": str(project.id),
+            "label": f"{project.project_code} - {project.name}",
+            "selected": str(project.id) in selected,
+        }
+        for project in _scoped_project_queryset(current_user).order_by("project_code")
+    ]
+
+
+def _resolved_project_selection(
+    current_user: CurrentUser,
+    raw_project_ids: list[str],
+) -> tuple[list[int], list[dict], list[str]]:
+    project_options = _project_filter_options(
+        current_user,
+        selected_values=set(raw_project_ids),
+    )
+    accessible_project_ids = {int(option["value"]) for option in project_options}
+    selected_project_ids = [
+        int(raw_project_id)
+        for raw_project_id in raw_project_ids
+        if raw_project_id.isdigit() and int(raw_project_id) in accessible_project_ids
+    ]
+    if raw_project_ids:
+        effective_project_ids = selected_project_ids
+    else:
+        effective_project_ids = [int(option["value"]) for option in project_options]
+    return effective_project_ids, project_options, raw_project_ids
+
+
+def _project_missing_timesheet_rows(
+    current_user: CurrentUser,
+    raw_project_ids: list[str],
+) -> tuple[list[list[str]], list[dict], list[int]]:
+    effective_project_ids, project_options, selected_project_ids = _resolved_project_selection(
+        current_user,
+        raw_project_ids,
+    )
+    if not effective_project_ids:
+        return [], project_options, []
+
+    assignments = list(
+        ProjectAssignment.objects.select_related("employee", "project")
+        .filter(
+            project_id__in=effective_project_ids,
+            employee__status__value_code="ACTIVE",
+            status__value_code="ACTIVE",
+        )
+        .order_by(
+            "employee__full_name",
+            "assignment_start_date",
+            "project__project_code",
+        )
+    )
+    if not assignments:
+        return [], project_options, selected_project_ids
+
+    current_week_start = _current_monday()
+    assignment_windows: list[tuple[ProjectAssignment, date, date]] = []
+    employee_ids: set[int] = set()
+    global_start: date | None = None
+    global_end: date | None = None
+
+    for assignment in assignments:
+        effective_start = max(
+            assignment.employee.created_at.date(),
+            assignment.assignment_start_date,
+            assignment.project.start_date,
+        )
+        end_candidates = [current_week_start]
+        if assignment.assignment_end_date is not None:
+            end_candidates.append(assignment.assignment_end_date)
+        if assignment.project.end_date is not None:
+            end_candidates.append(assignment.project.end_date)
+        if assignment.project.close_date is not None:
+            end_candidates.append(assignment.project.close_date)
+        if assignment.employee.employment_end_date is not None:
+            end_candidates.append(assignment.employee.employment_end_date)
+        effective_end = min(end_candidates)
+
+        first_week_start = _first_monday_on_or_after(effective_start)
+        last_week_start = _monday_on_or_before(effective_end)
+        if first_week_start > last_week_start:
+            continue
+
+        assignment_windows.append((assignment, first_week_start, last_week_start))
+        employee_ids.add(assignment.employee_id)
+        global_start = (
+            first_week_start if global_start is None else min(global_start, first_week_start)
+        )
+        global_end = last_week_start if global_end is None else max(global_end, last_week_start)
+
+    if not assignment_windows or global_start is None or global_end is None:
+        return [], project_options, selected_project_ids
+
+    existing_timesheets_by_employee: dict[int, set[date]] = {}
+    for employee_id, week_start_date in WeeklyTimesheet.objects.filter(
+        employee_id__in=employee_ids,
+        week_start_date__gte=global_start,
+        week_start_date__lte=global_end,
+    ).values_list("employee_id", "week_start_date"):
+        existing_timesheets_by_employee.setdefault(employee_id, set()).add(week_start_date)
+
+    missing_rows_by_employee_week: dict[tuple[int, date], list[str]] = {}
+    for assignment, first_week_start, last_week_start in assignment_windows:
+        existing_week_starts = existing_timesheets_by_employee.get(assignment.employee_id, set())
+        week_start = first_week_start
+        while week_start <= last_week_start:
+            if week_start not in existing_week_starts:
+                key = (assignment.employee_id, week_start)
+                missing_rows_by_employee_week.setdefault(
+                    key,
+                    [
+                        assignment.project.name,
+                        assignment.employee.full_name,
+                        assignment.employee.email,
+                        week_start.isoformat(),
+                    ],
+                )
+            week_start += timedelta(days=7)
+
+    rows = [
+        missing_rows_by_employee_week[key]
+        for key in sorted(
+            missing_rows_by_employee_week,
+            key=lambda item: (item[1], item[0]),
+            reverse=True,
+        )
+    ]
+    return rows, project_options, selected_project_ids
+
+
+def _primary_business_unit_for_audit(current_user: CurrentUser) -> BusinessUnit | None:
+    return BusinessUnit.objects.filter(id=current_user.primary_business_unit_id).first()
+
+
+def _audit_missing_timesheets_report(
+    current_user: CurrentUser,
+    *,
+    action_code: str,
+    selected_project_ids: list[int],
+    row_count: int,
+    reason_prefix: str,
+) -> None:
+    project_list = ",".join(str(project_id) for project_id in selected_project_ids) or "ALL"
+    write_audit_event(
+        action_code=action_code,
+        entity_name="project_missing_timesheets_report",
+        actor_employee=Employee.objects.filter(id=current_user.employee_id).first(),
+        actor_email=current_user.email,
+        business_unit=_primary_business_unit_for_audit(current_user),
+        reason_text=f"{reason_prefix}; projects={project_list}; rows={row_count}",
+    )
 
 
 def _report_count(current_user: CurrentUser, report_code: str) -> int:
@@ -152,14 +332,8 @@ def _report_count(current_user: CurrentUser, report_code: str) -> int:
             status__value_code="PENDING",
         ).count()
     if report_code == "missing-timesheets":
-        week_start_date = _current_monday()
-        employees = Employee.objects.filter(
-            status__value_code="ACTIVE",
-            primary_business_unit_id__in=current_user.scoped_business_unit_ids,
-        )
-        return (
-            employees.exclude(weekly_timesheets__week_start_date=week_start_date).distinct().count()
-        )
+        rows, _, _ = _project_missing_timesheet_rows(current_user, [])
+        return len(rows)
     if report_code == "archived-timesheets":
         return WeeklyTimesheet.objects.filter(
             business_unit_id__in=current_user.scoped_business_unit_ids,
@@ -197,16 +371,6 @@ def _bu_filter_options(current_user: CurrentUser) -> list[dict]:
     return [
         {"value": str(unit.id), "label": f"{unit.bu_code} - {unit.name}"}
         for unit in current_user.scoped_business_units
-    ]
-
-
-def _project_filter_options(current_user: CurrentUser) -> list[dict]:
-    return [
-        {
-            "value": str(project.id),
-            "label": f"{project.project_code} - {project.name}",
-        }
-        for project in _scoped_project_queryset(current_user).order_by("project_code")
     ]
 
 
@@ -562,66 +726,35 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
 
 
 def _missing_timesheets_report(current_user: CurrentUser, request: HttpRequest) -> dict:
-    week_start_date_value = (
-        _selected_value(request, "week_start_date") or _current_monday().isoformat()
+    rows, project_options, selected_project_ids = _project_missing_timesheet_rows(
+        current_user,
+        _selected_project_values(request),
     )
-    business_unit_id = _selected_value(request, "business_unit_id")
-    week_start_date = _parse_date_query(week_start_date_value) or _current_monday()
-
-    employee_queryset = Employee.objects.select_related("primary_business_unit").filter(
-        status__value_code="ACTIVE",
-        primary_business_unit_id__in=current_user.scoped_business_unit_ids,
-    )
-    if business_unit_id:
-        employee_queryset = employee_queryset.filter(primary_business_unit_id=business_unit_id)
-
-    employees = employee_queryset.exclude(
-        weekly_timesheets__week_start_date=week_start_date
-    ).order_by(
-        "primary_business_unit__bu_code",
-        "employee_code",
-    )
-    rows = [
-        [
-            employee.primary_business_unit.bu_code,
-            employee.employee_code,
-            employee.full_name,
-            week_start_date.isoformat(),
-            "Missing",
-        ]
-        for employee in employees.distinct()
-    ]
     return {
         "definition": REPORT_DEFINITIONS["missing-timesheets"],
         "filters": [
             {
-                "label": "Week Start Date",
-                "name": "week_start_date",
-                "type": "date",
-                "value": week_start_date.isoformat(),
-            },
-            {
-                "label": "Business Unit",
-                "name": "business_unit_id",
-                "type": "select",
-                "value": business_unit_id,
-                "options": _bu_filter_options(current_user),
+                "label": "Projects",
+                "name": "project_ids",
+                "type": "multiselect",
+                "values": selected_project_ids,
+                "options": project_options,
+                "size": min(max(len(project_options), 6), 12),
             }
-            if len(current_user.scoped_business_units) > 1
-            else None,
         ],
         "headers": (
-            "BU",
-            "Employee Code",
-            "Employee",
-            "Week Start",
-            "Status",
+            "Project Name",
+            "Employee Name",
+            "Employee Email",
+            "Missing TS Week Start",
         ),
         "rows": rows,
         "totals": [
-            {"label": "Employees Missing Timesheets", "value": str(len(rows))},
+            {"label": "Missing Timesheets", "value": str(len(rows))},
         ],
-        "empty_message": "Every active employee in scope has a timesheet for the selected week.",
+        "empty_message": "No missing project timesheets match the current project scope.",
+        "export_path": _report_export_url("missing-timesheets"),
+        "split_grid_class": "split-grid split-grid-primary-wide",
     }
 
 
@@ -940,6 +1073,19 @@ def render_report_view(
         )
 
     payload = REPORT_BUILDERS[report_code](current_user, request)
+    if report_code == "missing-timesheets":
+        selected_project_ids = [
+            int(project_id)
+            for project_id in _selected_project_values(request)
+            if project_id.isdigit()
+        ]
+        _audit_missing_timesheets_report(
+            current_user,
+            action_code="CREATE",
+            selected_project_ids=selected_project_ids,
+            row_count=len(payload["rows"]),
+            reason_prefix="Generated project missing timesheets report",
+        )
     filters = [field for field in payload["filters"] if field is not None]
     context = _reports_context(
         request,
@@ -959,6 +1105,8 @@ def render_report_view(
             "empty_message": payload["empty_message"],
             "back_href": back_href,
             "back_label": back_label,
+            "export_path": payload.get("export_path", ""),
+            "report_split_grid_class": payload.get("split_grid_class", "split-grid"),
         }
     )
     return render(request, "core/report_viewer.html", context)
@@ -971,3 +1119,46 @@ def report_viewer(request: HttpRequest, report_code: str) -> HttpResponse:
         return current_user
 
     return render_report_view(request, current_user, report_code)
+
+
+@require_GET
+def export_missing_timesheets_csv(request: HttpRequest) -> HttpResponse:
+    current_user = _require_user(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    if not AuthorizationPolicyService.can_run_report(current_user, "missing-timesheets"):
+        return _render_access_denied(
+            request,
+            message="You do not have permission to export this report.",
+            status=403,
+        )
+
+    payload = REPORT_BUILDERS["missing-timesheets"](current_user, request)
+    selected_project_ids = [
+        int(project_id)
+        for project_id in _selected_project_values(request)
+        if project_id.isdigit()
+    ]
+    _audit_missing_timesheets_report(
+        current_user,
+        action_code="EXPORT",
+        selected_project_ids=selected_project_ids,
+        row_count=len(payload["rows"]),
+        reason_prefix="Exported project missing timesheets CSV",
+    )
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = (
+        f'attachment; filename="missing-timesheets-{_current_monday().isoformat()}.csv"'
+    )
+    writer = csv.writer(response)
+    writer.writerow(payload["headers"])
+    writer.writerows(payload["rows"])
+    return response
+
+
+def build_missing_timesheets_export_query(project_ids: list[int]) -> str:
+    if not project_ids:
+        return ""
+    return urlencode([("project_ids", project_id) for project_id in project_ids], doseq=True)

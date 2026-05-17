@@ -1,11 +1,12 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from django.test import Client
 
+from apps.audit.models import AuditLog
 from apps.audit.services import write_audit_event
 from apps.integrations.models import IntegrationJob
-from apps.master_data.models import Project
+from apps.master_data.models import Employee, Project
 from tests.helpers import (
     assign_calendar,
     assign_employee_to_business_unit,
@@ -135,6 +136,27 @@ def _setup_reports_context() -> dict:
         employee=user,
         assignment_start_date=week_start - timedelta(days=7),
     )
+    missing_employee = create_employee(
+        employee_code="EMP-RPT-MISS",
+        full_name="Reports Missing Employee",
+        email="reports-missing@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_calendar(employee=missing_employee, yearly_calendar=calendar)
+    assign_employee_to_business_unit(
+        employee=missing_employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=missing_employee, role_code="USER")
+    assign_project(
+        project=project,
+        employee=missing_employee,
+        assignment_start_date=week_start,
+    )
+    Employee.objects.filter(id=missing_employee.id).update(
+        created_at=datetime(2026, 5, 4, tzinfo=UTC)
+    )
     general_charge_code = create_general_charge_code(
         business_unit=business_unit,
         code="GCC-RPT",
@@ -212,6 +234,9 @@ def _setup_reports_context() -> dict:
         "owner_client": owner_client,
         "pm_client": pm_client,
         "admin_client": admin_client,
+        "project": project,
+        "missing_employee_email": missing_employee.email,
+        "missing_employee_name": missing_employee.full_name,
     }
 
 
@@ -229,9 +254,11 @@ def test_reports_hub_is_role_aware() -> None:
 
     assert "My Timesheet History" in user_content
     assert "Project Time Report" not in user_content
+    assert "Missing Timesheets by Project" in pm_content
+    assert "Missing Timesheets by Project" in context["owner_client"].get("/reports/").content.decode()
     assert "Pending Approvals" in pm_content
     assert "Project Time Report" in pm_content
-    assert "Missing Timesheets" in admin_content
+    assert "Missing Timesheets by Project" in admin_content
     assert "Audit History" in admin_content
     assert "Integration Jobs" in admin_content
 
@@ -367,16 +394,113 @@ def test_cross_country_project_reports_include_foreign_employee_time() -> None:
 def test_ts_admin_can_open_admin_reports() -> None:
     context = _setup_reports_context()
 
-    missing_response = context["admin_client"].get(
-        "/reports/missing-timesheets/",
-        data={"week_start_date": context["week_start"].isoformat()},
-    )
+    missing_response = context["admin_client"].get("/reports/missing-timesheets/")
     audit_response = context["admin_client"].get("/reports/audit-history/")
     integration_response = context["admin_client"].get("/reports/integration-jobs/")
 
     assert missing_response.status_code == 200
-    assert "Reports Project Owner" in missing_response.content.decode()
+    missing_content = missing_response.content.decode()
+    assert context["missing_employee_name"] in missing_content
+    assert context["missing_employee_email"] in missing_content
     assert audit_response.status_code == 200
     assert "Nightly export validation" in audit_response.content.decode()
     assert integration_response.status_code == 200
     assert "EMPLOYEE_IMPORT" in integration_response.content.decode()
+
+
+@pytest.mark.django_db
+def test_project_missing_timesheets_report_uses_project_multiselect_and_audits_generation() -> None:
+    context = _setup_reports_context()
+
+    response = context["owner_client"].get(
+        "/reports/missing-timesheets/",
+        data={"project_ids": [str(context["project"].id)]},
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Missing Timesheets by Project" in content
+    assert 'name="project_ids"' in content
+    assert "multiple" in content
+    assert "Export CSV" in content
+    assert context["project"].name in content
+    assert context["missing_employee_name"] in content
+    assert context["missing_employee_email"] in content
+    assert context["week_start"].isoformat() in content
+    assert "2026-05-11" in content
+    assert AuditLog.objects.filter(
+        entity_name="project_missing_timesheets_report",
+        action_type__value_code="CREATE",
+        actor_email="reports-owner@example.com",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_project_missing_timesheets_csv_export_downloads_attachment_and_audits() -> None:
+    context = _setup_reports_context()
+
+    response = context["pm_client"].get(
+        "/reports/missing-timesheets/export/",
+        data={"project_ids": [str(context["project"].id)]},
+    )
+
+    assert response.status_code == 200
+    assert response["Content-Disposition"].startswith("attachment; filename=")
+    assert response["Content-Type"].startswith("text/csv")
+    content = response.content.decode()
+    assert "Project Name,Employee Name,Employee Email,Missing TS Week Start" in content
+    assert "Reports Project,Reports Missing Employee,reports-missing@example.com,2026-05-04" in content
+    assert AuditLog.objects.filter(
+        entity_name="project_missing_timesheets_report",
+        action_type__value_code="EXPORT",
+        actor_email="reports-pm@example.com",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_project_missing_timesheets_export_api_returns_uri_and_downloads_csv() -> None:
+    context = _setup_reports_context()
+
+    create_response = context["admin_client"].post(
+        "/api/v1/reports/missing-timesheets/exports/",
+        data='{"project_ids": [%d]}' % context["project"].id,
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 201
+    payload = create_response.json()
+    assert payload["report"]["code"] == "missing-timesheets"
+    assert payload["report"]["row_count"] >= 1
+    assert "project_ids=" in payload["export_uri"]
+
+    download_response = context["admin_client"].get(payload["export_uri"])
+
+    assert download_response.status_code == 200
+    assert download_response["Content-Disposition"].startswith("attachment; filename=")
+    csv_content = download_response.content.decode()
+    assert "Reports Project,Reports Missing Employee,reports-missing@example.com,2026-05-04" in csv_content
+    assert AuditLog.objects.filter(
+        entity_name="project_missing_timesheets_report",
+        action_type__value_code="CREATE",
+        actor_email="reports-admin@example.com",
+        reason_text__icontains="export URI",
+    ).exists()
+    assert AuditLog.objects.filter(
+        entity_name="project_missing_timesheets_report",
+        action_type__value_code="EXPORT",
+        actor_email="reports-admin@example.com",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_regular_user_cannot_create_project_missing_timesheets_export_api() -> None:
+    context = _setup_reports_context()
+
+    response = context["user_client"].post(
+        "/api/v1/reports/missing-timesheets/exports/",
+        data='{"project_ids": [%d]}' % context["project"].id,
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "AUTH_ACCESS_DENIED"

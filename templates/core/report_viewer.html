@@ -15,7 +15,7 @@
       </div>
     </div>
 
-    <div class="split-grid">
+    <div class="{{ report_split_grid_class|default:'split-grid' }}">
       <section class="surface-card">
         <div class="section-header">
           <h2>Filter Panel</h2>
@@ -30,7 +30,13 @@
                   <select id="{{ field.name }}" name="{{ field.name }}">
                     <option value="">All</option>
                     {% for option in field.options %}
-                      <option value="{{ option.value }}"{% if option.value == field.value %} selected{% endif %}>{{ option.label }}</option>
+                      <option value="{{ option.value }}"{% if option.selected or option.value == field.value %} selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif field.type == "multiselect" %}
+                  <select id="{{ field.name }}" name="{{ field.name }}" multiple size="{{ field.size|default:8 }}">
+                    {% for option in field.options %}
+                      <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
                     {% endfor %}
                   </select>
                 {% elif field.type == "date" %}
@@ -42,8 +48,13 @@
             {% endfor %}
           </div>
           <div class="detail-header">
-            <button class="button" type="submit">Run Report</button>
-            <a class="button secondary" href="{{ report_path }}">Reset Filters</a>
+            <div class="button-row">
+              <button class="button" type="submit">Run Report</button>
+              {% if export_path %}
+                <button class="button secondary" type="submit" formaction="{{ export_path }}" formmethod="get">Export CSV</button>
+              {% endif %}
+              <a class="button secondary" href="{{ report_path }}">Reset Filters</a>
+            </div>
           </div>
         </form>
       </section>

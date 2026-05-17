@@ -49,14 +49,28 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
         ),
     ]
 
-    project_items = [
+    project_items = []
+    if (
+        current_user.is_ts_admin
+        or current_user.has_role("PROJECT_OWNER")
+        or current_user.has_role("PROJECT_MANAGER")
+    ):
+        project_items.append(
+            _nav_item(
+                label="Project Management",
+                href="/ts/projects/",
+                summary="Role-aware project summary with drill-down access into project, approval, and reporting screens.",
+                current_path=current_path,
+            )
+        )
+    project_items.append(
         _nav_item(
             label="Reports",
             href="/reports/",
             summary="Role-aware report hub and scoped viewers.",
             current_path=current_path,
-        ),
-    ]
+        )
+    )
     if AuthorizationPolicyService.can_access_approval_worklist(current_user):
         project_items.append(
             _nav_item(

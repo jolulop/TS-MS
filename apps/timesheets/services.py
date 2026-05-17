@@ -1383,6 +1383,7 @@ class TimesheetService:
             )
             .filter(
                 Q(approver_employee_id=current_user.employee_id)
+                | Q(project__project_owner_employee_id=current_user.employee_id)
                 | Q(
                     general_charge_code_id__isnull=False,
                     approver_roles__existing_role__value_code__in=current_user.role_codes,

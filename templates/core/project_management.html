@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | TS Management{% endblock %}
+
+{% block content %}
+  <div class="content-stack">
+    {% if ts_section_links %}
+      <nav class="subnav" aria-label="TS Management Sections">
+        {% for link in ts_section_links %}
+          <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+
+    <div class="page-header">
+      <p class="eyebrow">{{ page_eyebrow }}</p>
+      <h1>{{ page_title }}</h1>
+      <p>{{ page_intro }}</p>
+    </div>
+
+    <section class="surface-card">
+      <div class="section-header">
+        <h2>Project Status Filters</h2>
+        <p>Switch between the currently accessible project lifecycle states.</p>
+      </div>
+      <nav class="subnav" aria-label="Project Status Filters">
+        {% for link in filter_links %}
+          <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+        {% endfor %}
+      </nav>
+    </section>
+
+    <section class="surface-card">
+      <div class="section-header">
+        <h2>Project Summary</h2>
+        <p>Open the linked values to move directly into the matching project, approval, or reporting screen.</p>
+      </div>
+      {% if table_rows %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Appr. Hours</th>
+                <th>Pend. TS</th>
+                <th>Missing TS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in table_rows %}
+                <tr>
+                  <td>
+                    {% if row.name_href %}
+                      <a href="{{ row.name_href }}">{{ row.name }}</a>
+                    {% else %}
+                      {{ row.name }}
+                    {% endif %}
+                  </td>
+                  <td>{{ row.status }}</td>
+                  <td>
+                    <a href="{{ row.approved_hours_href }}">{{ row.approved_hours }}</a>
+                  </td>
+                  <td>
+                    {% if row.pending_timesheets_href %}
+                      <a href="{{ row.pending_timesheets_href }}">{{ row.pending_timesheets }}</a>
+                    {% else %}
+                      {{ row.pending_timesheets }}
+                    {% endif %}
+                  </td>
+                  <td>
+                    <a href="{{ row.missing_timesheets_href }}">{{ row.missing_timesheets }}</a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">No projects are available in your current role scope.</div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

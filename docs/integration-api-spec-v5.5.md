@@ -210,14 +210,34 @@ Admin timesheet actions:
 - `POST /api/v1/approvals/{approvalItemId}/approve/`
 - `POST /api/v1/approvals/{approvalItemId}/reject/`
 
-## 9. Current Authorization Expectations
+## 9. Report Export Endpoints
+
+### Missing Timesheets By Project
+
+- `POST /api/v1/reports/missing-timesheets/exports/`
+- `GET /api/v1/reports/missing-timesheets/export.csv`
+
+POST payload:
+- `project_ids`: optional array of project ids
+
+POST behavior:
+- validates role and project scope
+- returns a JSON payload with report metadata and `export_uri`
+
+GET behavior:
+- downloads a CSV attachment using query-string project filters
+- enforces the same project scope as the HTML report
+- CSV rows include project name, employee name, employee email, and missing week start date
+
+## 10. Current Authorization Expectations
 
 - `TS_ADMIN_MASTER` is used for Office UI flows, not a dedicated Office JSON admin API
 - `TS_ADMIN` can call the implemented admin master-data endpoints inside active Office and Business Unit scope
 - `PROJECT_MANAGER` is the approval-workflow API role
+- `PROJECT_OWNER`, `PROJECT_MANAGER`, and `TS_ADMIN` can use the project missing-timesheets export API inside their project scope
 - `PROJECT_OWNER` and `PROJECT_MANAGER` gain reporting and inquiry access through the UI/report layer
 
-## 10. Stable Error Code Highlights
+## 11. Stable Error Code Highlights
 
 ### Projects
 
@@ -258,6 +278,11 @@ Admin timesheet actions:
 - `CALENDAR_PERIOD_RULE_EFFECTIVE_TO_REQUIRED`
 - `CALENDAR_PERIOD_RULE_DATE_RANGE_INVALID`
 - `CALENDAR_PERIOD_RULE_OVERLAP`
+
+### Reports
+
+- `REPORT_INVALID_REQUEST`
+- `REPORT_INVALID_SCOPE`
 
 ### General Charge Codes
 

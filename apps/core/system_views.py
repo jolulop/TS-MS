@@ -37,6 +37,7 @@ from apps.master_data.services import (
     ProjectAssignmentManagementService,
     ProjectManagementService,
     YearlyCalendarManagementService,
+    _serialize_project,
 )
 from apps.reference_data.models import RefValue
 
@@ -2479,6 +2480,126 @@ def _project_detail_rows(project: dict) -> list[tuple[str, str]]:
         ("Close Date", project["close_date"] or "Open"),
         ("Billable", "Yes" if project["billable_flag"] else "No"),
         ("Status", project["status"]),
+    ]
+
+
+def _project_read_only_fields(project: dict) -> list[dict]:
+    return [
+        _office_display_field(project["office"]["office_name"]),
+        _field(
+            name="business_unit_display",
+            label="Business Unit",
+            kind="text",
+            value=f"{project['business_unit']['bu_code']} - {project['business_unit']['name']}",
+            readonly=True,
+        ),
+        _field(
+            name="project_code_display",
+            label="Project Code",
+            kind="text",
+            value=project["project_code"],
+            readonly=True,
+        ),
+        _field(
+            name="project_name_display",
+            label="Project Name",
+            kind="text",
+            value=project["name"],
+            readonly=True,
+        ),
+        _field(
+            name="description_display",
+            label="Description",
+            kind="textarea",
+            value=project["description"],
+            readonly=True,
+        ),
+        _field(
+            name="project_owner_display",
+            label="Project Owner",
+            kind="text",
+            value=(
+                f"{project['project_owner_employee']['employee_code']} - "
+                f"{project['project_owner_employee']['full_name']}"
+            ),
+            readonly=True,
+        ),
+        _field(
+            name="project_manager_display",
+            label="Project Manager",
+            kind="text",
+            value=(
+                f"{project['project_manager_employee']['employee_code']} - "
+                f"{project['project_manager_employee']['full_name']}"
+            ),
+            readonly=True,
+        ),
+        _field(
+            name="client_display",
+            label="Client",
+            kind="text",
+            value=f"{project['client']['client_code']} - {project['client']['name']}",
+            readonly=True,
+        ),
+        _field(
+            name="internal_category_display",
+            label="Internal Category",
+            kind="text",
+            value=(
+                f"{project['internal_category']['category_code']} - "
+                f"{project['internal_category']['name']}"
+            ),
+            readonly=True,
+        ),
+        _field(
+            name="cost_center_display",
+            label="Cost Center",
+            kind="text",
+            value=f"{project['cost_center']['cost_center_code']} - {project['cost_center']['name']}",
+            readonly=True,
+        ),
+        _field(
+            name="pricing_model_display",
+            label="Pricing Model",
+            kind="text",
+            value=project["pricing_model"]["name"],
+            readonly=True,
+        ),
+        _field(
+            name="start_date_display",
+            label="Start Date",
+            kind="date",
+            value=project["start_date"],
+            readonly=True,
+        ),
+        _field(
+            name="end_date_display",
+            label="End Date",
+            kind="date",
+            value=project["end_date"] or "",
+            readonly=True,
+        ),
+        _field(
+            name="close_date_display",
+            label="Close Date",
+            kind="date",
+            value=project["close_date"] or "",
+            readonly=True,
+        ),
+        _field(
+            name="billable_flag_display",
+            label="Billable",
+            kind="text",
+            value="Yes" if project["billable_flag"] else "No",
+            readonly=True,
+        ),
+        _field(
+            name="status_display",
+            label="Status",
+            kind="text",
+            value=project["status"],
+            readonly=True,
+        ),
     ]
 
 
@@ -5242,14 +5363,27 @@ def project_create(request: HttpRequest) -> HttpResponse:
 
 @require_http_methods(["GET", "POST"])
 def project_detail(request: HttpRequest, project_id: int) -> HttpResponse:
-    current_user = _require_ts_admin(request)
+    current_user = _require_user(request)
     if not isinstance(current_user, CurrentUser):
         return current_user
+
+    can_edit_project = current_user.is_ts_admin
+    can_view_owned_project = current_user.has_role("PROJECT_OWNER")
+    if not (can_edit_project or can_view_owned_project):
+        return _render_access_denied(
+            request,
+            message="You do not have permission to open this project screen.",
+        )
 
     active_form = "edit"
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
+        if not can_edit_project:
+            return _render_access_denied(
+                request,
+                message="You do not have permission to update this project.",
+            )
         active_form = request.POST.get("form_name", "edit")
         try:
             if active_form == "delete":
@@ -5295,7 +5429,35 @@ def project_detail(request: HttpRequest, project_id: int) -> HttpResponse:
             return redirect(f"/system/projects/{project_id}/")
 
     try:
-        project = ProjectManagementService.get_project(current_user, project_id)
+        if can_edit_project:
+            project = ProjectManagementService.get_project(current_user, project_id)
+        else:
+            owned_project = (
+                Project.objects.select_related(
+                    "business_unit",
+                    "office",
+                    "project_owner_employee",
+                    "project_manager_employee",
+                    "client",
+                    "internal_category",
+                    "cost_center",
+                    "pricing_model",
+                    "status",
+                )
+                .filter(
+                    id=project_id,
+                    office_id=current_user.office_id,
+                    project_owner_employee_id=current_user.employee_id,
+                )
+                .first()
+            )
+            if owned_project is None:
+                raise AuthError(
+                    "AUTH_ACCESS_DENIED",
+                    "Project is outside your owned-project scope.",
+                    403,
+                )
+            project = _serialize_project(owned_project)
     except AuthError as error:
         return _render_auth_error(
             request,
@@ -5304,6 +5466,34 @@ def project_detail(request: HttpRequest, project_id: int) -> HttpResponse:
             eyebrow=PROJECT_CONFIG.detail_eyebrow,
             intro=PROJECT_CONFIG.detail_intro,
             error=error,
+        )
+
+    if not can_edit_project:
+        return _render_detail_page(
+            request,
+            current_user,
+            title=project["name"],
+            eyebrow=PROJECT_CONFIG.detail_eyebrow,
+            intro=(
+                "Review the selected owned project from the shared project detail "
+                "screen. Edit actions remain reserved for Timesheet Administrators."
+            ),
+            detail_rows=_project_detail_rows(project),
+            form_sections=[
+                {
+                    "form_name": "view",
+                    "title": "Edit Project",
+                    "intro": "Project fields are visible here for review in read-only mode.",
+                    "read_only": True,
+                    "fields": _project_read_only_fields(project),
+                    "fields_grid_class": "two-column",
+                }
+            ],
+            back_href="/ts/projects/",
+            back_label="Back to Project Management",
+            entity_status=project["status"],
+            show_detail_panel=False,
+            page_action={"label": "Back to Project Management", "href": "/ts/projects/"},
         )
 
     return _render_master_detail(

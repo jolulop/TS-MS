@@ -50,6 +50,7 @@ def test_user_dashboard_hides_system_and_approval_navigation() -> None:
     assert "Profile" in content
     assert "Dashboard" in content
     assert "My Timesheets" in content
+    assert "/ts/projects/" not in content
     assert "Reports" in content
     assert "My History" not in content
     assert "System Management" not in content
@@ -57,7 +58,7 @@ def test_user_dashboard_hides_system_and_approval_navigation() -> None:
 
 
 @pytest.mark.django_db
-def test_project_owner_sees_system_management_but_access_denied_for_approval_worklist() -> None:
+def test_project_owner_sees_project_management_and_approval_worklist() -> None:
     seed_reference_data()
     business_unit = create_business_unit(bu_code="BU-UI-2", name="UI BU 2")
     employee = create_employee(
@@ -79,15 +80,19 @@ def test_project_owner_sees_system_management_but_access_denied_for_approval_wor
 
     dashboard_response = client.get("/")
     system_response = client.get("/system/")
+    project_management_response = client.get("/ts/projects/")
     approval_response = client.get("/approvals/")
 
     dashboard_content = dashboard_response.content.decode()
     assert dashboard_response.status_code == 200
     assert "System Management" in dashboard_content
+    assert '/ts/projects/' in dashboard_content
     assert system_response.status_code == 200
     assert "Project Management" in system_response.content.decode()
-    assert approval_response.status_code == 403
-    assert "Access Denied" in approval_response.content.decode()
+    assert project_management_response.status_code == 200
+    assert "Project Summary" in project_management_response.content.decode()
+    assert approval_response.status_code == 200
+    assert "Approval Worklist" in approval_response.content.decode()
 
 
 @pytest.mark.django_db
@@ -122,6 +127,7 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     assert dashboard_response.status_code == 200
     assert "My info" in dashboard_content
     assert "TS/Project Management" in dashboard_content
+    assert '/ts/projects/' in dashboard_content
     assert "Approval Worklist" in dashboard_content
     assert "Project Time Inquiry" in dashboard_content
     assert "System Management" not in dashboard_content
@@ -166,6 +172,7 @@ def test_ts_admin_can_open_system_management_and_reports() -> None:
     assert dashboard_response.status_code == 200
     assert "Office: Holding" in dashboard_content
     assert "fixed to Holding" in dashboard_content
+    assert '/ts/projects/' in dashboard_content
     assert "System Management" in dashboard_content
     assert system_response.status_code == 200
     assert "Business Units" in system_response.content.decode()

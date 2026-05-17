@@ -15,10 +15,13 @@
 | View/edit own timesheets | Yes | Yes | Yes | Yes if self | Yes if self |
 | Submit/withdraw own timesheets | Yes | Yes | Yes | Yes if self | Yes if self |
 | Open merged My Timesheets history and missing-week view | Yes | Yes | Yes | Yes | Yes |
+| Open Project Management UI | No | Yes, owned projects | Yes, managed projects | Yes, scoped BUs | No direct role grant |
+| Open Project Detail from Project Management UI | No | Yes, owned projects read-only | No | Yes, editable in scoped BUs | No direct role grant |
 | Open Project Time Inquiry | No | Yes | Yes | If also PO/PM or via reports | No direct role grant |
-| Open Approval Worklist | If matching GCC approver role | If matching GCC approver role | Yes, plus matching GCC approver role items | If matching GCC approver role | If matching GCC approver role |
+| Open Approval Worklist | If matching GCC approver role | Yes, owned-project view plus matching GCC approver role items | Yes, plus matching GCC approver role items | If matching GCC approver role | If matching GCC approver role |
 | Approve/reject approval items | If matching GCC approver role items | If matching GCC approver role items | Yes, assigned project items plus matching GCC approver role items | If matching GCC approver role items | If matching GCC approver role items |
 | Run Project Time report | No | Yes, owned projects | Yes, managed projects | Yes, scoped BUs | No direct role grant |
+| Run Missing Timesheets by Project report | No | Yes, owned projects | Yes, managed projects | Yes, scoped Office/BU project scope | No direct role grant |
 | Run admin reports | No | No | Pending Approvals only | Yes | No direct role grant |
 | Manage Employees | No | No | No | Yes, scoped BUs | No |
 | Manage Business Units | No | No | No | Yes, scoped BUs | No |
@@ -42,6 +45,8 @@
 ### PROJECT_OWNER
 
 - can access owned-project inquiry/reporting scope
+- can open owned projects from the TS Project Management summary in read-only detail mode
+- can review approval worklist items for owned projects
 - does not gain approval authority from ownership alone
 
 ### PROJECT_MANAGER

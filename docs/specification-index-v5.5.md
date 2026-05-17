@@ -37,12 +37,15 @@ v5.5 captures these major implemented changes relative to the older baseline doc
 - Calendar Period Rules remain Business Unit-specific inside the shared Office calendar and may overlap across different Business Units.
 - Calendar Period Rules can enable working Saturdays and Sundays with explicit weekend max-hours.
 - Guarded delete actions exist on selected System Management detail screens.
+- Live Project Management is available in `TS/Project Management` for
+  `TS_ADMIN`, `PROJECT_OWNER`, and `PROJECT_MANAGER`.
 - Live Project Time Inquiry is available to Project Owners and Project Managers.
 - System Management edit screens now follow a consistent standalone create/edit layout with bottom delete actions.
 - The authenticated left navigation is organized into `My info`, `TS/Project Management`, and `System Management`.
 - `My Timesheets` and `My History` are consolidated into one personal weekly list, and the legacy history route redirects there.
 - `My Timesheets` shows synthetic `Missing` rows for weekly gaps since employee record creation.
 - System Management collections use the first-column item link as the visible navigation path and keep the old action column hidden.
+- The missing-timesheets report is now project-scoped for `PROJECT_OWNER`, `PROJECT_MANAGER`, and `TS_ADMIN`, with CSV export in UI and API.
 
 ## Reading Order
 
