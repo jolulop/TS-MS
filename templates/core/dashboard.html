@@ -12,8 +12,16 @@
   <div class="hero-grid">
     {% for card in summary_cards %}
       <article class="tile">
-        <span class="chip">{{ card.title }}</span>
-        <span class="tile-value">{{ card.value }}</span>
+        <div class="dashboard-card-title">
+          <strong>
+            {% if card.href %}
+              <a href="{{ card.href }}">{{ card.title }}</a>
+            {% else %}
+              {{ card.title }}
+            {% endif %}
+            <span class="dashboard-card-count">-> {{ card.value }}</span>
+          </strong>
+        </div>
         <p>{{ card.summary }}</p>
       </article>
     {% endfor %}

@@ -157,6 +157,8 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     assert "PROJECT_MANAGER" in profile_content
     assert approval_response.status_code == 200
     assert "Pending Approval Items" in approval_response.content.decode()
+    assert "Completed Decisions" not in approval_response.content.decode()
+    assert "Last actions" in approval_response.content.decode()
     assert inquiry_response.status_code == 200
     assert "Project Time Inquiry" in inquiry_response.content.decode()
 
@@ -192,6 +194,9 @@ def test_ts_admin_can_open_system_management_and_reports() -> None:
     assert "fixed to Holding" in dashboard_content
     assert '/ts/projects/' in dashboard_content
     assert "System Management" in dashboard_content
+    assert "Admin Employee Scope" in dashboard_content
+    assert "-> 1" in dashboard_content
+    assert 'class="dashboard-card-title"' in dashboard_content
     assert system_response.status_code == 200
     assert "Business Units" in system_response.content.decode()
     assert "Employees" in system_response.content.decode()

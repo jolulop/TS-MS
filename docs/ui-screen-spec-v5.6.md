@@ -17,6 +17,8 @@ Role-aware visibility applies to sections, menus, and actions.
 - `Profile`
 - `Dashboard` except for basic `USER`-only sessions
 - `My Timesheets`
+- dashboard summary cards use a bold white-card title line with inline `-> count`
+  formatting
 
 `TS/Project Management` contains:
 - `Project Management` when authorized
@@ -410,6 +412,8 @@ Important UI behavior:
   matching General Charge Code approver scope
 - features:
   - pending approval list
+  - no top summary count tiles
+  - completed decision history section is labeled `Last actions`
   - approval detail
   - approve when the current user is an actual approver for the item
   - reject when the current user is an actual approver for the item

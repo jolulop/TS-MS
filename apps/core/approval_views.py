@@ -127,8 +127,6 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
     )
     context.update(
         {
-            "pending_count": len(pending_items),
-            "decided_count": len(decided_items),
             "pending_rows": _approval_rows(pending_items),
             "decided_rows": _approval_rows(decided_items),
         }

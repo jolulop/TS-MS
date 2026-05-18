@@ -309,6 +309,8 @@ def test_project_manager_worklist_shows_pending_approval_item() -> None:
     content = response.content.decode()
     assert "Approval Worklist" in content
     assert "Pending Approval Items" in content
+    assert "Completed Decisions" not in content
+    assert "Last actions" in content
     assert "Approval Employee" in content
     assert context["project"].project_code in content
     assert f"/approvals/{context['approval_item'].id}/" in content

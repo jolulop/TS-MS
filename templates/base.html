@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -7,16 +8,17 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #f2efe8;
-        --paper: #fcfaf5;
+        --bg: #e8e1df;
+        --paper: #ffffff;
         --ink: #18212b;
-        --muted: #5f6b78;
-        --line: #d8cfbf;
-        --accent: #0d5b63;
-        --accent-strong: #08353b;
-        --accent-soft: #d6ece7;
-        --sand: #efe4cd;
-        --warning: #8a4b16;
+        --muted: rgb(124, 135, 142);
+        --line: rgba(111, 93, 88, 0.28);
+        --accent: rgb(155, 0, 62);
+        --accent-strong: rgb(155, 0, 62);
+        --accent-soft: rgba(155, 0, 62, 0.6);
+        --sand: rgba(111, 93, 88, 0.4);
+        --warning: rgb(255, 184, 28);
+        --success: rgb(37, 114, 38);
         --danger: #882d2d;
         --shadow: 0 24px 60px rgba(24, 33, 43, 0.08);
       }
@@ -30,9 +32,9 @@
         font-family: "Avenir Next", "Segoe UI", sans-serif;
         color: var(--ink);
         background:
-          radial-gradient(circle at top left, rgba(13, 91, 99, 0.16), transparent 24rem),
-          radial-gradient(circle at bottom right, rgba(239, 228, 205, 0.9), transparent 30rem),
-          linear-gradient(180deg, #f8f4ec 0%, var(--bg) 100%);
+          radial-gradient(circle at top left, rgba(155, 0, 62, 0.18), transparent 24rem),
+          radial-gradient(circle at bottom right, rgba(111, 93, 88, 0.4), transparent 30rem),
+          linear-gradient(180deg, #f7f3f2 0%, var(--bg) 100%);
       }
 
       a {
@@ -58,6 +60,21 @@
       }
 
       .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.9rem;
+        text-decoration: none;
+        color: inherit;
+      }
+
+      .brand-logo {
+        display: block;
+        width: 6rem;
+        height: 6rem;
+        object-fit: contain;
+      }
+
+      .brand-copy {
         display: grid;
         gap: 0.2rem;
       }
@@ -232,12 +249,13 @@
         padding: 0.75rem 0.8rem;
         text-decoration: none;
         border: 1px solid transparent;
-        background: rgba(239, 228, 205, 0.32);
+        background: rgba(111, 93, 88, 0.16);
       }
 
       .nav-item.active {
         border-color: var(--accent);
         background: var(--accent-soft);
+        color: white;
       }
 
       .nav-item strong {
@@ -247,6 +265,10 @@
       .nav-item span {
         font-size: 0.82rem;
         color: var(--muted);
+      }
+
+      .nav-item.active span {
+        color: rgba(255, 255, 255, 0.88);
       }
 
       .content-card {
@@ -366,6 +388,35 @@
         color: var(--accent-strong);
       }
 
+      .dashboard-card-title,
+      .report-card-title {
+        display: flex;
+        align-items: baseline;
+      }
+
+      .dashboard-card-title strong,
+      .report-card-title strong {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 0.35rem;
+        font-size: 1.125rem;
+        font-weight: 700;
+      }
+
+      .dashboard-card-title a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .dashboard-card-title a:hover,
+      .dashboard-card-title a:focus-visible {
+        text-decoration: underline;
+      }
+
+      .dashboard-card-count {
+        font-weight: 700;
+      }
+
       .tile p,
       .info-panel p,
       .surface-card p {
@@ -386,7 +437,7 @@
         padding: 0.28rem 0.6rem;
         border-radius: 999px;
         background: var(--accent-soft);
-        color: var(--accent-strong);
+        color: white;
         font-size: 0.82rem;
         font-weight: 600;
       }
@@ -430,7 +481,7 @@
       .subnav a.active {
         border-color: var(--accent);
         background: var(--accent-soft);
-        color: var(--accent-strong);
+        color: white;
       }
 
       .table-wrap {
@@ -487,7 +538,7 @@
         padding: 1rem;
         border: 1px dashed var(--line);
         color: var(--muted);
-        background: rgba(239, 228, 205, 0.2);
+        background: rgba(111, 93, 88, 0.16);
       }
 
       .section-header {
@@ -648,11 +699,6 @@
         flex-wrap: wrap;
       }
 
-      .report-card-title {
-        display: flex;
-        align-items: baseline;
-      }
-
       .detail-header-top {
         display: flex;
         flex-wrap: wrap;
@@ -672,9 +718,9 @@
       }
 
       .banner.warning {
-        border-color: rgba(138, 75, 22, 0.35);
-        background: rgba(138, 75, 22, 0.08);
-        color: var(--warning);
+        border-color: rgba(255, 184, 28, 0.55);
+        background: rgba(255, 184, 28, 0.18);
+        color: #000;
       }
 
       .button-row {
@@ -697,7 +743,7 @@
       .summary-card {
         padding: 0.9rem 1rem;
         border: 1px solid var(--line);
-        background: rgba(239, 228, 205, 0.2);
+        background: rgba(111, 93, 88, 0.16);
       }
 
       .summary-label,
@@ -752,7 +798,7 @@
 
       .legend-chip.working,
       .calendar-day.working {
-        background: #f8f5ec;
+        background: rgba(111, 93, 88, 0.12);
       }
 
       .legend-chip.weekend,
@@ -767,17 +813,29 @@
 
       .legend-chip.local-holiday,
       .calendar-day.local-holiday {
-        background: #fde9b9;
+        background: rgba(255, 184, 28, 0.2);
       }
 
       .legend-chip.timia-day,
       .calendar-day.timia-day {
-        background: #d9ece1;
+        background: rgba(37, 114, 38, 0.18);
       }
 
       .legend-chip.other-day,
       .calendar-day.other-day {
         background: #e6dcf3;
+      }
+
+      .legend-chip.local-holiday {
+        border-color: var(--warning);
+        background: var(--warning);
+        color: #000;
+      }
+
+      .legend-chip.timia-day {
+        border-color: var(--success);
+        background: var(--success);
+        color: #fff;
       }
 
       .calendar-table th,
@@ -819,13 +877,16 @@
   </head>
   <body>
     <div class="layout">
-      {% if current_user %}
-        <header class="topbar">
-          <div class="brand">
+      <header class="topbar">
+        <a class="brand" href="/">
+          <img class="brand-logo" src="{% static 'core/Timia.png' %}" alt="Timia">
+          <div class="brand-copy">
             <p class="brand-kicker">Timesheet Management</p>
             <p class="brand-title">TS Management System</p>
             <p class="brand-subtitle">Internal roles and scope drive every screen in this shell.</p>
           </div>
+        </a>
+        {% if current_user %}
           <div class="topbar-meta">
             <div class="topbar-user">
               <strong>{{ current_user.full_name }}</strong>
@@ -838,7 +899,9 @@
               <button class="button secondary" type="submit">Sign Out</button>
             </form>
           </div>
-        </header>
+        {% endif %}
+      </header>
+      {% if current_user %}
         <main class="shell">
           <aside class="sidebar">
             {% for group in navigation_groups %}

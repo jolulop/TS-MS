@@ -10,19 +10,6 @@
       <p>{{ page_intro }}</p>
     </div>
 
-    <div class="hero-grid">
-      <article class="tile">
-        <strong>Pending Approval Items</strong>
-        <span class="tile-value">{{ pending_count }}</span>
-        <p>Approval items still waiting for a scoped review or decision.</p>
-      </article>
-      <article class="tile">
-        <strong>Completed Decisions</strong>
-        <span class="tile-value">{{ decided_count }}</span>
-        <p>Previously approved or rejected items that remain visible in your scope.</p>
-      </article>
-    </div>
-
     <section class="surface-card">
       <div class="section-header">
         <h2>Pending Approval Items</h2>
@@ -60,7 +47,7 @@
 
     <section class="surface-card">
       <div class="section-header">
-        <h2>Recent Decisions</h2>
+        <h2>Last actions</h2>
         <p>Approved and rejected items stay visible here for follow-up and audit-friendly context.</p>
       </div>
       {% if decided_rows %}
