@@ -2843,8 +2843,9 @@ def _configuration_fields(
             else bool(configuration["enable_copy_previous_week_flag"]),
             disabled=read_only,
             help_text=(
-                "Reserved switch for a future shortcut that preloads a new week "
-                f"using the previous week as a starting point for {help_scope}."
+                "If enabled, the My Timesheets screen shows a user-initiated "
+                "Copy Prev. Week action that creates the selected week from the "
+                f"employee's most recent approved timesheet in {help_scope}."
             ),
             width_mode="column" if paired_layout else "auto",
         ),

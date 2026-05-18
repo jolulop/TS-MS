@@ -6,6 +6,7 @@ from django.test import Client
 
 from apps.audit.models import AuditLog
 from apps.auth.services import CurrentUserService
+from apps.master_data.models import OfficeConfiguration
 from apps.timesheets.services import TimesheetService
 from apps.timesheets.models import (
     ApprovalAction,
@@ -44,10 +45,20 @@ def initialize_session(client: Client, validated_email: str) -> None:
     assert response.status_code == 201
 
 
-def create_timesheet(client: Client, week_start_date: str) -> dict:
+def create_timesheet(
+    client: Client,
+    week_start_date: str,
+    *,
+    copy_previous_week: bool = False,
+) -> dict:
     response = client.post(
         "/api/v1/timesheets/",
-        data=json.dumps({"week_start_date": week_start_date}),
+        data=json.dumps(
+            {
+                "week_start_date": week_start_date,
+                "copy_previous_week": copy_previous_week,
+            }
+        ),
         content_type="application/json",
     )
     assert response.status_code == 201
@@ -356,6 +367,43 @@ def test_timesheet_creation_rejects_duplicate_week_or_non_monday_start() -> None
     assert duplicate_response.json()["error"]["code"] == "TIMESHEET_ALREADY_EXISTS"
     assert invalid_start_response.status_code == 400
     assert invalid_start_response.json()["error"]["code"] == "TIMESHEET_WEEK_START_INVALID"
+
+
+@pytest.mark.django_db
+def test_copy_previous_week_requires_an_approved_source_timesheet() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-COPY-1", name="Business Unit Copy")
+    create_business_unit_configuration(business_unit=business_unit)
+    OfficeConfiguration.objects.filter(office=business_unit.office).update(
+        enable_copy_previous_week_flag=True
+    )
+    employee = create_employee(
+        employee_code="EMP-COPY-1",
+        full_name="Copy User",
+        email="copy-user@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee, business_unit=business_unit, is_primary_flag=True
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "copy-user@example.com")
+
+    response = client.post(
+        "/api/v1/timesheets/",
+        data=json.dumps(
+            {
+                "week_start_date": "2026-05-11",
+                "copy_previous_week": True,
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "TIMESHEET_COPY_PREVIOUS_WEEK_SOURCE_NOT_FOUND"
 
 
 @pytest.mark.django_db

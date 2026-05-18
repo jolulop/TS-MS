@@ -1,4 +1,4 @@
-# Specification Index v5.7
+# Specification Index v5.8
 
 ## Purpose
 
@@ -11,21 +11,21 @@ It supersedes the incremental markdown delta notes in:
 
 It also provides a code-aligned working reference alongside the legacy `.docx` documents in this folder.
 
-## v5.7 Documents
+## v5.8 Documents
 
-- [functional-spec-v5.7.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.7.md)
-- [ui-screen-spec-v5.7.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.7.md)
-- [integration-api-spec-v5.7.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.7.md)
-- [authorization-matrix-v5.7.md](/home/jolulop/code/TS-MS/docs/authorization-matrix-v5.7.md)
-- [business-rules-catalog-v5.7.md](/home/jolulop/code/TS-MS/docs/business-rules-catalog-v5.7.md)
-- [use-cases-acceptance-v5.7.md](/home/jolulop/code/TS-MS/docs/use-cases-acceptance-v5.7.md)
-- [non-functional-requirements-v5.7.md](/home/jolulop/code/TS-MS/docs/non-functional-requirements-v5.7.md)
-- [data-model-erd-v5.7.md](/home/jolulop/code/TS-MS/docs/data-model-erd-v5.7.md)
+- [functional-spec-v5.8.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.8.md)
+- [ui-screen-spec-v5.8.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.8.md)
+- [integration-api-spec-v5.8.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.8.md)
+- [authorization-matrix-v5.8.md](/home/jolulop/code/TS-MS/docs/authorization-matrix-v5.8.md)
+- [business-rules-catalog-v5.8.md](/home/jolulop/code/TS-MS/docs/business-rules-catalog-v5.8.md)
+- [use-cases-acceptance-v5.8.md](/home/jolulop/code/TS-MS/docs/use-cases-acceptance-v5.8.md)
+- [non-functional-requirements-v5.8.md](/home/jolulop/code/TS-MS/docs/non-functional-requirements-v5.8.md)
+- [data-model-erd-v5.8.md](/home/jolulop/code/TS-MS/docs/data-model-erd-v5.8.md)
 - [database-schema-diagram.md](/home/jolulop/code/TS-MS/docs/database-schema-diagram.md)
 
 ## Version Notes
 
-v5.7 captures these major implemented changes relative to the older baseline docs:
+v5.8 captures these major implemented changes relative to the older baseline docs:
 - Country was renamed to Office.
 - Office-level configuration replaced Business Unit-owned configuration.
 - Office creation now bootstraps an initial Business Unit and Office admin employee.

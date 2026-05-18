@@ -512,6 +512,13 @@ def _office_configuration_for_business_unit(
     return getattr(business_unit.office, "configuration", None)
 
 
+def _copy_previous_week_enabled(business_unit_id: int) -> bool:
+    configuration = _office_configuration_for_business_unit(business_unit_id)
+    if configuration is None:
+        return False
+    return bool(configuration.enable_copy_previous_week_flag)
+
+
 def _approval_mode_code(business_unit_id: int) -> str:
     configuration = _office_configuration_for_business_unit(business_unit_id)
     if configuration is None:
@@ -531,6 +538,24 @@ def _timesheet_cutoff_date(business_unit_id: int) -> date | None:
     if configuration is None:
         return None
     return configuration.timesheet_cutoff_date
+
+
+def _latest_approved_timesheet_for_copy(
+    employee: Employee,
+    *,
+    before_week_start_date: date,
+) -> WeeklyTimesheet | None:
+    return (
+        WeeklyTimesheet.objects.select_related("status")
+        .prefetch_related("lines")
+        .filter(
+            employee=employee,
+            status__value_code="APPROVED",
+            week_start_date__lt=before_week_start_date,
+        )
+        .order_by("-week_start_date", "-id")
+        .first()
+    )
 
 
 def _add_years(base_date: date, years: int) -> date:
@@ -868,6 +893,11 @@ def _submission_blockers(timesheet: WeeklyTimesheet) -> list[str]:
 
 class TimesheetService:
     @staticmethod
+    def can_copy_previous_week(current_user: CurrentUser) -> bool:
+        employee = _employee_for_current_user(current_user)
+        return _copy_previous_week_enabled(employee.primary_business_unit_id)
+
+    @staticmethod
     def list_timesheets(current_user: CurrentUser) -> list[dict]:
         employee = _employee_for_current_user(current_user)
         timesheets = (
@@ -927,12 +957,40 @@ class TimesheetService:
     @transaction.atomic
     def create_timesheet(current_user: CurrentUser, payload: dict) -> dict:
         employee = _employee_for_current_user(current_user)
+        copy_previous_week_raw = payload.get("copy_previous_week")
+        copy_previous_week_flag = copy_previous_week_raw in (
+            True,
+            "true",
+            "True",
+            "1",
+            1,
+            "on",
+        )
         week_start_date = _parse_iso_date(
             payload.get("week_start_date"),
             code="TIMESHEET_WEEK_START_REQUIRED",
             message="week_start_date must be a valid ISO date.",
         )
         week_start_date, week_end_date = _validate_week_start_date(week_start_date)
+
+        source_timesheet = None
+        if copy_previous_week_flag:
+            if not _copy_previous_week_enabled(employee.primary_business_unit_id):
+                raise AuthError(
+                    "TIMESHEET_COPY_PREVIOUS_WEEK_DISABLED",
+                    "Copy previous week is not enabled for your Office.",
+                    400,
+                )
+            source_timesheet = _latest_approved_timesheet_for_copy(
+                employee,
+                before_week_start_date=week_start_date,
+            )
+            if source_timesheet is None:
+                raise AuthError(
+                    "TIMESHEET_COPY_PREVIOUS_WEEK_SOURCE_NOT_FOUND",
+                    "No approved previous timesheet is available to copy.",
+                    400,
+                )
 
         try:
             timesheet = WeeklyTimesheet.objects.create(
@@ -950,6 +1008,24 @@ class TimesheetService:
                 "A weekly timesheet already exists for that week.",
                 400,
             ) from exc
+
+        if source_timesheet is not None:
+            day_offset = (week_start_date - source_timesheet.week_start_date).days
+            copied_lines_payload = [
+                {
+                    "work_date": (line.work_date + timedelta(days=day_offset)).isoformat(),
+                    "project_id": line.project_id,
+                    "general_charge_code_id": line.general_charge_code_id,
+                    "hours": str(line.hours),
+                    "comment_text": line.comment_text,
+                }
+                for line in source_timesheet.lines.all().order_by("work_date", "id")
+            ]
+            TimesheetService.replace_lines(
+                current_user,
+                timesheet.id,
+                {"lines": copied_lines_payload},
+            )
 
         return _serialize_timesheet(
             WeeklyTimesheet.objects.select_related("status")

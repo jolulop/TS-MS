@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from django.test import Client
 
-from apps.master_data.models import Employee
+from apps.master_data.models import Employee, OfficeConfiguration
 from apps.timesheets.models import ApprovalItem, TimesheetLine, WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
@@ -11,6 +11,7 @@ from tests.helpers import (
     assign_project,
     assign_role,
     create_business_unit,
+    create_business_unit_configuration,
     create_calendar_period_rule,
     create_calendar_special_day,
     create_client,
@@ -22,6 +23,7 @@ from tests.helpers import (
     create_project,
     create_yearly_calendar,
     initialize_ui_session,
+    ref_value,
     seed_reference_data,
 )
 
@@ -35,6 +37,7 @@ def _build_timesheet_ui_client(
     *,
     employee_email: str = "timesheet-user@example.com",
     employee_code: str = "EMP-TS-001",
+    enable_copy_previous_week: bool = False,
 ) -> tuple[Client, Employee, dict]:
     seed_reference_data()
     suffix = employee_code.replace("EMP-", "").replace("-", "")
@@ -130,6 +133,10 @@ def _build_timesheet_ui_client(
         name="Timesheet General Code",
         valid_from=_current_monday() - timedelta(days=7),
     )
+    create_business_unit_configuration(business_unit=business_unit)
+    OfficeConfiguration.objects.filter(office=business_unit.office).update(
+        enable_copy_previous_week_flag=enable_copy_previous_week
+    )
 
     client = Client()
     initialize_ui_session(client, employee.email)
@@ -208,9 +215,84 @@ def test_my_timesheets_page_uses_header_create_controls_and_no_inline_create_pan
     assert "My History" not in content
     assert "Submitted At" in content
     assert "Approved At" in content
+    assert "Copy Prev. Week" not in content
     assert "Lines" not in content
     assert "Submission No." not in content
     assert fixtures["week_start"].strftime("%m/%d/%Y") in content
+
+
+@pytest.mark.django_db
+def test_my_timesheets_page_can_copy_previous_approved_week_when_office_flag_enabled() -> None:
+    client, _, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-copy@example.com",
+        employee_code="EMP-TS-COPY",
+        enable_copy_previous_week=True,
+    )
+    previous_week = fixtures["week_start"] - timedelta(days=7)
+
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": previous_week.isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    source_timesheet = WeeklyTimesheet.objects.get(week_start_date=previous_week)
+    save_response = client.post(
+        f"/ts/timesheets/{source_timesheet.id}/",
+        data={
+            "form_name": "lines",
+            "row_count": "8",
+            "line_0_work_date": previous_week.isoformat(),
+            "line_0_hours": "4.00",
+            "line_0_project_id": str(fixtures["project"].id),
+            "line_0_general_charge_code_id": "",
+            "line_0_comment_text": "Copied project work",
+            "line_1_work_date": (previous_week + timedelta(days=1)).isoformat(),
+            "line_1_hours": "2.50",
+            "line_1_project_id": "",
+            "line_1_general_charge_code_id": str(fixtures["general_charge_code"].id),
+            "line_1_comment_text": "Copied admin work",
+        },
+        follow=False,
+    )
+    assert save_response.status_code == 302
+    WeeklyTimesheet.objects.filter(id=source_timesheet.id).update(
+        status=ref_value("TIMESHEET_STATUS", "APPROVED"),
+        current_submission_no=1,
+        submission_datetime=datetime.combine(previous_week, datetime.min.time(), tzinfo=UTC),
+        final_approval_datetime=datetime.combine(
+            previous_week + timedelta(days=2),
+            datetime.min.time(),
+            tzinfo=UTC,
+        ),
+    )
+
+    page_response = client.get("/ts/")
+    assert page_response.status_code == 200
+    assert "Copy Prev. Week" in page_response.content.decode()
+
+    copy_response = client.post(
+        "/ts/",
+        data={
+            "week_start_date": fixtures["week_start"].isoformat(),
+            "create_mode": "copy_previous_week",
+        },
+        follow=False,
+    )
+
+    assert copy_response.status_code == 302
+    copied_timesheet = WeeklyTimesheet.objects.get(week_start_date=fixtures["week_start"])
+    copied_lines = list(copied_timesheet.lines.order_by("work_date", "id"))
+    assert len(copied_lines) == 2
+    assert copied_lines[0].work_date == fixtures["week_start"]
+    assert copied_lines[0].project_id == fixtures["project"].id
+    assert str(copied_lines[0].hours) == "4.00"
+    assert copied_lines[0].comment_text == "Copied project work"
+    assert copied_lines[1].work_date == fixtures["week_start"] + timedelta(days=1)
+    assert copied_lines[1].general_charge_code_id == fixtures["general_charge_code"].id
+    assert str(copied_lines[1].hours) == "2.50"
+    assert copied_lines[1].comment_text == "Copied admin work"
 
 
 @pytest.mark.django_db

@@ -2,6 +2,12 @@
 
 ## Active Plans
 
+- `2026-05-18`: `docs/plans/2026-05-18-docs-v5.8-promotion.md`
+  - status: completed
+  - focus: publish the v5.8 markdown source-of-truth set and repoint repo guidance to it after enabling Copy Prev. Week
+- `2026-05-18`: `docs/plans/2026-05-18-copy-previous-week.md`
+  - status: completed
+  - focus: turn the Office-level copy-previous-week switch into a user-initiated My Timesheets action while keeping Timer and Leave Integration inactive
 - `2026-05-18`: `docs/plans/2026-05-18-docs-v5.7-promotion.md`
   - status: completed
   - focus: publish the v5.7 markdown source-of-truth set and repoint repo guidance to it
@@ -89,7 +95,7 @@
 
 Historical note:
 - completed plan files intentionally preserve the source-document references and milestone wording that existed when those plans were written
-- use `AGENTS.md`, this file, and the v5.7 markdown spec set for current implementation work
+- use `AGENTS.md`, this file, and the v5.8 markdown spec set for current implementation work
 
 ## Purpose
 

@@ -14,6 +14,7 @@ The repository now contains an implemented Django application, not only a founda
 - Office-level Yearly Calendars with Special Days
 - Business Unit-specific Calendar Period Rules inside shared Office calendars
 - weekly timesheets, approvals, and project time inquiry
+- user-initiated `Copy Prev. Week` timesheet creation when enabled by Office configuration
 - guarded delete actions for selected System Management entities
 
 ## Stack
@@ -64,24 +65,24 @@ After running `make seed-dev`, you can initialize a TS Admin session in the acce
 ## Documentation baseline
 
 Current repository-aligned specification set:
-- `docs/specification-index-v5.4.md`
-- `docs/functional-spec-v5.4.md`
-- `docs/ui-screen-spec-v5.4.md`
-- `docs/integration-api-spec-v5.4.md`
-- `docs/authorization-matrix-v5.4.md`
-- `docs/business-rules-catalog-v5.4.md`
-- `docs/use-cases-acceptance-v5.4.md`
-- `docs/data-model-erd-v5.4.md`
-- `docs/non-functional-requirements-v5.4.md`
+- `docs/specification-index-v5.8.md`
+- `docs/functional-spec-v5.8.md`
+- `docs/ui-screen-spec-v5.8.md`
+- `docs/integration-api-spec-v5.8.md`
+- `docs/authorization-matrix-v5.8.md`
+- `docs/business-rules-catalog-v5.8.md`
+- `docs/use-cases-acceptance-v5.8.md`
+- `docs/data-model-erd-v5.8.md`
+- `docs/non-functional-requirements-v5.8.md`
 
-Legacy `v5.2` markdown notes remain in `docs/` only as historical superseded deltas and should not be used as the current source of truth.
+Legacy `v5.2`, `v5.4`, `v5.5`, `v5.6`, and `v5.7` markdown notes remain in `docs/` only as historical superseded deltas and should not be used as the current source of truth.
 
 ## Repository guidance
 
 Before implementing business features, follow:
 - `AGENTS.md`
 - `PLANS.md`
-- `docs/specification-index-v5.4.md`
+- `docs/specification-index-v5.8.md`
 - `docs/architecture/stack.md`
 - `docs/development/local-setup.md`
 - `docs/development/reference-data-strategy.md`

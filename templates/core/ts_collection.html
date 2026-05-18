@@ -32,6 +32,9 @@
           </div>
           <div class="toolbar-actions">
             <button class="button" type="submit">Create Timesheet</button>
+            {% if can_copy_previous_week %}
+              <button class="button secondary" type="submit" name="create_mode" value="copy_previous_week">Copy Prev. Week</button>
+            {% endif %}
           </div>
         </form>
       </div>

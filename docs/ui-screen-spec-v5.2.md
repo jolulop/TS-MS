@@ -1,6 +1,6 @@
 # UI Screen Specification v5.2
 
-Superseded by [ui-screen-spec-v5.7.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.7.md).
+Superseded by [ui-screen-spec-v5.8.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.8.md).
 
 Historical note only. Do not use this file as the current implementation source of truth.
 

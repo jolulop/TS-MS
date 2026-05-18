@@ -602,10 +602,14 @@ def my_timesheets(request: HttpRequest) -> HttpResponse:
 
     create_error = ""
     if request.method == "POST":
+        create_mode = request.POST.get("create_mode", "create")
         try:
             timesheet = TimesheetService.create_timesheet(
                 current_user,
-                {"week_start_date": request.POST.get("week_start_date", "")},
+                {
+                    "week_start_date": request.POST.get("week_start_date", ""),
+                    "copy_previous_week": create_mode == "copy_previous_week",
+                },
             )
         except AuthError as error:
             create_error = error.message
@@ -639,6 +643,7 @@ def my_timesheets(request: HttpRequest) -> HttpResponse:
             "empty_message": "No weekly timesheets exist yet. Create your first week to begin.",
             "create_week_start_date": _selected_week_start_date_value(request),
             "create_error": create_error,
+            "can_copy_previous_week": TimesheetService.can_copy_previous_week(current_user),
         }
     )
     return render(request, "core/ts_collection.html", context)
