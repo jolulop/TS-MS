@@ -1,8 +1,8 @@
-# Specification Index v5.6
+# Specification Index v5.7
 
 ## Purpose
 
-This markdown set is the current repository-aligned specification for the implemented Timesheet Management System as of `2026-05-17`.
+This markdown set is the current repository-aligned specification for the implemented Timesheet Management System as of `2026-05-18`.
 
 It supersedes the incremental markdown delta notes in:
 - `docs/functional-spec-v5.2.md`
@@ -11,21 +11,21 @@ It supersedes the incremental markdown delta notes in:
 
 It also provides a code-aligned working reference alongside the legacy `.docx` documents in this folder.
 
-## v5.6 Documents
+## v5.7 Documents
 
-- [functional-spec-v5.6.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.6.md)
-- [ui-screen-spec-v5.6.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.6.md)
-- [integration-api-spec-v5.6.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.6.md)
-- [authorization-matrix-v5.6.md](/home/jolulop/code/TS-MS/docs/authorization-matrix-v5.6.md)
-- [business-rules-catalog-v5.6.md](/home/jolulop/code/TS-MS/docs/business-rules-catalog-v5.6.md)
-- [use-cases-acceptance-v5.6.md](/home/jolulop/code/TS-MS/docs/use-cases-acceptance-v5.6.md)
-- [non-functional-requirements-v5.6.md](/home/jolulop/code/TS-MS/docs/non-functional-requirements-v5.6.md)
-- [data-model-erd-v5.6.md](/home/jolulop/code/TS-MS/docs/data-model-erd-v5.6.md)
+- [functional-spec-v5.7.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.7.md)
+- [ui-screen-spec-v5.7.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.7.md)
+- [integration-api-spec-v5.7.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.7.md)
+- [authorization-matrix-v5.7.md](/home/jolulop/code/TS-MS/docs/authorization-matrix-v5.7.md)
+- [business-rules-catalog-v5.7.md](/home/jolulop/code/TS-MS/docs/business-rules-catalog-v5.7.md)
+- [use-cases-acceptance-v5.7.md](/home/jolulop/code/TS-MS/docs/use-cases-acceptance-v5.7.md)
+- [non-functional-requirements-v5.7.md](/home/jolulop/code/TS-MS/docs/non-functional-requirements-v5.7.md)
+- [data-model-erd-v5.7.md](/home/jolulop/code/TS-MS/docs/data-model-erd-v5.7.md)
 - [database-schema-diagram.md](/home/jolulop/code/TS-MS/docs/database-schema-diagram.md)
 
 ## Version Notes
 
-v5.6 captures these major implemented changes relative to the older baseline docs:
+v5.7 captures these major implemented changes relative to the older baseline docs:
 - Country was renamed to Office.
 - Office-level configuration replaced Business Unit-owned configuration.
 - Office creation now bootstraps an initial Business Unit and Office admin employee.
@@ -53,6 +53,9 @@ v5.6 captures these major implemented changes relative to the older baseline doc
 - The existing report viewer now supports CSV export across the current operational report slices in the HTML UI, while Missing Timesheets by Project keeps the additional `/api/v1` export flow.
 - `PROJECT_OWNER` can now manage owned projects and owned-project assignments from System Management.
 - `PROJECT_MANAGER` can now manage assignments for managed projects from System Management.
+- `TS_ADMIN` now has approval oversight visibility without gaining approval authority from the admin role alone.
+- related timesheet detail exposes existing admin exception actions in the HTML UI.
+- timesheet detail shows short-date submission and approval metadata.
 
 ## Reading Order
 

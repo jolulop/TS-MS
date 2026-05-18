@@ -7,6 +7,7 @@ from apps.audit.models import AuditLog
 from apps.audit.services import write_audit_event
 from apps.integrations.models import IntegrationJob
 from apps.master_data.models import Employee, Project
+from apps.timesheets.models import WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
     assign_employee_to_business_unit,
@@ -467,6 +468,99 @@ def test_project_missing_timesheets_csv_export_downloads_attachment_and_audits()
         entity_name="project_missing_timesheets_report",
         action_type__value_code="EXPORT",
         actor_email="reports-pm@example.com",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_project_time_report_csv_export_downloads_filtered_rows_and_audits() -> None:
+    context = _setup_reports_context()
+
+    response = context["owner_client"].get(
+        "/reports/project-time/export/",
+        data={"project_id": str(context["project"].id)},
+    )
+
+    assert response.status_code == 200
+    assert response["Content-Disposition"].startswith("attachment; filename=")
+    assert response["Content-Type"].startswith("text/csv")
+    content = response.content.decode()
+    assert (
+        "Work Date,Employee Code,Employee,Project Code,Project,BU,Week Start,Hours,"
+        "Billable,Approval State,Comment" in content
+    )
+    assert "2026-05-04,EMP-RPT-USER,Reports User,PRJ-RPT,Reports Project,BU-RPT,2026-05-04,5.00,Billable,PENDING,Billable delivery" in content
+    assert AuditLog.objects.filter(
+        entity_name="project_time_report",
+        action_type__value_code="EXPORT",
+        actor_email="reports-owner@example.com",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_pending_approvals_report_csv_export_downloads_rows_and_audits() -> None:
+    context = _setup_reports_context()
+
+    response = context["pm_client"].get(
+        "/reports/pending-approvals/export/",
+        data={"project_id": str(context["project"].id)},
+    )
+
+    assert response.status_code == 200
+    assert response["Content-Disposition"].startswith("attachment; filename=")
+    assert response["Content-Type"].startswith("text/csv")
+    content = response.content.decode()
+    assert "Approval Item,Employee Code,Employee,Target Code,Target,BU,Submission No.,Status" in content
+    assert "EMP-RPT-USER" in content
+    assert "PRJ-RPT" in content
+    assert AuditLog.objects.filter(
+        entity_name="pending_approvals_report",
+        action_type__value_code="EXPORT",
+        actor_email="reports-pm@example.com",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_admin_report_csv_exports_download_and_audit() -> None:
+    context = _setup_reports_context()
+    timesheet = WeeklyTimesheet.objects.get(employee__email="reports-user@example.com")
+    WeeklyTimesheet.objects.filter(id=timesheet.id).update(
+        status=ref_value("TIMESHEET_STATUS", "ARCHIVED"),
+        archive_eligible_date=date(2026, 5, 31),
+    )
+
+    archived_response = context["admin_client"].get("/reports/archived-timesheets/export/")
+    audit_response = context["admin_client"].get(
+        "/reports/audit-history/export/",
+        data={"entity_name": "weekly_timesheet"},
+    )
+    integration_response = context["admin_client"].get(
+        "/reports/integration-jobs/export/",
+        data={"interface_code": "EMPLOYEE"},
+    )
+
+    assert archived_response.status_code == 200
+    assert "BU,Employee Code,Employee,Week Start,Week End,Status,Archive Eligible Date" in archived_response.content.decode()
+    assert "BU-RPT,EMP-RPT-USER,Reports User,2026-05-04,2026-05-10,ARCHIVED,2026-05-31" in archived_response.content.decode()
+    assert audit_response.status_code == 200
+    assert "Event Timestamp,BU,Actor,Action,Entity,Entity ID,Reason" in audit_response.content.decode()
+    assert "Nightly export validation" in audit_response.content.decode()
+    assert integration_response.status_code == 200
+    assert "Created At,BU,Interface,Direction,Status,Total,Success,Errors,Requested By,Summary" in integration_response.content.decode()
+    assert "EMPLOYEE_IMPORT" in integration_response.content.decode()
+    assert AuditLog.objects.filter(
+        entity_name="archived_timesheets_report",
+        action_type__value_code="EXPORT",
+        actor_email="reports-admin@example.com",
+    ).exists()
+    assert AuditLog.objects.filter(
+        entity_name="audit_history_report",
+        action_type__value_code="EXPORT",
+        actor_email="reports-admin@example.com",
+    ).exists()
+    assert AuditLog.objects.filter(
+        entity_name="integration_jobs_report",
+        action_type__value_code="EXPORT",
+        actor_email="reports-admin@example.com",
     ).exists()
 
 

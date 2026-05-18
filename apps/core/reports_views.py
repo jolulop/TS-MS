@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from urllib.parse import urlencode
 
+from django.http import Http404
 from django.db.models import Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
@@ -72,6 +73,15 @@ REPORT_DEFINITIONS = {
         summary="Import, export, and sync job history within the current Business Unit scope.",
         audience="TS_ADMIN",
     ),
+}
+
+EXPORTABLE_REPORT_CODES = {
+    "project-time",
+    "pending-approvals",
+    "missing-timesheets",
+    "archived-timesheets",
+    "audit-history",
+    "integration-jobs",
 }
 
 
@@ -310,6 +320,51 @@ def _audit_missing_timesheets_report(
         actor_email=current_user.email,
         business_unit=_primary_business_unit_for_audit(current_user),
         reason_text=f"{reason_prefix}; projects={project_list}; rows={row_count}",
+    )
+
+
+def _report_audit_entity_name(report_code: str) -> str:
+    if report_code == "missing-timesheets":
+        return "project_missing_timesheets_report"
+    return f"{report_code.replace('-', '_')}_report"
+
+
+def _report_filter_summary(request: HttpRequest) -> str:
+    return request.GET.urlencode() or "default-scope"
+
+
+def _audit_report_export(
+    current_user: CurrentUser,
+    *,
+    report_code: str,
+    request: HttpRequest,
+    row_count: int,
+) -> None:
+    if report_code == "missing-timesheets":
+        selected_project_ids = [
+            int(project_id)
+            for project_id in _selected_project_values(request)
+            if project_id.isdigit()
+        ]
+        _audit_missing_timesheets_report(
+            current_user,
+            action_code="EXPORT",
+            selected_project_ids=selected_project_ids,
+            row_count=row_count,
+            reason_prefix="Exported project missing timesheets CSV",
+        )
+        return
+
+    write_audit_event(
+        action_code="EXPORT",
+        entity_name=_report_audit_entity_name(report_code),
+        actor_employee=Employee.objects.filter(id=current_user.employee_id).first(),
+        actor_email=current_user.email,
+        business_unit=_primary_business_unit_for_audit(current_user),
+        reason_text=(
+            f"Exported {REPORT_DEFINITIONS[report_code].title} CSV; "
+            f"filters={_report_filter_summary(request)}; rows={row_count}"
+        ),
     )
 
 
@@ -1110,7 +1165,8 @@ def render_report_view(
             "empty_message": payload["empty_message"],
             "back_href": back_href,
             "back_label": back_label,
-            "export_path": payload.get("export_path", ""),
+            "export_path": payload.get("export_path")
+            or (_report_export_url(report_code) if report_code in EXPORTABLE_REPORT_CODES else ""),
             "report_split_grid_class": payload.get("split_grid_class", "split-grid"),
         }
     )
@@ -1133,39 +1189,45 @@ def report_viewer(request: HttpRequest, report_code: str) -> HttpResponse:
 
 @require_GET
 def export_missing_timesheets_csv(request: HttpRequest) -> HttpResponse:
+    return _export_report_csv_response(request, report_code="missing-timesheets")
+
+
+def _export_report_csv_response(request: HttpRequest, *, report_code: str) -> HttpResponse:
     current_user = _require_user(request)
     if not isinstance(current_user, CurrentUser):
         return current_user
 
-    if not AuthorizationPolicyService.can_run_report(current_user, "missing-timesheets"):
+    if report_code not in REPORT_BUILDERS or report_code not in EXPORTABLE_REPORT_CODES:
+        raise Http404("Report export is not available.")
+
+    if not AuthorizationPolicyService.can_run_report(current_user, report_code):
         return _render_access_denied(
             request,
             message="You do not have permission to export this report.",
             status=403,
         )
 
-    payload = REPORT_BUILDERS["missing-timesheets"](current_user, request)
-    selected_project_ids = [
-        int(project_id)
-        for project_id in _selected_project_values(request)
-        if project_id.isdigit()
-    ]
-    _audit_missing_timesheets_report(
+    payload = REPORT_BUILDERS[report_code](current_user, request)
+    _audit_report_export(
         current_user,
-        action_code="EXPORT",
-        selected_project_ids=selected_project_ids,
+        report_code=report_code,
+        request=request,
         row_count=len(payload["rows"]),
-        reason_prefix="Exported project missing timesheets CSV",
     )
 
     response = HttpResponse(content_type="text/csv")
     response["Content-Disposition"] = (
-        f'attachment; filename="missing-timesheets-{_current_monday().isoformat()}.csv"'
+        f'attachment; filename="{report_code}-{_current_monday().isoformat()}.csv"'
     )
     writer = csv.writer(response)
     writer.writerow(payload["headers"])
     writer.writerows(payload["rows"])
     return response
+
+
+@require_GET
+def export_report_csv(request: HttpRequest, report_code: str) -> HttpResponse:
+    return _export_report_csv_response(request, report_code=report_code)
 
 
 def build_missing_timesheets_export_query(project_ids: list[int]) -> str:

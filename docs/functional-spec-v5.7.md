@@ -1,4 +1,4 @@
-# Functional Specification v5.6
+# Functional Specification v5.7
 
 ## 1. Purpose
 
@@ -442,7 +442,7 @@ Audit coverage is required for sensitive state changes, including:
 - project missing-timesheet report generation and export
 - report CSV export for the other supported report slices
 
-## 13. Out Of Scope For v5.6
+## 13. Out Of Scope For v5.7
 
 - pricing calculations beyond storing a project Pricing Model
 - Office-level JSON admin API

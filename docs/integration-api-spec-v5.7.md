@@ -1,10 +1,10 @@
-# Integration API Specification v5.6
+# Integration API Specification v5.7
 
 ## 1. Purpose
 
 Describe the currently implemented JSON API surface under `/api/v1`.
 
-No JSON API versioning change was introduced in the v5.6 documentation promotion. The main implemented deltas in this release are server-rendered UI and documentation updates.
+No JSON API versioning change was introduced in the v5.7 documentation promotion. The main implemented deltas in this release are approval-oversight UI additions and broader HTML report CSV exports.
 
 ## 2. General Rules
 

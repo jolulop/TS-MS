@@ -2,6 +2,12 @@
 
 ## Active Plans
 
+- `2026-05-18`: `docs/plans/2026-05-18-docs-v5.7-promotion.md`
+  - status: completed
+  - focus: publish the v5.7 markdown source-of-truth set and repoint repo guidance to it
+- `2026-05-18`: `docs/plans/2026-05-18-broader-report-exports.md`
+  - status: completed
+  - focus: add shared CSV export support for the current operational report screens while keeping Missing Timesheets by Project as the only `/api/v1` export flow
 - `2026-05-18`: `docs/plans/2026-05-18-ts-admin-approval-oversight.md`
   - status: completed
   - focus: add TS Admin approval oversight visibility and related timesheet exception-action entry points without granting admin approval authority
@@ -83,7 +89,7 @@
 
 Historical note:
 - completed plan files intentionally preserve the source-document references and milestone wording that existed when those plans were written
-- use `AGENTS.md`, this file, and the v5.6 markdown spec set for current implementation work
+- use `AGENTS.md`, this file, and the v5.7 markdown spec set for current implementation work
 
 ## Purpose
 

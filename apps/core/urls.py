@@ -215,5 +215,10 @@ urlpatterns = [
         reports_views.export_missing_timesheets_csv,
         name="report-missing-timesheets-export",
     ),
+    path(
+        "reports/<slug:report_code>/export/",
+        reports_views.export_report_csv,
+        name="report-export",
+    ),
     path("reports/<slug:report_code>/", reports_views.report_viewer, name="report-viewer"),
 ]
