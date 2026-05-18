@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 import pytest
 from django.test import Client
+from django.utils import timezone
 
 from apps.timesheets.models import ApprovalAction, ApprovalItem, WeeklyTimesheet
 from tests.helpers import (
@@ -184,11 +185,33 @@ def _build_approval_ui_clients(
         "employee_client": employee_client,
         "pm_client": pm_client,
         "employee": employee,
+        "business_unit": business_unit,
+        "calendar": calendar,
         "project_manager": project_manager,
         "project": project,
         "timesheet": timesheet,
         "approval_item": approval_item,
     }
+
+
+def _build_ts_admin_client(*, business_unit, calendar, suffix: str) -> Client:
+    admin = create_employee(
+        employee_code=f"EMP-ADMIN-{suffix}",
+        full_name="Approval Admin",
+        email=f"approval-admin-{suffix.lower()}@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_calendar(employee=admin, yearly_calendar=calendar)
+    assign_employee_to_business_unit(
+        employee=admin,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin, role_code="USER")
+    assign_role(employee=admin, role_code="TS_ADMIN")
+    client = Client()
+    initialize_ui_session(client, admin.email)
+    return client
 
 
 def _build_general_charge_code_approval_ui_clients() -> dict:
@@ -314,6 +337,64 @@ def test_project_manager_worklist_shows_pending_approval_item() -> None:
     assert "Approval Employee" in content
     assert context["project"].project_code in content
     assert f"/approvals/{context['approval_item'].id}/" in content
+
+
+@pytest.mark.django_db
+def test_ts_admin_oversight_shows_scoped_pending_items_and_stalled_filters() -> None:
+    context = _build_approval_ui_clients(
+        employee_email="admin-oversight@example.com",
+        employee_code="EMP-APR-ADMIN",
+    )
+    admin_client = _build_ts_admin_client(
+        business_unit=context["business_unit"],
+        calendar=context["calendar"],
+        suffix="APR-ADMIN",
+    )
+    WeeklyTimesheet.objects.filter(id=context["timesheet"].id).update(
+        submission_datetime=timezone.now() - timedelta(days=8)
+    )
+
+    response = admin_client.get(
+        "/approvals/",
+        data={"aging": "STALLED", "q": "Approval", "project_id": str(context["project"].id)},
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Approval Oversight" in content
+    assert "Oversight Filters" in content
+    assert "Stalled" in content
+    assert "Approval Employee" in content
+    assert "Approver" in content
+    assert context["business_unit"].bu_code in content
+    assert f"/approvals/{context['approval_item'].id}/" in content
+
+
+@pytest.mark.django_db
+def test_ts_admin_can_open_approval_detail_in_read_only_oversight_mode() -> None:
+    context = _build_approval_ui_clients(
+        employee_email="admin-detail@example.com",
+        employee_code="EMP-APR-DETAIL",
+    )
+    admin_client = _build_ts_admin_client(
+        business_unit=context["business_unit"],
+        calendar=context["calendar"],
+        suffix="APR-DETAIL",
+    )
+
+    response = admin_client.get(
+        f"/approvals/{context['approval_item'].id}/",
+        data={"back": "/approvals/"},
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Open Related Timesheet" in content
+    assert f"/system/projects/{context['project'].id}/" in content
+    assert context["project_manager"].full_name in content
+    assert "read-only for admin oversight" in content
+    assert "Approve Item" not in content
+    assert "Reject Item" not in content
 
 
 @pytest.mark.django_db

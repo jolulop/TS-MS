@@ -4,6 +4,14 @@
 
 {% block content %}
   <div class="content-stack">
+    {% if ts_section_links %}
+      <nav class="subnav" aria-label="TS Management Sections">
+        {% for link in ts_section_links %}
+          <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+
     <div class="page-header">
       <p class="eyebrow">{{ page_eyebrow }}</p>
       <div class="detail-header">
@@ -19,7 +27,7 @@
       <section class="surface-card">
         <div class="section-header">
           <h2>Approval Context</h2>
-          <p><a href="/approvals/">Back to Approval Worklist</a></p>
+          <p><a href="{{ back_href }}">Back to {% if is_admin_oversight %}Approval Oversight{% else %}Approval Worklist{% endif %}</a></p>
         </div>
         <dl class="meta-grid">
           <div class="meta-row">
@@ -27,8 +35,16 @@
             <dd>{{ timesheet_employee_label }}</dd>
           </div>
           <div class="meta-row">
-            <dt>Project Scope</dt>
+            <dt>Target</dt>
             <dd>{{ approval_project_label }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Business Unit</dt>
+            <dd>{{ approval_item.business_unit.bu_code }} - {{ approval_item.business_unit.name }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Approver</dt>
+            <dd>{{ approval_approver_label }}</dd>
           </div>
           <div class="meta-row">
             <dt>Submission No.</dt>
@@ -43,6 +59,14 @@
             <dd>{{ approval_item.status }}</dd>
           </div>
           <div class="meta-row">
+            <dt>Pending Age</dt>
+            <dd>{{ pending_age_label }}</dd>
+          </div>
+          <div class="meta-row">
+            <dt>Queue State</dt>
+            <dd>{{ queue_state_label }}</dd>
+          </div>
+          <div class="meta-row">
             <dt>Rejection Reason</dt>
             <dd>{{ approval_item.rejection_reason|default:"Not rejected" }}</dd>
           </div>
@@ -51,14 +75,24 @@
 
       <section class="surface-card">
         <div class="section-header">
-          <h2>Decision Notes</h2>
-          <p>The backend still enforces approver scope, pending-only actions, and self-approval prevention.</p>
+          <h2>Related Links</h2>
+          <p>Use the related records for exception follow-up and deeper context.</p>
         </div>
-        {% if can_decide %}
-          <p>This approval item is still pending, so you can approve it or reject it with a required reason.</p>
-        {% else %}
-          <p>Decision Recorded. This approval item is now read-only in the current UI.</p>
-        {% endif %}
+        <div class="button-row">
+          <a class="button ghost" href="{{ related_timesheet_href }}">Open Related Timesheet</a>
+          {% if related_project_href %}
+            <a class="button ghost" href="{{ related_project_href }}">Open Related Project</a>
+          {% endif %}
+        </div>
+        <p>
+          {% if can_decide %}
+            The backend still enforces approver scope, pending-only actions, and self-approval prevention.
+          {% elif is_admin_oversight %}
+            This view is read-only for admin oversight. Exception actions live on the related timesheet screen.
+          {% else %}
+            Decision Recorded. This approval item is now read-only in the current UI.
+          {% endif %}
+        </p>
       </section>
     </div>
 
@@ -110,6 +144,7 @@
           <form class="form-stack" method="post" action="">
             {% csrf_token %}
             <input type="hidden" name="form_name" value="approve">
+            <input type="hidden" name="back" value="{{ back_href }}">
             <div class="field">
               <label for="approve_comment_text">Comment</label>
               <textarea id="approve_comment_text" name="comment_text">{{ approve_comment }}</textarea>
@@ -131,6 +166,7 @@
           <form class="form-stack" method="post" action="">
             {% csrf_token %}
             <input type="hidden" name="form_name" value="reject">
+            <input type="hidden" name="back" value="{{ back_href }}">
             <div class="field">
               <label for="reject_reason_text">Reason</label>
               <textarea id="reject_reason_text" name="reason_text" required>{{ reject_reason }}</textarea>

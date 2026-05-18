@@ -18,7 +18,7 @@
         <div>
           <div class="detail-header-top">
             <h1>{{ page_title }}</h1>
-            <a class="button ghost" href="/ts/">Back to My Timesheets</a>
+            <a class="button ghost" href="{{ back_href }}">Back</a>
           </div>
           <p>{{ page_intro }}</p>
         </div>
@@ -37,11 +37,11 @@
       </div>
       <div class="meta-row">
         <dt>Submitted At</dt>
-        <dd>{{ timesheet.submission_datetime|default:"Not submitted" }}</dd>
+        <dd>{{ timesheet_submission_display }}</dd>
       </div>
       <div class="meta-row">
         <dt>Approved At</dt>
-        <dd>{{ timesheet.final_approval_datetime|default:"Not approved" }}</dd>
+        <dd>{{ timesheet_approval_display }}</dd>
       </div>
       <div class="meta-row">
         <dt>Period Override</dt>
@@ -71,6 +71,7 @@
           <form class="form-stack" method="post" action="">
             {% csrf_token %}
             <input type="hidden" name="form_name" value="lines">
+            <input type="hidden" name="next" value="{{ back_href }}">
             <input id="row_count" type="hidden" name="row_count" value="{{ row_count }}">
             <div class="table-wrap">
               <table class="data-table data-table-wide">
@@ -137,6 +138,7 @@
           <form method="post" action="">
             {% csrf_token %}
             <input type="hidden" name="form_name" value="delete">
+            <input type="hidden" name="next" value="{{ back_href }}">
             <div class="button-row">
               <button class="button danger" type="submit"{% if not can_delete %} disabled{% endif %}>Delete Timesheet</button>
             </div>
@@ -228,6 +230,7 @@
             <form class="form-stack" method="post" action="">
               {% csrf_token %}
               <input type="hidden" name="form_name" value="submit">
+              <input type="hidden" name="next" value="{{ back_href }}">
               <div class="field">
                 <label for="submit_comment_text">Comment</label>
                 <textarea id="submit_comment_text" name="comment_text">{{ submit_comment }}</textarea>
@@ -252,6 +255,7 @@
           <form class="form-stack" method="post" action="">
             {% csrf_token %}
             <input type="hidden" name="form_name" value="withdraw">
+            <input type="hidden" name="next" value="{{ back_href }}">
             <div class="field">
               <label for="withdraw_comment_text">Comment</label>
               <textarea id="withdraw_comment_text" name="comment_text">{{ withdraw_comment }}</textarea>
@@ -260,6 +264,111 @@
               <button class="button secondary" type="submit">Withdraw Timesheet</button>
             </div>
           </form>
+        </section>
+      {% endif %}
+
+      {% if can_reopen or can_admin_withdraw or can_archive or can_restore %}
+        <section class="surface-card">
+          <div class="section-header">
+            <h2>Admin Exception Actions</h2>
+            <p>These actions are available only inside Timesheet Admin scope and remain fully audited.</p>
+          </div>
+
+          {% if can_reopen %}
+            <div class="content-stack">
+              <div>
+                <h3>Reopen Approved Timesheet</h3>
+                <p>Reopen returns the weekly record to an editable state for correction.</p>
+              </div>
+              {% if form_error and active_form == "reopen" %}
+                <div class="banner error">{{ form_error }}</div>
+              {% endif %}
+              <form class="form-stack" method="post" action="">
+                {% csrf_token %}
+                <input type="hidden" name="form_name" value="reopen">
+                <input type="hidden" name="next" value="{{ back_href }}">
+                <div class="field">
+                  <label for="reopen_reason_text">Reason</label>
+                  <textarea id="reopen_reason_text" name="reason_text" required>{{ reopen_reason }}</textarea>
+                </div>
+                <div>
+                  <button class="button secondary" type="submit">Reopen Timesheet</button>
+                </div>
+              </form>
+            </div>
+          {% endif %}
+
+          {% if can_admin_withdraw %}
+            <div class="content-stack">
+              <div>
+                <h3>Withdraw Approved Timesheet</h3>
+                <p>Withdraw returns the approved record to `SUBMITTED` without reopening line editing.</p>
+              </div>
+              {% if form_error and active_form == "admin_withdraw" %}
+                <div class="banner error">{{ form_error }}</div>
+              {% endif %}
+              <form class="form-stack" method="post" action="">
+                {% csrf_token %}
+                <input type="hidden" name="form_name" value="admin_withdraw">
+                <input type="hidden" name="next" value="{{ back_href }}">
+                <div class="field">
+                  <label for="admin_withdraw_reason_text">Reason</label>
+                  <textarea id="admin_withdraw_reason_text" name="reason_text" required>{{ admin_withdraw_reason }}</textarea>
+                </div>
+                <div>
+                  <button class="button secondary" type="submit">Withdraw Approved Timesheet</button>
+                </div>
+              </form>
+            </div>
+          {% endif %}
+
+          {% if can_archive %}
+            <div class="content-stack">
+              <div>
+                <h3>Archive Approved Timesheet</h3>
+                <p>Archive is available only when the approved timesheet is already archive eligible.</p>
+              </div>
+              {% if form_error and active_form == "archive" %}
+                <div class="banner error">{{ form_error }}</div>
+              {% endif %}
+              <form class="form-stack" method="post" action="">
+                {% csrf_token %}
+                <input type="hidden" name="form_name" value="archive">
+                <input type="hidden" name="next" value="{{ back_href }}">
+                <div class="field">
+                  <label for="archive_comment_text">Comment</label>
+                  <textarea id="archive_comment_text" name="comment_text">{{ archive_comment }}</textarea>
+                </div>
+                <div>
+                  <button class="button secondary" type="submit">Archive Timesheet</button>
+                </div>
+              </form>
+            </div>
+          {% endif %}
+
+          {% if can_restore %}
+            <div class="content-stack">
+              <div>
+                <h3>Restore Archived Timesheet</h3>
+                <p>Restore returns the archived record to the approved state.</p>
+              </div>
+              {% if form_error and active_form == "restore" %}
+                <div class="banner error">{{ form_error }}</div>
+              {% endif %}
+              <form class="form-stack" method="post" action="">
+                {% csrf_token %}
+                <input type="hidden" name="form_name" value="restore">
+                <input type="hidden" name="next" value="{{ back_href }}">
+                <div class="field">
+                  <label for="restore_comment_text">Comment</label>
+                  <textarea id="restore_comment_text" name="comment_text">{{ restore_comment }}</textarea>
+                </div>
+                <div>
+                  <button class="button secondary" type="submit">Restore Timesheet</button>
+                </div>
+              </form>
+            </div>
+          {% endif %}
         </section>
       {% endif %}
     </div>

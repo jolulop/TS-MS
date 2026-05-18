@@ -19,7 +19,7 @@
 | Open Project Management UI | No | Yes, owned projects | Yes, managed projects | Yes, scoped BUs | No direct role grant |
 | Open Project Detail from Project Management UI | No | Yes, owned projects editable | No | Yes, editable in scoped BUs | No direct role grant |
 | Open Project Time Inquiry | No | Yes | Yes | If also PO/PM or via reports | No direct role grant |
-| Open Approval Worklist | If matching GCC approver role | Yes, owned-project view plus matching GCC approver role items | Yes, plus matching GCC approver role items | If matching GCC approver role | If matching GCC approver role |
+| Open Approval Worklist | If matching GCC approver role | Yes, owned-project view plus matching GCC approver role items | Yes, plus matching GCC approver role items | Yes, scoped oversight plus any personal approver items | No direct role grant |
 | Approve/reject approval items | If matching GCC approver role items | If matching GCC approver role items | Yes, assigned project items plus matching GCC approver role items | If matching GCC approver role items | If matching GCC approver role items |
 | Open Reports Hub | No | Yes | Yes | Yes | No direct role grant |
 | Run Project Time report | No | Yes, owned projects | Yes, managed projects | Yes, scoped BUs | No direct role grant |
@@ -65,6 +65,9 @@
   - the active Office
   - Business Unit scope, which is synchronized to all Business Units in the active Office while the employee holds `TS_ADMIN`
 - can perform admin timesheet actions inside scoped Business Units
+- can open approval oversight inside scoped Business Units
+- can inspect approval detail and follow related links without gaining
+  approve/reject authority from the admin role alone
 
 ### TS_ADMIN_MASTER
 

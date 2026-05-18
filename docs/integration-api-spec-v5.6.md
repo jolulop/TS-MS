@@ -210,6 +210,13 @@ Admin timesheet actions:
 - `POST /api/v1/approvals/{approvalItemId}/approve/`
 - `POST /api/v1/approvals/{approvalItemId}/reject/`
 
+Approval endpoint behavior:
+- `TS_ADMIN` can use the `GET` approval endpoints for scoped oversight
+  visibility only
+- `POST approve` and `POST reject` remain limited to actual routed approvers or
+  matching General Charge Code approval-role holders
+- no admin override approval endpoint is introduced in the current version
+
 ## 9. Report Export Endpoints
 
 ### Missing Timesheets By Project
@@ -233,6 +240,8 @@ GET behavior:
 
 - `TS_ADMIN_MASTER` is used for Office UI flows, not a dedicated Office JSON admin API
 - `TS_ADMIN` can call the implemented admin master-data endpoints inside active Office and Business Unit scope
+- `TS_ADMIN` can use approval `GET` endpoints for scoped oversight and can use
+  admin timesheet action endpoints for exception handling
 - `PROJECT_MANAGER` is the approval-workflow API role
 - `PROJECT_OWNER`, `PROJECT_MANAGER`, and `TS_ADMIN` can use the project missing-timesheets export API inside their project scope
 - `PROJECT_OWNER` and `PROJECT_MANAGER` gain reporting and inquiry access through the UI/report layer

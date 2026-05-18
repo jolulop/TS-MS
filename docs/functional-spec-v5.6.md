@@ -323,6 +323,8 @@ Delete behavior:
   - a General Charge Code
 - Weekend entry is blocked by default.
 - Saturday and Sunday become chargeable only when the active Business Unit Calendar Period Rule marks them as working and no active Special Day overrides them.
+- The timesheet detail UI shows submission and approval metadata using short
+  dates while preserving the full stored timestamps in the data model.
 
 ### 9.2 History
 
@@ -364,13 +366,26 @@ Delete behavior:
 - The approval worklist supports:
   - project approval items assigned to one Project Manager
   - General Charge Code approval items routed to one or more eligible roles
+- `TS_ADMIN` can open the same `/approvals/` workspace in an oversight mode for
+  approval items that belong to Business Units inside the active Office and
+  scoped Business Units.
+- The `TS_ADMIN` oversight view adds:
+  - pending-age and stalled visibility
+  - filters by Business Unit, employee, project, target type, and aging
+  - read-only approval detail access
+  - links to the related timesheet and project for follow-up
 - A General Charge Code approval item is actionable by any active employee who matches
   one of the snapped approver roles for that item.
 - The first approval or rejection decision closes the General Charge Code approval item.
 - Project Managers can still view and act on project approval items assigned to them.
 - Project Owners can review approval items for owned projects but do not get
   approval authority from ownership alone.
-- `TS_ADMIN` has reporting visibility over approvals but is not the primary approver role in the current UI workflow.
+- `TS_ADMIN` oversight does not grant approve/reject authority unless the same
+  employee independently matches the routed approver assignment or General
+  Charge Code approval role.
+- `TS_ADMIN` uses related-timesheet exception actions for operational cleanup:
+  reopen approved timesheets, withdraw approved timesheets back to submitted,
+  archive approved timesheets, and restore archived timesheets.
 
 ## 11. Reports
 

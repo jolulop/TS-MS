@@ -564,22 +564,63 @@ def _ensure_period_unlocked(timesheet: WeeklyTimesheet) -> None:
         )
 
 
+def _approval_pending_age_days(approval_item: ApprovalItem) -> int:
+    reference_datetime = (
+        approval_item.submission_cycle.weekly_timesheet.submission_datetime
+        or approval_item.created_at
+    )
+    return max((timezone.now().date() - reference_datetime.date()).days, 0)
+
+
 def _serialize_approval_item(approval_item: ApprovalItem, *, include_lines: bool = False) -> dict:
     submission_cycle = approval_item.submission_cycle
     timesheet = submission_cycle.weekly_timesheet
+    pending_age_days = _approval_pending_age_days(approval_item)
     payload = {
         "id": approval_item.id,
         "submission_cycle_id": submission_cycle.id,
         "submission_no": submission_cycle.submission_no,
         "timesheet_id": timesheet.id,
+        "timesheet": {
+            "id": timesheet.id,
+            "status": timesheet.status.value_code,
+            "week_start_date": timesheet.week_start_date.isoformat(),
+            "week_end_date": timesheet.week_end_date.isoformat(),
+            "submission_datetime": (
+                timesheet.submission_datetime.isoformat()
+                if timesheet.submission_datetime is not None
+                else None
+            ),
+            "final_approval_datetime": (
+                timesheet.final_approval_datetime.isoformat()
+                if timesheet.final_approval_datetime is not None
+                else None
+            ),
+        },
         "timesheet_employee": {
             "id": timesheet.employee_id,
             "employee_code": timesheet.employee.employee_code,
             "full_name": timesheet.employee.full_name,
         },
+        "business_unit": {
+            "id": timesheet.business_unit_id,
+            "bu_code": timesheet.business_unit.bu_code,
+            "name": timesheet.business_unit.name,
+        },
         "scope_type": approval_item.scope_type.value_code,
         "status": approval_item.status.value_code,
         "rejection_reason": approval_item.rejection_reason,
+        "approver_employee": (
+            {
+                "id": approval_item.approver_employee_id,
+                "employee_code": approval_item.approver_employee.employee_code,
+                "full_name": approval_item.approver_employee.full_name,
+            }
+            if approval_item.approver_employee_id is not None
+            else None
+        ),
+        "pending_age_days": pending_age_days,
+        "stalled_flag": approval_item.status.value_code == "PENDING" and pending_age_days >= 7,
         "project": (
             {
                 "id": approval_item.project_id,
@@ -873,6 +914,12 @@ class TimesheetService:
                 current_user, timesheet
             ),
             "can_delete": AuthorizationPolicyService.can_delete_timesheet(current_user, timesheet),
+            "can_reopen": AuthorizationPolicyService.can_reopen_timesheet(current_user, timesheet),
+            "can_admin_withdraw": AuthorizationPolicyService.can_admin_withdraw_timesheet(
+                current_user, timesheet
+            ),
+            "can_archive": AuthorizationPolicyService.can_archive_timesheet(current_user, timesheet),
+            "can_restore": AuthorizationPolicyService.can_restore_timesheet(current_user, timesheet),
             "submit_blockers": submit_blockers,
         }
 
@@ -1364,24 +1411,32 @@ class TimesheetService:
                 403,
             )
 
-        active_ad_hoc_role_ids = _active_general_charge_code_approval_role_ids_for_employee(
-            current_user.employee_id
-        )
         approval_items = (
             ApprovalItem.objects.select_related(
                 "scope_type",
                 "status",
                 "project",
+                "approver_employee",
                 "general_charge_code",
                 "submission_cycle",
                 "submission_cycle__weekly_timesheet",
                 "submission_cycle__weekly_timesheet__employee",
+                "submission_cycle__weekly_timesheet__business_unit",
             )
             .prefetch_related(
                 "approver_roles__existing_role",
                 "approver_roles__approval_role",
             )
-            .filter(
+        )
+        if current_user.is_ts_admin:
+            approval_items = approval_items.filter(
+                submission_cycle__weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids
+            )
+        else:
+            active_ad_hoc_role_ids = _active_general_charge_code_approval_role_ids_for_employee(
+                current_user.employee_id
+            )
+            approval_items = approval_items.filter(
                 Q(approver_employee_id=current_user.employee_id)
                 | Q(project__project_owner_employee_id=current_user.employee_id)
                 | Q(
@@ -1393,12 +1448,10 @@ class TimesheetService:
                     approver_roles__approval_role_id__in=active_ad_hoc_role_ids,
                 )
             )
-            .distinct()
-            .order_by(
-                "status__sort_order",
-                "submission_cycle__weekly_timesheet__week_start_date",
-                "id",
-            )
+        approval_items = approval_items.distinct().order_by(
+            "status__sort_order",
+            "submission_cycle__weekly_timesheet__week_start_date",
+            "id",
         )
         return [_serialize_approval_item(item) for item in approval_items]
 

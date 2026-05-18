@@ -4,27 +4,64 @@
 
 {% block content %}
   <div class="content-stack">
+    {% if ts_section_links %}
+      <nav class="subnav" aria-label="TS Management Sections">
+        {% for link in ts_section_links %}
+          <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+
     <div class="page-header">
       <p class="eyebrow">{{ page_eyebrow }}</p>
       <h1>{{ page_title }}</h1>
       <p>{{ page_intro }}</p>
     </div>
 
+    {% if filters %}
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>Oversight Filters</h2>
+          <p>Filter the scoped queue and search for exceptions that need follow-up.</p>
+        </div>
+        <form class="form-stack" method="get" action="">
+          <div class="form-grid three-column">
+            {% for field in filters %}
+              <div class="field">
+                <label for="{{ field.name }}">{{ field.label }}</label>
+                {% if field.type == "select" %}
+                  <select id="{{ field.name }}" name="{{ field.name }}">
+                    {% for option in field.options %}
+                      <option value="{{ option.value }}"{% if option.selected or option.value == field.value %} selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                  </select>
+                {% else %}
+                  <input id="{{ field.name }}" name="{{ field.name }}" type="text" value="{{ field.value }}">
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+          <div class="button-row">
+            <button class="button" type="submit">Apply Filters</button>
+            <a class="button ghost" href="/approvals/">Clear</a>
+          </div>
+        </form>
+      </section>
+    {% endif %}
+
     <section class="surface-card">
       <div class="section-header">
         <h2>Pending Approval Items</h2>
-        <p>Open a work item to review the routed project lines and record the final decision.</p>
+        <p>{{ pending_section_intro }}</p>
       </div>
       {% if pending_rows %}
         <div class="table-wrap">
           <table class="data-table">
             <thead>
               <tr>
-                <th>Employee</th>
-                <th>Project Scope</th>
-                <th>Submission No.</th>
-                <th>Status</th>
-                <th>Decision Context</th>
+                {% for header in pending_headers %}
+                  <th>{{ header }}</th>
+                {% endfor %}
                 <th>Action</th>
               </tr>
             </thead>
@@ -34,32 +71,30 @@
                   {% for cell in row.cells %}
                     <td>{{ cell }}</td>
                   {% endfor %}
-                  <td><a href="{{ row.href }}">Open Review</a></td>
+                  <td><a href="{{ row.href }}">{{ pending_action_label }}</a></td>
                 </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
       {% else %}
-        <div class="empty-state">No pending approval items are waiting in your current approval scope.</div>
+        <div class="empty-state">{{ pending_empty_message }}</div>
       {% endif %}
     </section>
 
     <section class="surface-card">
       <div class="section-header">
-        <h2>Last actions</h2>
-        <p>Approved and rejected items stay visible here for follow-up and audit-friendly context.</p>
+        <h2>{% if is_admin_oversight %}Recent outcomes{% else %}Last actions{% endif %}</h2>
+        <p>{{ decided_section_intro }}</p>
       </div>
       {% if decided_rows %}
         <div class="table-wrap">
           <table class="data-table">
             <thead>
               <tr>
-                <th>Employee</th>
-                <th>Project Scope</th>
-                <th>Submission No.</th>
-                <th>Status</th>
-                <th>Reason</th>
+                {% for header in decided_headers %}
+                  <th>{{ header }}</th>
+                {% endfor %}
                 <th>Action</th>
               </tr>
             </thead>
@@ -69,14 +104,14 @@
                   {% for cell in row.cells %}
                     <td>{{ cell }}</td>
                   {% endfor %}
-                  <td><a href="{{ row.href }}">View Detail</a></td>
+                  <td><a href="{{ row.href }}">{{ decided_action_label }}</a></td>
                 </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
       {% else %}
-        <div class="empty-state">No completed approval decisions exist yet in your current scope.</div>
+        <div class="empty-state">{{ decided_empty_message }}</div>
       {% endif %}
     </section>
   </div>

@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-18`: `docs/plans/2026-05-18-ts-admin-approval-oversight.md`
+  - status: completed
+  - focus: add TS Admin approval oversight visibility and related timesheet exception-action entry points without granting admin approval authority
 - `2026-05-18`: `docs/plans/2026-05-18-office-management-ui-improvements.md`
   - status: completed
   - focus: refine Office Management collection/detail layout, add active employee counts, and move Office creation to a standalone screen

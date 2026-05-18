@@ -4,7 +4,7 @@ import pytest
 from django.test import Client
 
 from apps.master_data.models import Employee
-from apps.timesheets.models import TimesheetLine, WeeklyTimesheet
+from apps.timesheets.models import ApprovalItem, TimesheetLine, WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
     assign_employee_to_business_unit,
@@ -137,6 +137,8 @@ def _build_timesheet_ui_client(
         client,
         employee,
         {
+            "business_unit": business_unit,
+            "calendar": calendar,
             "project": project,
             "general_charge_code": general_charge_code,
             "project_owner_email": project_owner.email,
@@ -144,6 +146,27 @@ def _build_timesheet_ui_client(
             "week_start": _current_monday(),
         },
     )
+
+
+def _build_ts_admin_client(*, business_unit, calendar, suffix: str) -> Client:
+    admin = create_employee(
+        employee_code=f"EMP-TS-ADMIN-{suffix}-ADMIN",
+        full_name="Timesheet Admin",
+        email=f"ts-admin-{suffix.lower()}@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_calendar(employee=admin, yearly_calendar=calendar)
+    assign_employee_to_business_unit(
+        employee=admin,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin, role_code="USER")
+    assign_role(employee=admin, role_code="TS_ADMIN")
+
+    client = Client()
+    initialize_ui_session(client, admin.email)
+    return client
 
 
 @pytest.mark.django_db
@@ -349,6 +372,37 @@ def test_timesheet_detail_uses_compact_metadata_editable_row_controls_and_five_e
     assert 'aria-label="Add line"' in content
     assert 'name="row_count" value="5"' in content
     assert "Delete Timesheet" in content
+
+
+@pytest.mark.django_db
+def test_timesheet_detail_shows_short_dates_for_submission_and_approval_metadata() -> None:
+    client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-detail-dates@example.com",
+        employee_code="EMP-TS-DETAIL-DATES",
+    )
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": fixtures["week_start"].isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    timesheet = WeeklyTimesheet.objects.get(employee=employee)
+    submitted_at = datetime(2026, 5, 4, 9, 30, tzinfo=UTC)
+    approved_at = datetime(2026, 5, 5, 17, 45, tzinfo=UTC)
+    WeeklyTimesheet.objects.filter(id=timesheet.id).update(
+        submission_datetime=submitted_at,
+        final_approval_datetime=approved_at,
+    )
+
+    response = client.get(f"/ts/timesheets/{timesheet.id}/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "05/04/2026" in content
+    assert "05/05/2026" in content
+    assert submitted_at.isoformat() not in content
+    assert approved_at.isoformat() not in content
 
 
 @pytest.mark.django_db
@@ -656,6 +710,177 @@ def test_submitted_timesheet_can_be_withdrawn_from_ui() -> None:
 
     detail_response = client.get(f"/ts/timesheets/{timesheet.id}/")
     assert "Weekly Timesheet Editor" in detail_response.content.decode()
+
+
+@pytest.mark.django_db
+def test_ts_admin_can_reopen_approved_timesheet_from_detail_ui() -> None:
+    client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-admin-reopen@example.com",
+        employee_code="EMP-TS-ADMIN-REOPEN",
+    )
+    admin_client = _build_ts_admin_client(
+        business_unit=fixtures["business_unit"],
+        calendar=fixtures["calendar"],
+        suffix="REOPEN",
+    )
+
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": fixtures["week_start"].isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    timesheet = WeeklyTimesheet.objects.get(employee=employee)
+    save_response = client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "lines",
+            "row_count": "8",
+            "line_0_work_date": fixtures["week_start"].isoformat(),
+            "line_0_hours": "4.00",
+            "line_0_project_id": str(fixtures["project"].id),
+            "line_0_general_charge_code_id": "",
+            "line_0_comment_text": "Needs admin reopen test",
+        },
+        follow=False,
+    )
+    assert save_response.status_code == 302
+    submit_response = client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={"form_name": "submit", "comment_text": "Submit for reopen UI"},
+        follow=False,
+    )
+    assert submit_response.status_code == 302
+
+    approval_item = ApprovalItem.objects.get(submission_cycle__weekly_timesheet=timesheet)
+    pm_client = Client()
+    initialize_ui_session(pm_client, fixtures["project_manager_email"])
+    approve_response = pm_client.post(
+        f"/approvals/{approval_item.id}/",
+        data={"form_name": "approve", "comment_text": "Approved for admin reopen"},
+        follow=False,
+    )
+    assert approve_response.status_code == 302
+
+    detail_response = admin_client.get(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={"next": "/approvals/"},
+    )
+    assert detail_response.status_code == 200
+    detail_content = detail_response.content.decode()
+    assert "Admin Exception Actions" in detail_content
+    assert "Reopen Timesheet" in detail_content
+    assert 'name="next" value="/approvals/"' in detail_content
+
+    reopen_response = admin_client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "reopen",
+            "reason_text": "Need to correct coding",
+            "next": "/approvals/",
+        },
+        follow=False,
+    )
+
+    assert reopen_response.status_code == 302
+    assert reopen_response.headers["Location"] == f"/ts/timesheets/{timesheet.id}/?next=%2Fapprovals%2F"
+    timesheet.refresh_from_db()
+    assert timesheet.status.value_code == "CREATED"
+    assert timesheet.final_approval_datetime is None
+
+
+@pytest.mark.django_db
+def test_ts_admin_can_archive_and_restore_from_detail_ui() -> None:
+    client, employee, fixtures = _build_timesheet_ui_client(
+        employee_email="timesheet-admin-archive@example.com",
+        employee_code="EMP-TS-ADMIN-ARCHIVE",
+    )
+    admin_client = _build_ts_admin_client(
+        business_unit=fixtures["business_unit"],
+        calendar=fixtures["calendar"],
+        suffix="ARCHIVE",
+    )
+
+    create_response = client.post(
+        "/ts/",
+        data={"week_start_date": fixtures["week_start"].isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+
+    timesheet = WeeklyTimesheet.objects.get(employee=employee)
+    save_response = client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "lines",
+            "row_count": "8",
+            "line_0_work_date": fixtures["week_start"].isoformat(),
+            "line_0_hours": "4.00",
+            "line_0_project_id": str(fixtures["project"].id),
+            "line_0_general_charge_code_id": "",
+            "line_0_comment_text": "Needs archive test",
+        },
+        follow=False,
+    )
+    assert save_response.status_code == 302
+    submit_response = client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={"form_name": "submit", "comment_text": "Submit for archive UI"},
+        follow=False,
+    )
+    assert submit_response.status_code == 302
+
+    approval_item = ApprovalItem.objects.get(submission_cycle__weekly_timesheet=timesheet)
+    pm_client = Client()
+    initialize_ui_session(pm_client, fixtures["project_manager_email"])
+    approve_response = pm_client.post(
+        f"/approvals/{approval_item.id}/",
+        data={"form_name": "approve", "comment_text": "Approved for archive"},
+        follow=False,
+    )
+    assert approve_response.status_code == 302
+
+    WeeklyTimesheet.objects.filter(id=timesheet.id).update(
+        archive_eligible_date=_current_monday() - timedelta(days=1)
+    )
+    timesheet.refresh_from_db()
+
+    archive_response = admin_client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "archive",
+            "comment_text": "Archive from UI",
+            "next": "/approvals/",
+        },
+        follow=False,
+    )
+
+    assert archive_response.status_code == 302
+    timesheet.refresh_from_db()
+    assert timesheet.status.value_code == "ARCHIVED"
+
+    archived_detail_response = admin_client.get(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={"next": "/approvals/"},
+    )
+    archived_content = archived_detail_response.content.decode()
+    assert archived_detail_response.status_code == 200
+    assert "Restore Timesheet" in archived_content
+
+    restore_response = admin_client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "restore",
+            "comment_text": "Restore from UI",
+            "next": "/approvals/",
+        },
+        follow=False,
+    )
+
+    assert restore_response.status_code == 302
+    timesheet.refresh_from_db()
+    assert timesheet.status.value_code == "APPROVED"
 
 
 @pytest.mark.django_db

@@ -50,10 +50,11 @@ class AuthorizationPolicyService:
     @staticmethod
     def can_access_approval_worklist(current_user: CurrentUser) -> bool:
         return (
-            current_user.has_role("PROJECT_MANAGER")
+            current_user.is_ts_admin
+            or current_user.has_role("PROJECT_MANAGER")
             or current_user.has_role("PROJECT_OWNER")
             or (
-            AuthorizationPolicyService.has_general_charge_code_approval_access(current_user)
+                AuthorizationPolicyService.has_general_charge_code_approval_access(current_user)
             )
         )
 
@@ -159,6 +160,11 @@ class AuthorizationPolicyService:
 
     @staticmethod
     def can_view_approval_item(current_user: CurrentUser, approval_item) -> bool:
+        if current_user.is_ts_admin and (
+            approval_item.submission_cycle.weekly_timesheet.business_unit_id
+            in current_user.scoped_business_unit_ids
+        ):
+            return True
         if approval_item.approver_employee_id == current_user.employee_id:
             return True
         if (

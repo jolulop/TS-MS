@@ -312,6 +312,33 @@ Management.
 - report generation is audited
 - CSV export is audited
 
+## 11C. TS Admin Approval Oversight
+
+### Use Case
+
+`TS_ADMIN` opens the approval workspace to monitor pending approvals across the
+active Office and scoped Business Units without taking over the approver role.
+
+### Acceptance
+
+- `TS_ADMIN` can open `/approvals/` and see pending approval items in scoped
+  Business Units
+- the oversight UI shows employee, target, Business Unit, approver, pending
+  age, and stalled-state context
+- filters support search, Business Unit, employee, project, target type, and
+  aging
+- on desktop, the six oversight filters render as three items per row across
+  two rows
+- `TS_ADMIN` can open approval detail in read-only mode
+- approval detail links to the related timesheet and project
+- `TS_ADMIN` does not gain approve/reject authority from this screen alone
+- related timesheet detail exposes the existing admin exception actions:
+  reopen, admin withdraw to `SUBMITTED`, archive, and restore
+- related timesheet detail shows `Submitted At` and `Approved At` using
+  short-date formatting
+- oversight visibility remains constrained to active Office and Business Unit
+  scope server-side
+
 ## 12. Guarded Deletes
 
 ### Use Case

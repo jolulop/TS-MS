@@ -372,6 +372,8 @@ Important UI behavior:
   - submit
   - withdraw if allowed
   - delete draft timesheets only when deletion is allowed by backend rules
+  - timesheet detail shows `Submitted At` and `Approved At` using short-date
+    formatting
 
 ### SCR-210 My History
 
@@ -415,15 +417,43 @@ Important UI behavior:
 
 ### SCR-300 Approval Worklist
 
-- Access: `PROJECT_MANAGER`, `PROJECT_OWNER` owned-project visibility, or
-  matching General Charge Code approver scope
+- Access:
+  - `TS_ADMIN` for scoped oversight visibility
+  - `PROJECT_MANAGER`
+  - `PROJECT_OWNER` owned-project visibility
+  - matching General Charge Code approver scope
 - features:
-  - pending approval list
-  - no top summary count tiles
-  - completed decision history section is labeled `Last actions`
-  - approval detail
-  - approve when the current user is an actual approver for the item
-  - reject when the current user is an actual approver for the item
+  - shared `/approvals/` route with role-specific behavior
+  - `TS_ADMIN` oversight variant:
+    - filter panel with search, Business Unit, employee, project, target type,
+      and aging
+    - desktop filter layout uses three fields per row across two rows
+    - pending approval grid with approver and stalled-age visibility
+    - recent outcomes section
+    - read-only approval detail
+    - links to related timesheet and related project
+  - approver variant:
+    - pending approval list
+    - no top summary count tiles
+    - completed decision history section labeled `Last actions`
+    - approval detail
+    - approve when the current user is an actual approver for the item
+    - reject when the current user is an actual approver for the item
+
+### SCR-201 Weekly Timesheet Detail
+
+- Access: authenticated `USER` for own timesheets, `TS_ADMIN` for scoped admin
+  review
+- features:
+  - normal employee edit and submit/withdraw behavior stays unchanged
+  - `TS_ADMIN` read-only visibility for scoped timesheets outside self-service
+  - `TS_ADMIN` exception actions when authorized by status and scope:
+    - reopen approved timesheets
+    - withdraw approved timesheets back to `SUBMITTED`
+    - archive approved timesheets
+    - restore archived timesheets
+  - each exception action requires the same backend authorization and audit
+    behavior as the existing admin endpoints
 
 ## 12. Report Screens
 

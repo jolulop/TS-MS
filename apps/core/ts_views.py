@@ -1,6 +1,7 @@
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from urllib.parse import urlencode
 
 from django.db.models import Count, Sum, Q
 from django.http import HttpRequest, HttpResponse
@@ -16,6 +17,25 @@ from apps.timesheets.models import TimesheetLine, WeeklyTimesheet
 from apps.timesheets.services import TimesheetService
 
 INITIAL_EMPTY_EDITOR_ROWS = 5
+
+
+def _safe_local_path(raw_value: str | None, *, default: str) -> str:
+    if raw_value and raw_value.startswith("/") and not raw_value.startswith("//"):
+        return raw_value
+    return default
+
+
+def _timesheet_back_href(request: HttpRequest) -> str:
+    return _safe_local_path(
+        request.GET.get("next") or request.POST.get("next"),
+        default="/ts/",
+    )
+
+
+def _timesheet_detail_href(timesheet_id: int, *, next_href: str) -> str:
+    if next_href == "/ts/":
+        return f"/ts/timesheets/{timesheet_id}/"
+    return f"/ts/timesheets/{timesheet_id}/?{urlencode({'next': next_href})}"
 
 
 def _timesheet_section_links(current_user: CurrentUser, current_path: str) -> list[dict]:
@@ -441,6 +461,13 @@ def _timesheet_rows(timesheets: list[dict]) -> list[dict]:
     ]
 
 
+def _short_datetime_display(value: str | None, *, empty_label: str) -> str:
+    if not value:
+        return empty_label
+    normalized_value = value.replace("Z", "+00:00")
+    return datetime.fromisoformat(normalized_value).strftime("%m/%d/%Y")
+
+
 def _line_options(items: list[dict], *, id_key: str, label_keys: tuple[str, ...]) -> list[dict]:
     options = [{"value": "", "label": "None"}]
     options.extend(
@@ -673,8 +700,10 @@ def timesheet_detail(request: HttpRequest, timesheet_id: int) -> HttpResponse:
 
     active_form = "lines"
     form_error = ""
+    next_href = _timesheet_back_href(request)
     if request.method == "POST":
         active_form = request.POST.get("form_name", "lines")
+        next_href = _timesheet_back_href(request)
         row_count = _row_count_from_post(request)
         try:
             if active_form == "lines":
@@ -695,15 +724,39 @@ def timesheet_detail(request: HttpRequest, timesheet_id: int) -> HttpResponse:
                     timesheet_id,
                     {"comment_text": request.POST.get("comment_text", "")},
                 )
+            elif active_form == "reopen":
+                TimesheetService.reopen_timesheet(
+                    current_user,
+                    timesheet_id,
+                    {"reason_text": request.POST.get("reason_text", "")},
+                )
+            elif active_form == "admin_withdraw":
+                TimesheetService.admin_withdraw_timesheet(
+                    current_user,
+                    timesheet_id,
+                    {"reason_text": request.POST.get("reason_text", "")},
+                )
+            elif active_form == "archive":
+                TimesheetService.archive_timesheet(
+                    current_user,
+                    timesheet_id,
+                    {"comment_text": request.POST.get("comment_text", "")},
+                )
+            elif active_form == "restore":
+                TimesheetService.restore_timesheet(
+                    current_user,
+                    timesheet_id,
+                    {"comment_text": request.POST.get("comment_text", "")},
+                )
             elif active_form == "delete":
                 TimesheetService.delete_timesheet(current_user, timesheet_id)
-                return redirect("/ts/")
+                return redirect(next_href)
             else:
                 raise AuthError("UI_FORM_UNKNOWN", "Unknown timesheet form submission.", 400)
         except AuthError as error:
             form_error = error.message
         else:
-            return redirect(f"/ts/timesheets/{timesheet_id}/")
+            return redirect(_timesheet_detail_href(timesheet_id, next_href=next_href))
 
     try:
         editor_context = TimesheetService.get_timesheet_editor_context(current_user, timesheet_id)
@@ -755,15 +808,40 @@ def timesheet_detail(request: HttpRequest, timesheet_id: int) -> HttpResponse:
             "submit_blockers": editor_context["submit_blockers"],
             "can_withdraw": editor_context["can_withdraw"],
             "can_delete": editor_context["can_delete"],
+            "can_reopen": editor_context["can_reopen"],
+            "can_admin_withdraw": editor_context["can_admin_withdraw"],
+            "can_archive": editor_context["can_archive"],
+            "can_restore": editor_context["can_restore"],
             "available_projects": editor_context["available_projects"],
             "available_general_charge_codes": editor_context["available_general_charge_codes"],
             "active_form": active_form,
             "form_error": form_error,
+            "back_href": next_href,
+            "timesheet_submission_display": _short_datetime_display(
+                timesheet["submission_datetime"],
+                empty_label="Not submitted",
+            ),
+            "timesheet_approval_display": _short_datetime_display(
+                timesheet["final_approval_datetime"],
+                empty_label="Not approved",
+            ),
             "submit_comment": request.POST.get("comment_text", "")
             if request.method == "POST" and active_form == "submit"
             else "",
             "withdraw_comment": request.POST.get("comment_text", "")
             if request.method == "POST" and active_form == "withdraw"
+            else "",
+            "reopen_reason": request.POST.get("reason_text", "")
+            if request.method == "POST" and active_form == "reopen"
+            else "",
+            "admin_withdraw_reason": request.POST.get("reason_text", "")
+            if request.method == "POST" and active_form == "admin_withdraw"
+            else "",
+            "archive_comment": request.POST.get("comment_text", "")
+            if request.method == "POST" and active_form == "archive"
+            else "",
+            "restore_comment": request.POST.get("comment_text", "")
+            if request.method == "POST" and active_form == "restore"
             else "",
         }
     )
