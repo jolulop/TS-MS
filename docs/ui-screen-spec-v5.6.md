@@ -95,7 +95,12 @@ Visible sections:
 - Access: `TS_ADMIN_MASTER`
 - Collection:
   - list Offices
-  - create Office
+  - show Office status filters to the right of the main page title
+  - show `Country`, `Office`, `Employees`, and `Status`
+  - remove the `Current Records` heading above the grid
+  - remove inline Office creation from the collection screen
+  - provide a bottom `Create Office` button that opens a standalone setup screen
+- Standalone create:
   - require Country selection
   - capture Office configuration
   - capture bootstrap Business Unit data
@@ -105,6 +110,8 @@ Visible sections:
   - edit general Office data
   - edit Office configuration
   - show read-only Office administrators
+  - remove the legacy `Current State` summary panel
+  - render Office edit fields in a wider full-width layout
   - guarded delete action
 
 ## 6. Business Unit Screens

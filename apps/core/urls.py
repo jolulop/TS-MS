@@ -14,6 +14,7 @@ urlpatterns = [
         name="system-country-detail",
     ),
     path("system/offices/", system_views.offices_collection, name="system-offices"),
+    path("system/offices/new/", system_views.office_create, name="system-offices-new"),
     path(
         "system/offices/<int:office_id>/",
         system_views.office_detail,

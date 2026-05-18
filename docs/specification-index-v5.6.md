@@ -33,6 +33,7 @@ v5.6 captures these major implemented changes relative to the older baseline doc
 - Pricing Models were added as a new Office-level master.
 - Projects now require a Pricing Model.
 - System Management now includes Office, Project, Project Assignment, Calendar, Calendar Special Day, Calendar Period Rule, and Pricing Model management.
+- Office Management now uses a standalone Office create screen, header-level status filters, and active-employee counts in the collection grid.
 - Yearly Calendars are Office-level and shared by all Business Units in the Office.
 - Calendar Period Rules remain Business Unit-specific inside the shared Office calendar and may overlap across different Business Units.
 - Calendar Period Rules can enable working Saturdays and Sundays with explicit weekend max-hours.

@@ -348,6 +348,7 @@ def _field(
     readonly: bool = False,
     disabled: bool = False,
     size: int | None = None,
+    width_mode: str = "auto",
 ) -> dict:
     return {
         "name": name,
@@ -361,6 +362,7 @@ def _field(
         "readonly": readonly,
         "disabled": disabled,
         "size": size,
+        "width_mode": width_mode,
     }
 
 
@@ -2011,6 +2013,9 @@ def _render_collection_page(
     records_heading: str = "Current Records",
     split_grid_class: str = "split-grid",
     page_action: dict | None = None,
+    title_filter_links: list[dict] | None = None,
+    title_filter_title: str = "Filters",
+    bottom_action: dict | None = None,
 ) -> HttpResponse:
     context = _system_context(
         request,
@@ -2037,6 +2042,9 @@ def _render_collection_page(
             "records_heading": records_heading,
             "split_grid_class": split_grid_class,
             "page_action": page_action,
+            "title_filter_links": title_filter_links or [],
+            "title_filter_title": title_filter_title,
+            "bottom_action": bottom_action,
         }
     )
     return render(request, "core/system_collection.html", context)
@@ -2784,6 +2792,7 @@ def _office_bootstrap_fields(*, post_data: QueryDict | None = None) -> list[dict
             kind="email",
             value=post_data.get("bootstrap_admin_email", "") if post_data is not None else "",
             required=True,
+            width_mode="full",
             help_text=(
                 "Required email for the first Office administrator. The created "
                 "employee receives USER and TS_ADMIN roles automatically."
@@ -2798,6 +2807,7 @@ def _configuration_fields(
     post_data: QueryDict | None = None,
     read_only: bool = False,
     scope_label: str,
+    paired_layout: bool = False,
 ) -> list[dict]:
     submitted_data = post_data or QueryDict("")
     configuration = entity["configuration"]
@@ -2822,6 +2832,21 @@ def _configuration_fields(
                 "Defines how submitted time is routed for approval. The current "
                 f"working option is project-based approval for {help_scope}."
             ),
+            width_mode="column" if paired_layout else "auto",
+        ),
+        _field(
+            name="enable_copy_previous_week_flag",
+            label="Enable Copy Previous Week",
+            kind="checkbox",
+            checked=_bool_from_post(post_data, "enable_copy_previous_week_flag")
+            if post_data is not None
+            else bool(configuration["enable_copy_previous_week_flag"]),
+            disabled=read_only,
+            help_text=(
+                "Reserved switch for a future shortcut that preloads a new week "
+                f"using the previous week as a starting point for {help_scope}."
+            ),
+            width_mode="column" if paired_layout else "auto",
         ),
         _field(
             name="allow_employee_withdraw_flag",
@@ -2835,6 +2860,7 @@ def _configuration_fields(
                 "If enabled, employees may withdraw a submitted timesheet before "
                 f"final approval for {help_scope}."
             ),
+            width_mode="column" if paired_layout else "auto",
         ),
         _field(
             name="timesheet_cutoff_date",
@@ -2865,6 +2891,7 @@ def _configuration_fields(
                 "If enabled, non-billable hours count toward the daily calendar "
                 f"hour limit for {help_scope}."
             ),
+            width_mode="column" if paired_layout else "auto",
         ),
         _field(
             name="archive_after_years",
@@ -2896,6 +2923,7 @@ def _configuration_fields(
                 "Reserved switch for future timer-based time capture within "
                 f"{help_scope}."
             ),
+            width_mode="column" if paired_layout else "auto",
         ),
         _field(
             name="enable_leave_integration_flag",
@@ -2909,19 +2937,7 @@ def _configuration_fields(
                 "Reserved switch for future integration that imports leave or "
                 f"absence data into timesheet behavior for {help_scope}."
             ),
-        ),
-        _field(
-            name="enable_copy_previous_week_flag",
-            label="Enable Copy Previous Week",
-            kind="checkbox",
-            checked=_bool_from_post(post_data, "enable_copy_previous_week_flag")
-            if post_data is not None
-            else bool(configuration["enable_copy_previous_week_flag"]),
-            disabled=read_only,
-            help_text=(
-                "Reserved switch for a future shortcut that preloads a new week "
-                f"using the previous week as a starting point for {help_scope}."
-            ),
+            width_mode="column" if paired_layout else "auto",
         ),
     ]
 
@@ -3010,6 +3026,7 @@ def _office_configuration_fields(
         entity,
         post_data=post_data,
         scope_label="this Office",
+        paired_layout=True,
     )
 
 
@@ -3046,7 +3063,12 @@ def _office_rows(offices: list[dict]) -> list[dict]:
     return [
         {
             "href": f"/system/offices/{office['id']}/",
-            "cells": [office["country"]["country_name"], office["office_name"], office["status"]],
+            "cells": [
+                office["country"]["country_name"],
+                office["office_name"],
+                str(office["active_employee_count"]),
+                office["status"],
+            ],
         }
         for office in offices
     ]
@@ -3140,7 +3162,7 @@ OFFICE_CONFIG = MasterUiConfig(
     plural_label="Offices",
     collection_path="/system/offices/",
     detail_path_prefix="/system/offices/",
-    table_headers=("Country", "Office", "Status"),
+    table_headers=("Country", "Office", "Employees", "Status"),
     empty_message="No offices are available yet.",
 )
 
@@ -3687,6 +3709,40 @@ def offices_collection(request: HttpRequest) -> HttpResponse:
     if not isinstance(current_user, CurrentUser):
         return current_user
 
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="COUNTRY_STATUS",
+        default_code="ACTIVE",
+    )
+    offices = OfficeManagementService.list_offices(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
+    return _render_collection_page(
+        request,
+        current_user,
+        title=OFFICE_CONFIG.list_title,
+        eyebrow=OFFICE_CONFIG.list_eyebrow,
+        intro=OFFICE_CONFIG.list_intro,
+        table_headers=OFFICE_CONFIG.table_headers,
+        table_rows=_office_rows(offices),
+        empty_message=OFFICE_CONFIG.empty_message,
+        filter_links=filter_links,
+        filter_title="Office Status",
+        show_filter_panel=False,
+        records_heading="",
+        title_filter_links=filter_links,
+        title_filter_title="Office Status",
+        bottom_action={"label": "Create Office", "href": "/system/offices/new/"},
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def office_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin_master(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
@@ -3735,52 +3791,56 @@ def offices_collection(request: HttpRequest) -> HttpResponse:
         else:
             return redirect(f"/system/offices/{office['id']}/")
 
-    selected_status_code, filter_links = _status_filter_links(
-        request,
-        domain_code="COUNTRY_STATUS",
-        default_code="ACTIVE",
-    )
-    offices = OfficeManagementService.list_offices(
-        current_user,
-        status_code=_service_status_code(selected_status_code),
-    )
-    return _render_collection_page(
+    return _render_detail_page(
         request,
         current_user,
-        title=OFFICE_CONFIG.list_title,
+        title="Create Office",
         eyebrow=OFFICE_CONFIG.list_eyebrow,
-        intro=OFFICE_CONFIG.list_intro,
-        table_headers=OFFICE_CONFIG.table_headers,
-        table_rows=_office_rows(offices),
-        empty_message=OFFICE_CONFIG.empty_message,
-        form_title="Create Office",
-        form_intro=(
-            "Create a new office inside an existing Country, bootstrap its first Business Unit and admin "
-            "employee, and define the inherited configuration for its Business Units."
+        intro=(
+            "Create a new Office inside an existing Country, bootstrap its first "
+            "Business Unit and Office administrator, and define the inherited "
+            "configuration shared by the Office."
         ),
-        form_fields=(
-            _office_form_fields(post_data=post_data)
-            + _office_bootstrap_fields(post_data=post_data)
-            + _office_configuration_fields(
-                {
-                    "configuration": {
-                        "approval_mode": "PROJECT",
-                        "allow_employee_withdraw_flag": False,
-                        "timesheet_cutoff_date": None,
-                        "count_non_billable_in_daily_limit_flag": False,
-                        "archive_after_years": 5,
-                        "enable_timer_flag": False,
-                        "enable_leave_integration_flag": False,
-                        "enable_copy_previous_week_flag": False,
-                    }
-                },
-                post_data=post_data,
-            )
-        ),
-        submit_label="Create Office",
-        form_error=form_error,
-        filter_links=filter_links,
-        filter_title="Office Status",
+        detail_rows=[],
+        form_sections=[
+            {
+                "form_name": "create",
+                "title": "Office Setup",
+                "intro": (
+                    "Complete the Office identity, bootstrap Business Unit, "
+                    "bootstrap administrator, and inherited configuration."
+                ),
+                "submit_label": "Create Office",
+                "form_error": form_error,
+                "fields": (
+                    _office_form_fields(post_data=post_data)
+                    + _office_bootstrap_fields(post_data=post_data)
+                    + _office_configuration_fields(
+                        {
+                            "configuration": {
+                                "approval_mode": "PROJECT",
+                                "allow_employee_withdraw_flag": False,
+                                "timesheet_cutoff_date": None,
+                                "count_non_billable_in_daily_limit_flag": False,
+                                "archive_after_years": 5,
+                                "enable_timer_flag": False,
+                                "enable_leave_integration_flag": False,
+                                "enable_copy_previous_week_flag": False,
+                            }
+                        },
+                        post_data=post_data,
+                    )
+                ),
+                "fields_grid_class": "office-form-grid",
+                "section_class": "office-detail-section",
+            }
+        ],
+        back_href=OFFICE_CONFIG.collection_path,
+        back_label=f"Back to {OFFICE_CONFIG.plural_label}",
+        entity_status="New",
+        show_detail_panel=False,
+        detail_content_class="office-detail-layout",
+        page_action={"label": f"Back to {OFFICE_CONFIG.plural_label}", "href": OFFICE_CONFIG.collection_path},
     )
 
 
@@ -3867,6 +3927,8 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
                 post_data=post_data if active_form == "general" else None,
                 entity=office,
             ),
+            "fields_grid_class": "office-form-grid",
+            "section_class": "office-detail-section",
         },
         {
             "form_name": "configuration",
@@ -3881,6 +3943,8 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
                 office,
                 post_data=post_data if active_form == "configuration" else None,
             ),
+            "fields_grid_class": "office-form-grid",
+            "section_class": "office-detail-section",
         },
         {
             "form_name": "administrators",
@@ -3893,6 +3957,7 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
             "detail_rows": _office_administrator_rows(office),
             "empty_message": "No active Office administrators are assigned yet.",
             "fields": [],
+            "section_class": "office-detail-section",
         },
         {
             "form_name": "delete",
@@ -3904,6 +3969,7 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
             "submit_label": "Delete Office",
             "form_error": form_error if active_form == "delete" else "",
             "fields": [],
+            "section_class": "office-detail-section",
         },
     ]
 
@@ -3918,6 +3984,9 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
         back_href=OFFICE_CONFIG.collection_path,
         back_label=f"Back to {OFFICE_CONFIG.plural_label}",
         entity_status=office["status"],
+        show_detail_panel=False,
+        detail_content_class="office-detail-layout",
+        page_action={"label": f"Back to {OFFICE_CONFIG.plural_label}", "href": OFFICE_CONFIG.collection_path},
     )
 
 

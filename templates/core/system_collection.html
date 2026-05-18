@@ -16,8 +16,19 @@
       <p class="eyebrow">{{ page_eyebrow }}</p>
       <div class="page-title-row">
         <h1>{{ page_title }}</h1>
-        {% if page_action %}
-          <a class="button" href="{{ page_action.href }}">{{ page_action.label }}</a>
+        {% if title_filter_links or page_action %}
+          <div class="page-title-controls">
+            {% if title_filter_links %}
+              <nav class="subnav" aria-label="{{ title_filter_title|default:'Filters' }}">
+                {% for link in title_filter_links %}
+                  <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+                {% endfor %}
+              </nav>
+            {% endif %}
+            {% if page_action %}
+              <a class="button" href="{{ page_action.href }}">{{ page_action.label }}</a>
+            {% endif %}
+          </div>
         {% endif %}
       </div>
       <p>{{ page_intro }}</p>
@@ -150,6 +161,12 @@
           <div class="empty-state">{{ empty_message }}</div>
         {% endif %}
       </section>
+    {% endif %}
+
+    {% if bottom_action %}
+      <div class="button-row button-row-end">
+        <a class="button" href="{{ bottom_action.href }}">{{ bottom_action.label }}</a>
+      </div>
     {% endif %}
   </div>
 {% endblock %}

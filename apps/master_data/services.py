@@ -888,6 +888,7 @@ def _serialize_office(office: Office) -> dict:
         "name": office.office_name,
         "office_name": office.office_name,
         "status": office.status.value_code,
+        "active_employee_count": getattr(office, "active_employee_count", 0),
         "country": {
             "id": office.country_id,
             "country_code": office.country.country_code,
@@ -1550,6 +1551,13 @@ class OfficeManagementService:
                 "status",
                 "configuration",
                 "configuration__approval_mode",
+            )
+            .annotate(
+                active_employee_count=Count(
+                    "employees",
+                    filter=Q(employees__status__value_code="ACTIVE"),
+                    distinct=True,
+                )
             )
             .order_by("office_name"),
             status_code,

@@ -3043,8 +3043,23 @@ def test_office_management_create_and_update_via_html() -> None:
         active=True,
     )
 
+    collection_response = client.get("/system/offices/")
+    collection_content = collection_response.content.decode()
+    assert collection_response.status_code == 200
+    assert "Employees" in collection_content
+    assert "Current Records" not in collection_content
+    assert 'href="/system/offices/new/"' in collection_content
+    assert 'name="office_name"' not in collection_content
+
+    create_screen_response = client.get("/system/offices/new/")
+    create_screen_content = create_screen_response.content.decode()
+    assert create_screen_response.status_code == 200
+    assert "Office Setup" in create_screen_content
+    assert "Current State" not in create_screen_content
+    assert 'name="office_name"' in create_screen_content
+
     create_response = client.post(
-        "/system/offices/",
+        "/system/offices/new/",
         data={
             "country_id": str(country.id),
             "office_name": "Chile",
@@ -3103,9 +3118,16 @@ def test_office_management_create_and_update_via_html() -> None:
     assert bootstrap_system_response.status_code == 200
     assert "CHI-ADMIN" in bootstrap_system_response.content.decode()
 
+    refreshed_collection_response = client.get("/system/offices/")
+    refreshed_collection_content = refreshed_collection_response.content.decode()
+    assert refreshed_collection_response.status_code == 200
+    assert "Chile" in refreshed_collection_content
+    assert re.search(r"Chile.*?>\s*1\s*<", refreshed_collection_content, re.S)
+
     office_detail_response = client.get(f"/system/offices/{office.id}/")
     office_detail_content = office_detail_response.content.decode()
     assert office_detail_response.status_code == 200
+    assert "Current State" not in office_detail_content
     assert "Office Administrators" in office_detail_content
     assert "chile.admin@example.com" in office_detail_content
     assert "CHI-ADMIN" in office_detail_content

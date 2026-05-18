@@ -1,6 +1,6 @@
 <div class="form-grid {% if field_grid_class %}{{ field_grid_class }}{% else %}two-column{% endif %}">
   {% for field in fields %}
-    <div class="field{% if field.kind == 'checkbox' %} full-width{% endif %}">
+    <div class="field{% if field.width_mode == 'full' or field.kind == 'checkbox' and field.width_mode != 'column' %} full-width{% endif %}">
       {% if field.kind == "checkbox" %}
         <label>{{ field.label }}</label>
         <label class="checkbox-row" for="{{ field.name }}">

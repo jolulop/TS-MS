@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-18`: `docs/plans/2026-05-18-office-management-ui-improvements.md`
+  - status: completed
+  - focus: refine Office Management collection/detail layout, add active employee counts, and move Office creation to a standalone screen
 - `2026-05-12`: `docs/plans/2026-05-12-general-charge-code-cost-center.md`
   - status: completed
   - focus: remove Common Code from General Charge Codes and require an Office Cost Center in schema, UI, API, seed data, and tests
@@ -77,7 +80,7 @@
 
 Historical note:
 - completed plan files intentionally preserve the source-document references and milestone wording that existed when those plans were written
-- use `AGENTS.md`, this file, and the v5.4 markdown spec set for current implementation work
+- use `AGENTS.md`, this file, and the v5.6 markdown spec set for current implementation work
 
 ## Purpose
 

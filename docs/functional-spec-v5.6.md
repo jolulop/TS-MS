@@ -146,11 +146,17 @@ The following masters remain Business Unit scoped:
 
 - `TS_ADMIN_MASTER` can create, edit, and guarded-delete Offices.
 - Office create/edit requires selecting an existing Country.
+- Office collection shows:
+  - Office status filters in the page header
+  - active employee count per Office
+  - a bottom `Create Office` action that opens a standalone create screen
 - Office detail shows:
   - parent Country
   - general Office data
   - editable Office configuration
   - read-only Office administrators
+- Office collection does not embed an inline create form.
+- Office detail uses a full-width edit layout without the legacy `Current State` summary panel.
 - Office deletion is blocked when dependent records still exist.
 
 ### 8.2 Clients

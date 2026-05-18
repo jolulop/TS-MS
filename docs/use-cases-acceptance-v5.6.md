@@ -21,6 +21,8 @@
 
 ### Acceptance
 
+- Office collection shows active employee count per Office
+- Office collection uses a standalone `Create Office` action instead of an inline create form
 - Office creation requires selecting an existing Country
 - Office is created
 - Office configuration is created
