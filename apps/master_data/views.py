@@ -1,23 +1,136 @@
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_http_methods
 
+from apps.audit.services import write_audit_event
 from apps.auth.errors import AuthError
 from apps.auth.services import CurrentUserService, error_response, parse_json_request
+from apps.master_data.models import Employee
 from apps.master_data.services import (
     BusinessUnitManagementService,
     CalendarPeriodRuleManagementService,
     CalendarSpecialDayManagementService,
     ClientManagementService,
     CostCenterManagementService,
+    CountryManagementService,
     EmployeeManagementService,
     GeneralChargeCodeApprovalRoleManagementService,
     GeneralChargeCodeManagementService,
     InternalCategoryManagementService,
+    OfficeManagementService,
     PricingModelManagementService,
     ProjectAssignmentManagementService,
     ProjectManagementService,
     YearlyCalendarManagementService,
 )
+
+
+def _audit_blocked_delete_attempt(
+    request: HttpRequest,
+    *,
+    entity_name: str,
+    entity_id: int,
+    reason_text: str,
+) -> None:
+    current_user = CurrentUserService.get_from_request(request)
+    actor_employee = Employee.objects.filter(id=current_user.employee_id).first()
+    write_audit_event(
+        action_code="DENY",
+        entity_name=entity_name,
+        entity_id=entity_id,
+        actor_employee=actor_employee,
+        actor_email=current_user.email,
+        reason_text=reason_text,
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def countries_collection(request: HttpRequest) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            countries = CountryManagementService.list_countries(
+                current_user,
+                status_code=request.GET.get("status"),
+            )
+            return JsonResponse({"countries": countries})
+
+        payload = parse_json_request(request)
+        country = CountryManagementService.create_country(current_user, payload)
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"country": country}, status=201)
+
+
+@require_http_methods(["GET", "PATCH", "DELETE"])
+def country_detail(request: HttpRequest, country_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            country = CountryManagementService.get_country(current_user, country_id)
+            return JsonResponse({"country": country})
+        if request.method == "PATCH":
+            payload = parse_json_request(request)
+            country = CountryManagementService.update_country(current_user, country_id, payload)
+            return JsonResponse({"country": country})
+
+        CountryManagementService.delete_country(current_user, country_id)
+    except AuthError as exc:
+        if request.method == "DELETE" and exc.code == "COUNTRY_DELETE_BLOCKED":
+            _audit_blocked_delete_attempt(
+                request,
+                entity_name="country",
+                entity_id=country_id,
+                reason_text=exc.message,
+            )
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"deleted": True, "entity": "country", "id": country_id})
+
+
+@require_http_methods(["GET", "POST"])
+def offices_collection(request: HttpRequest) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            offices = OfficeManagementService.list_offices(
+                current_user,
+                status_code=request.GET.get("status"),
+            )
+            return JsonResponse({"offices": offices})
+
+        payload = parse_json_request(request)
+        office = OfficeManagementService.create_office(current_user, payload)
+    except AuthError as exc:
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"office": office}, status=201)
+
+
+@require_http_methods(["GET", "PATCH", "DELETE"])
+def office_detail(request: HttpRequest, office_id: int) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            office = OfficeManagementService.get_office(current_user, office_id)
+            return JsonResponse({"office": office})
+        if request.method == "PATCH":
+            payload = parse_json_request(request)
+            office = OfficeManagementService.update_office(current_user, office_id, payload)
+            return JsonResponse({"office": office})
+
+        OfficeManagementService.delete_office(current_user, office_id)
+    except AuthError as exc:
+        if request.method == "DELETE" and exc.code == "COUNTRY_DELETE_BLOCKED":
+            _audit_blocked_delete_attempt(
+                request,
+                entity_name="office",
+                entity_id=office_id,
+                reason_text=exc.message,
+            )
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"deleted": True, "entity": "office", "id": office_id})
 
 
 @require_http_methods(["GET", "POST"])

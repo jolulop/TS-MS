@@ -387,6 +387,7 @@ def test_project_manager_pending_approvals_report_is_available() -> None:
     content = response.content.decode()
     assert response.status_code == 200
     assert "Pending Approvals" in content
+    assert 'class="split-grid split-grid-primary-wide"' in content
     assert "PRJ-RPT" in content
     assert "EMP-RPT-USER" in content
 
@@ -496,6 +497,7 @@ def test_ts_admin_can_open_admin_reports() -> None:
 
     assert missing_response.status_code == 200
     missing_content = missing_response.content.decode()
+    assert 'class="split-grid split-grid-primary-wide"' in missing_content
     assert context["missing_employee_name"] in missing_content
     assert context["missing_employee_email"] in missing_content
     assert audit_response.status_code == 200
@@ -506,7 +508,9 @@ def test_ts_admin_can_open_admin_reports() -> None:
     assert '<label for="event_to">To</label>' in audit_content
     assert "<th>Business Unit</th>" in audit_content
     assert integration_response.status_code == 200
-    assert "EMPLOYEE_IMPORT" in integration_response.content.decode()
+    integration_content = integration_response.content.decode()
+    assert 'class="split-grid split-grid-primary-wide"' in integration_content
+    assert "EMPLOYEE_IMPORT" in integration_content
     assert utilization_response.status_code == 200
     utilization_content = utilization_response.content.decode()
     assert "Employee Utilization" in utilization_content

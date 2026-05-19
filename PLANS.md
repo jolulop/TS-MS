@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-19`: `docs/plans/2026-05-19-admin-api-parity-scope.md`
+  - status: completed
+  - focus: implement `/api/v1` parity for Country and Office administration plus guarded delete behavior on top of the existing service-layer rules
 - `2026-05-19`: `docs/plans/2026-05-19-advanced-report-expansion.md`
   - status: completed
   - focus: add the first advanced TS_ADMIN analytics tier with four new reports, filters, and CSV export inside the existing report viewer

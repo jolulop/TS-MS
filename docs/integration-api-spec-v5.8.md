@@ -4,7 +4,12 @@
 
 Describe the currently implemented JSON API surface under `/api/v1`.
 
-No JSON API versioning change was introduced in the v5.8 documentation promotion. The main implemented delta in this release is the user-initiated `Copy Prev. Week` flow on the existing timesheet create surface.
+No JSON API versioning change was introduced in the v5.8 documentation promotion. The main implemented deltas in the current surface are:
+
+- the user-initiated `Copy Prev. Week` flow on the existing timesheet create surface
+- `TS_ADMIN_MASTER` JSON parity for Country administration
+- `TS_ADMIN_MASTER` JSON parity for Office administration
+- guarded `DELETE` support for Country and Office admin endpoints
 
 ## 2. General Rules
 
@@ -37,6 +42,46 @@ These are read-oriented support endpoints for session and scope-aware UI behavio
 ## 5. Admin Master Data Endpoints
 
 All endpoints in this section are current-state admin endpoints. They are not a complete mirror of every UI action.
+
+### Countries
+
+- `GET /api/v1/admin/countries/`
+- `POST /api/v1/admin/countries/`
+- `GET /api/v1/admin/countries/{countryId}/`
+- `PATCH /api/v1/admin/countries/{countryId}/`
+- `DELETE /api/v1/admin/countries/{countryId}/`
+
+Request fields:
+- `country_code`
+- `country_name`
+- `status_code`
+
+### Offices
+
+- `GET /api/v1/admin/offices/`
+- `POST /api/v1/admin/offices/`
+- `GET /api/v1/admin/offices/{officeId}/`
+- `PATCH /api/v1/admin/offices/{officeId}/`
+- `DELETE /api/v1/admin/offices/{officeId}/`
+
+Request fields:
+- `country_id`
+- `office_name`
+- `status_code`
+- `approval_mode_code`
+- `allow_employee_withdraw_flag`
+- `timesheet_cutoff_date`
+- `count_non_billable_in_daily_limit_flag`
+- `archive_after_years`
+- `enable_timer_flag`
+- `enable_leave_integration_flag`
+- `enable_copy_previous_week_flag`
+- `bootstrap_bu_code`
+- `bootstrap_bu_name`
+- `bootstrap_bu_description`
+- `bootstrap_admin_employee_code`
+- `bootstrap_admin_full_name`
+- `bootstrap_admin_email`
 
 ### Business Units
 
@@ -179,6 +224,8 @@ Supported on lifecycle-managed admin collections:
 - if provided, filter by the entity status code
 
 Applied collections include:
+- countries
+- offices
 - clients
 - internal categories
 - cost centers
@@ -270,7 +317,7 @@ GET behavior:
 
 ## 10. Current Authorization Expectations
 
-- `TS_ADMIN_MASTER` is used for Office UI flows, not a dedicated Office JSON admin API
+- `TS_ADMIN_MASTER` can call the Country and Office admin JSON endpoints
 - `TS_ADMIN` can call the implemented admin master-data endpoints inside active Office and Business Unit scope
 - `TS_ADMIN` can use approval `GET` endpoints for scoped oversight and can use
   admin timesheet action endpoints for exception handling
@@ -328,6 +375,20 @@ GET behavior:
 - `REPORT_INVALID_REQUEST`
 - `REPORT_INVALID_SCOPE`
 
+### Country And Office Administration
+
+- `COUNTRY_CODE_REQUIRED`
+- `COUNTRY_NAME_REQUIRED`
+- `COUNTRY_NOT_UNIQUE`
+- `COUNTRY_NOT_FOUND`
+- `COUNTRY_DELETE_BLOCKED`
+- `COUNTRY_REQUIRED`
+- `COUNTRY_NAME_NOT_UNIQUE`
+- `OFFICE_APPROVAL_MODE_REQUIRED`
+- `OFFICE_ARCHIVE_YEARS_REQUIRED`
+- `OFFICE_ARCHIVE_YEARS_INVALID`
+- `OFFICE_CUTOFF_DATE_INVALID`
+
 ### General Charge Codes
 
 - `GENERAL_CHARGE_CODE_COST_CENTER_REQUIRED`
@@ -345,5 +406,4 @@ GET behavior:
 ## 11. Explicit Non-Endpoints
 
 The following actions currently exist in the server-rendered UI but are not documented here as JSON endpoints:
-- Office create/update/delete
 - guarded delete actions for Business Units, Employees, Yearly Calendars, Calendar Special Days, Clients, Internal Categories, Cost Centers, and Pricing Models

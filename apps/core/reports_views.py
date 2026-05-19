@@ -888,6 +888,7 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
     ]
     return {
         "definition": REPORT_DEFINITIONS["pending-approvals"],
+        "split_grid_class": "split-grid split-grid-primary-wide",
         "filters": [
             {
                 "label": "BU",
@@ -1177,6 +1178,7 @@ def _integration_jobs_report(current_user: CurrentUser, request: HttpRequest) ->
     ]
     return {
         "definition": REPORT_DEFINITIONS["integration-jobs"],
+        "split_grid_class": "split-grid split-grid-primary-wide",
         "filters": [
             {
                 "label": "BU",

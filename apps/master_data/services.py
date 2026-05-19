@@ -1567,21 +1567,7 @@ class OfficeManagementService:
     @staticmethod
     def get_office(current_user: CurrentUser, office_id: int) -> dict:
         _ensure_ts_admin_master(current_user)
-        office = OfficeManagementService._refresh_office(office_id)
-        office._administrators_cache = list(
-            Employee.objects.select_related("primary_business_unit", "status")
-            .filter(
-                office_id=office.id,
-                role_assignments__role__domain__domain_code="ROLE_CODE",
-                role_assignments__role__value_code="TS_ADMIN",
-                role_assignments__status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
-                role_assignments__status__value_code="ACTIVE",
-                role_assignments__valid_to__isnull=True,
-            )
-            .order_by("employee_code")
-            .distinct()
-        )
-        return _serialize_office(office)
+        return _serialize_office(OfficeManagementService._refresh_office(office_id))
 
     @staticmethod
     @transaction.atomic
@@ -1799,15 +1785,39 @@ class OfficeManagementService:
     @staticmethod
     def _refresh_office(office_id: int) -> Office:
         try:
-            return Office.objects.select_related(
-                "country",
-                "country__status",
-                "status",
-                "configuration",
-                "configuration__approval_mode",
-            ).get(id=office_id)
+            office = (
+                Office.objects.select_related(
+                    "country",
+                    "country__status",
+                    "status",
+                    "configuration",
+                    "configuration__approval_mode",
+                )
+                .annotate(
+                    active_employee_count=Count(
+                        "employees",
+                        filter=Q(employees__status__value_code="ACTIVE"),
+                        distinct=True,
+                    )
+                )
+                .get(id=office_id)
+            )
         except Office.DoesNotExist as exc:
             raise AuthError("COUNTRY_NOT_FOUND", "Office not found.", 404) from exc
+        office._administrators_cache = list(
+            Employee.objects.select_related("primary_business_unit", "status")
+            .filter(
+                office_id=office.id,
+                role_assignments__role__domain__domain_code="ROLE_CODE",
+                role_assignments__role__value_code="TS_ADMIN",
+                role_assignments__status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
+                role_assignments__status__value_code="ACTIVE",
+                role_assignments__valid_to__isnull=True,
+            )
+            .order_by("employee_code")
+            .distinct()
+        )
+        return office
 
     @staticmethod
     def _upsert_configuration(

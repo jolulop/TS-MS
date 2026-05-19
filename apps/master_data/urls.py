@@ -3,6 +3,18 @@ from django.urls import path
 from apps.master_data import views
 
 urlpatterns = [
+    path("admin/countries/", views.countries_collection, name="admin-country-collection"),
+    path(
+        "admin/countries/<int:country_id>/",
+        views.country_detail,
+        name="admin-country-detail",
+    ),
+    path("admin/offices/", views.offices_collection, name="admin-office-collection"),
+    path(
+        "admin/offices/<int:office_id>/",
+        views.office_detail,
+        name="admin-office-detail",
+    ),
     path(
         "admin/business-units/",
         views.business_units_collection,
