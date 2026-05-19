@@ -43,6 +43,7 @@
             {% endfor %}
           </select>
         {% elif field.kind == "multiselect" %}
+          <input type="hidden" name="{{ field.name }}" value="">
           <select
             id="{{ field.name }}"
             name="{{ field.name }}"

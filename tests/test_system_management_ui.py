@@ -1763,6 +1763,176 @@ def test_general_charge_code_collection_shows_routing_status_via_html() -> None:
 
 
 @pytest.mark.django_db
+def test_general_charge_code_detail_shows_routing_overview_via_html() -> None:
+    client, employee, business_units = _build_ts_admin_client()
+    member_employee = create_employee(
+        employee_code="EMP-GCC-ROUTING-DETAIL",
+        full_name="GCC Routing Detail Member",
+        email="gcc-routing-detail@example.com",
+        primary_business_unit=employee.primary_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=member_employee,
+        business_unit=employee.primary_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=member_employee, role_code="USER")
+    cost_center = create_cost_center(
+        business_unit=business_units[0],
+        cost_center_code="CC-GCC-ROUTING-DETAIL",
+        name="HTML Cost Center",
+    )
+    approval_role = create_general_charge_code_approval_role(
+        office=business_units[0].office,
+        role_code="HR_ROUTING_DETAIL",
+        name="HR Routing Detail Approver",
+    )
+    assign_general_charge_code_approval_role(
+        employee=member_employee,
+        approval_role=approval_role,
+    )
+    general_charge_code = create_general_charge_code(
+        business_unit=business_units[0],
+        code="GCC-ROUTING-DETAIL",
+        name="Routing Detail General Charge Code",
+        cost_center=cost_center,
+        valid_from=date(2026, 1, 1),
+        requires_approval_flag=True,
+        ad_hoc_approval_roles=[approval_role],
+    )
+
+    response = client.get(f"/system/general-charge-codes/{general_charge_code.id}/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Routing Overview" in content
+    assert "Routing Status" in content
+    assert "Routing Warning" in content
+
+
+@pytest.mark.django_db
+def test_general_charge_code_approval_role_detail_shows_coverage_overview_via_html() -> None:
+    client, employee, business_units = _build_ts_admin_client()
+    member_employee = create_employee(
+        employee_code="EMP-GCC-COVERAGE-DETAIL",
+        full_name="GCC Coverage Detail Member",
+        email="gcc-coverage-detail@example.com",
+        primary_business_unit=employee.primary_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=member_employee,
+        business_unit=employee.primary_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=member_employee, role_code="USER")
+    cost_center = create_cost_center(
+        business_unit=business_units[0],
+        cost_center_code="CC-GCC-COVERAGE-DETAIL",
+        name="HTML Cost Center",
+    )
+    approval_role = create_general_charge_code_approval_role(
+        office=business_units[0].office,
+        role_code="HR_COVERAGE_DETAIL",
+        name="HR Coverage Detail Approver",
+    )
+    assign_general_charge_code_approval_role(
+        employee=member_employee,
+        approval_role=approval_role,
+    )
+    create_general_charge_code(
+        business_unit=business_units[0],
+        code="GCC-COVERAGE-DETAIL",
+        name="Coverage Detail General Charge Code",
+        cost_center=cost_center,
+        valid_from=date(2026, 1, 1),
+        requires_approval_flag=True,
+        ad_hoc_approval_roles=[approval_role],
+    )
+
+    response = client.get(f"/system/general-charge-code-approval-roles/{approval_role.id}/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Routing Coverage" in content
+    assert "Referenced General Charge Codes" in content
+    assert "Coverage Warning" in content
+
+
+@pytest.mark.django_db
+def test_general_charge_code_collection_uses_attention_when_approval_route_is_missing() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    cost_center = create_cost_center(
+        business_unit=business_units[0],
+        cost_center_code="CC-GCC-ATTN",
+        name="HTML Cost Center",
+    )
+    create_general_charge_code(
+        business_unit=business_units[0],
+        code="GCC-ATTN",
+        name="Attention General Charge Code",
+        cost_center=cost_center,
+        valid_from=date(2026, 1, 1),
+        requires_approval_flag=True,
+    )
+
+    response = client.get("/system/general-charge-codes/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "ATTENTION" in content
+    assert "BROKEN" not in content
+
+
+@pytest.mark.django_db
+def test_general_charge_code_approval_role_detail_can_clear_unreferenced_last_member_via_html(
+) -> None:
+    client, employee, business_units = _build_ts_admin_client()
+    member_employee = create_employee(
+        employee_code="EMP-GCC-CLEAR-LAST",
+        full_name="GCC Clear Last Member",
+        email="gcc-clear-last@example.com",
+        primary_business_unit=employee.primary_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=member_employee,
+        business_unit=employee.primary_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=member_employee, role_code="USER")
+    approval_role = create_general_charge_code_approval_role(
+        office=business_units[0].office,
+        role_code="HR_CLEAR_LAST",
+        name="HR Clear Last Approver",
+    )
+    assign_general_charge_code_approval_role(
+        employee=member_employee,
+        approval_role=approval_role,
+    )
+
+    response = client.post(
+        f"/system/general-charge-code-approval-roles/{approval_role.id}/",
+        data={
+            "form_name": "edit",
+            "role_code": "HR_CLEAR_LAST",
+            "name": "HR Clear Last Approver",
+            "description": "",
+            "member_employee_ids": [""],
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    approval_role.refresh_from_db()
+    active_members = [
+        assignment
+        for assignment in approval_role.member_assignments.filter(valid_to__isnull=True)
+        if assignment.status.value_code == "ACTIVE"
+    ]
+    assert active_members == []
+
+
+@pytest.mark.django_db
 def test_general_charge_code_management_requires_cost_center_via_html() -> None:
     client, _, business_units = _build_ts_admin_client()
 

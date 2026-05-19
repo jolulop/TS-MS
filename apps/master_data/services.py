@@ -627,7 +627,7 @@ def _serialize_general_charge_code_routing_health(
 
     if not general_charge_code.approver_roles.exists():
         return {
-            "status": "BROKEN",
+            "status": "ATTENTION",
             "warning": "Requires approval but no approver roles are configured.",
             "ad_hoc_roles_without_active_members": [],
             "inactive_ad_hoc_roles": [],

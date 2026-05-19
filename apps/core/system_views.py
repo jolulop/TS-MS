@@ -2209,6 +2209,21 @@ def _delete_action_section(
     }
 
 
+def _read_only_detail_section(
+    *,
+    title: str,
+    intro: str,
+    detail_rows: list[tuple[str, str]],
+) -> dict:
+    return {
+        "title": title,
+        "intro": intro,
+        "detail_rows": detail_rows,
+        "fields": [],
+        "read_only": True,
+    }
+
+
 def _employee_rows(employees: list[dict]) -> list[dict]:
     return [
         {
@@ -2546,6 +2561,33 @@ def _general_charge_code_detail_rows(general_charge_code: dict) -> list[tuple[st
     ]
 
 
+def _general_charge_code_routing_detail_rows(
+    general_charge_code: dict,
+) -> list[tuple[str, str]]:
+    return [
+        (
+            "Approver Roles",
+            (
+                ", ".join(
+                    (
+                        f"{role['code']} ({_member_count_label(role['active_member_count'])})"
+                        if role["kind"] == "AD_HOC_ROLE"
+                        else role["code"]
+                    )
+                    for role in general_charge_code["approver_roles"]
+                )
+                if general_charge_code["approver_roles"]
+                else "None"
+            ),
+        ),
+        ("Routing Status", general_charge_code["routing_health"]["status"]),
+        (
+            "Routing Warning",
+            general_charge_code["routing_health"]["warning"] or "None",
+        ),
+    ]
+
+
 def _general_charge_code_approval_role_rows(approval_roles: list[dict]) -> list[dict]:
     return [
         {
@@ -2602,6 +2644,33 @@ def _general_charge_code_approval_role_detail_rows(
             approval_role["routing_health"]["warning"] or "None",
         ),
         ("Status", approval_role["status"]),
+    ]
+
+
+def _general_charge_code_approval_role_coverage_detail_rows(
+    approval_role: dict,
+) -> list[tuple[str, str]]:
+    return [
+        ("Active Member Count", str(approval_role["active_member_count"])),
+        (
+            "Referenced General Charge Codes",
+            (
+                ", ".join(
+                    (
+                        f"{general_charge_code['business_unit']['bu_code']} - "
+                        f"{general_charge_code['code']} - {general_charge_code['name']}"
+                    )
+                    for general_charge_code in approval_role["dependent_general_charge_codes"]
+                )
+                if approval_role["dependent_general_charge_codes"]
+                else "None"
+            ),
+        ),
+        ("Routing Coverage", approval_role["routing_health"]["status"]),
+        (
+            "Coverage Warning",
+            approval_role["routing_health"]["warning"] or "None",
+        ),
     ]
 
 
@@ -5161,6 +5230,16 @@ def general_charge_code_approval_role_detail(
         form_error=form_error,
         active_form=active_form,
         extra_form_sections=[
+            _read_only_detail_section(
+                title="Routing Coverage",
+                intro=(
+                    "Review active members, referenced General Charge Codes, and "
+                    "coverage warnings before changing this role."
+                ),
+                detail_rows=_general_charge_code_approval_role_coverage_detail_rows(
+                    approval_role
+                ),
+            ),
             _delete_action_section(
                 submit_label="Delete General Charge Code Approval Role",
                 form_error=form_error if active_form == "delete" else "",
@@ -5356,6 +5435,16 @@ def general_charge_code_detail(
         form_error=form_error,
         active_form=active_form,
         extra_form_sections=[
+            _read_only_detail_section(
+                title="Routing Overview",
+                intro=(
+                    "Review the effective approval routing health before updating "
+                    "this General Charge Code."
+                ),
+                detail_rows=_general_charge_code_routing_detail_rows(
+                    general_charge_code
+                ),
+            ),
             _delete_action_section(
                 submit_label="Delete General Charge Code",
                 form_error=form_error if active_form == "delete" else "",
