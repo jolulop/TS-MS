@@ -59,6 +59,11 @@
 - Configured approver roles can point to:
   - existing TS internal roles
   - office-scoped ad-hoc General Charge Code approval roles
+- A selected ad-hoc General Charge Code approval role must be active and must keep
+  at least one active member employee.
+- An ad-hoc General Charge Code approval role that is already referenced by one or
+  more General Charge Codes cannot be set inactive and cannot lose all active
+  members.
 
 ## 5. Calendar Rules
 

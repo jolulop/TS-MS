@@ -215,8 +215,10 @@ Important UI behavior:
   - approver-role multiselect combining:
     - existing internal TS roles
     - office ad-hoc General Charge Code approval roles
+  - routing-status visibility for approval-required General Charge Codes
 - Detail:
   - edit Cost Center assignment, approver roles, lifecycle, validity, and behavior flags
+  - show approval-routing status and warning text for selected ad-hoc approver roles
   - guarded delete action
   - collection row link is the primary navigation path
   - detail layout matches the standalone create/edit pattern with bottom delete action
@@ -229,8 +231,12 @@ Important UI behavior:
   - status filter
   - create ad-hoc General Charge Code approval role
   - assign member employees from the active Office
+  - show active member count, dependent GCC count, and routing-coverage status
 - Detail:
   - edit role code, name, description, members, and status
+  - show dependent General Charge Codes and coverage warning text
+  - prevent admins from setting referenced roles inactive or removing all active
+    members
   - guarded delete action
   - collection row link is the primary navigation path
   - detail layout matches the standalone create/edit pattern with bottom delete action

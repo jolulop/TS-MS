@@ -168,12 +168,37 @@ Request fields:
 - `name`
 - `charge_type_code`
 - `cost_center_id`
+- `approver_keys`
 - `billable_flag`
 - `requires_approval_flag`
 - `description_required_flag`
 - `valid_from`
 - `valid_to`
 - `status_code`
+
+Response notes:
+- the returned General Charge Code payload includes `routing_health`
+- ad-hoc approver-role entries include `status`, `active_member_count`, and
+  `has_active_members`
+
+### General Charge Code Approval Roles
+
+- `GET /api/v1/admin/general-charge-code-approval-roles/`
+- `POST /api/v1/admin/general-charge-code-approval-roles/`
+- `GET /api/v1/admin/general-charge-code-approval-roles/{approvalRoleId}/`
+- `PATCH /api/v1/admin/general-charge-code-approval-roles/{approvalRoleId}/`
+
+Request fields:
+- `role_code`
+- `name`
+- `description`
+- `member_employee_ids`
+- `status_code`
+
+Response notes:
+- the returned payload includes `active_member_count`, `has_active_members`,
+  `dependent_general_charge_code_count`, `dependent_general_charge_codes`, and
+  `routing_health`
 
 ### Projects
 
@@ -393,6 +418,13 @@ GET behavior:
 
 - `GENERAL_CHARGE_CODE_COST_CENTER_REQUIRED`
 - `GENERAL_CHARGE_CODE_COST_CENTER_OFFICE_MISMATCH`
+- `GENERAL_CHARGE_CODE_APPROVER_ROLE_UNMANNED`
+- `GENERAL_CHARGE_CODE_APPROVER_ROLE_INACTIVE`
+
+### General Charge Code Approval Roles
+
+- `GENERAL_CHARGE_CODE_APPROVAL_ROLE_INACTIVE_BLOCKED`
+- `GENERAL_CHARGE_CODE_APPROVAL_ROLE_MEMBERS_REQUIRED`
 
 ### Calendar Special Days
 

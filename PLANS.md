@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-19`: `docs/plans/2026-05-19-general-charge-code-routing-governance.md`
+  - status: completed
+  - focus: add richer GCC approval-role visibility plus guardrails against unmanned or inactive ad-hoc routing dependencies
 - `2026-05-19`: `docs/plans/2026-05-19-admin-api-parity-scope.md`
   - status: completed
   - focus: implement `/api/v1` parity for Country and Office administration plus guarded delete behavior on top of the existing service-layer rules

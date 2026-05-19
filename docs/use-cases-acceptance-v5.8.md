@@ -179,6 +179,8 @@ earlier timesheet when the parent Office enables the feature.
 
 - create and update a General Charge Code with mandatory Cost Center, lifecycle, and validity fields
 - require at least one approver role when `Requires Approval` is enabled
+- reject ad-hoc approver-role selection when the selected ad-hoc role has no active
+  member employees or is inactive
 - reject create or edit when Cost Center is empty
 - guarded delete succeeds when no timesheet lines, approval items, or other protected references exist
 - guarded delete fails when dependent records still reference the General Charge Code
@@ -195,6 +197,10 @@ earlier timesheet when the parent Office enables the feature.
 
 - create and update an ad-hoc approval role with member employees from the active Office
 - existing TS internal roles are selectable on General Charge Codes but are not editable in this screen
+- show active member count, dependent General Charge Code count, and routing coverage
+  status in the admin views and API
+- reject setting a referenced ad-hoc approval role to `INACTIVE`
+- reject removing all active member employees from a referenced ad-hoc approval role
 - guarded delete fails when General Charge Codes or approval history still reference the ad-hoc role
 - collection rows open GCC Approval Role detail from the primary item link without a visible action column
 - GCC Approval Role edit uses the same standalone layout pattern as GCC Approval Role creation, with delete at the bottom

@@ -204,8 +204,13 @@ The following masters remain Business Unit scoped:
 - Approver roles can be:
   - existing internal TS roles
   - office-scoped ad-hoc General Charge Code approval roles
+- Selected ad-hoc General Charge Code approval roles must be active and must keep at
+  least one active member employee.
 - Ad-hoc General Charge Code approval roles are managed in System Management together
-  with employee membership assignment.
+  with employee membership assignment, dependency visibility, and routing-coverage
+  warnings.
+- Referenced ad-hoc General Charge Code approval roles cannot be set inactive and
+  cannot be left without active member employees.
 - General Charge Code deletion is guarded by referential integrity.
 
 ### 8.7 Calendars And Special Days

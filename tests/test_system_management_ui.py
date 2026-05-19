@@ -12,6 +12,7 @@ from apps.master_data.models import (
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
+    GeneralChargeCodeApprovalRole,
     Office,
     OfficeConfiguration,
     Project,
@@ -23,9 +24,6 @@ from apps.master_data.models import (
 )
 from apps.master_data.models import (
     CostCenter as CostCenterRecord,
-)
-from apps.master_data.models import (
-    GeneralChargeCodeApprovalRole,
 )
 from apps.master_data.models import (
     GeneralChargeCode as GeneralChargeCodeRecord,
@@ -40,6 +38,7 @@ from apps.timesheets.models import TimesheetLine, WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
     assign_employee_to_business_unit,
+    assign_general_charge_code_approval_role,
     assign_project,
     assign_role,
     create_business_unit,
@@ -679,7 +678,12 @@ def test_employee_create_route_renders_standalone_screen() -> None:
 @pytest.mark.parametrize(
     ("collection_path", "create_path", "filter_label", "setup_title"),
     [
-        ("/system/business-units/", "/system/business-units/new/", "Business Unit Status", "Business Unit Setup"),
+        (
+            "/system/business-units/",
+            "/system/business-units/new/",
+            "Business Unit Status",
+            "Business Unit Setup",
+        ),
         ("/system/clients/", "/system/clients/new/", "Client Status", "Client Setup"),
         ("/system/projects/", "/system/projects/new/", "Project Status", "Project Setup"),
         (
@@ -694,7 +698,12 @@ def test_employee_create_route_renders_standalone_screen() -> None:
             "Internal Category Status",
             "Internal Category Setup",
         ),
-        ("/system/cost-centers/", "/system/cost-centers/new/", "Cost Center Status", "Cost Center Setup"),
+        (
+            "/system/cost-centers/",
+            "/system/cost-centers/new/",
+            "Cost Center Status",
+            "Cost Center Setup",
+        ),
         ("/system/pricing-models/", "/system/pricing-models/new/", None, "Pricing Model Setup"),
         ("/system/calendars/", "/system/calendars/new/", "Calendar Status", "Calendar Setup"),
         (
@@ -830,7 +839,12 @@ def test_shared_system_management_detail_screens_use_standalone_edit_layout() ->
     )
 
     cases = [
-        (f"/system/clients/{managed_client.id}/", "Edit Client", "Delete Client", "Back to Clients"),
+        (
+            f"/system/clients/{managed_client.id}/",
+            "Edit Client",
+            "Delete Client",
+            "Back to Clients",
+        ),
         (f"/system/projects/{project.id}/", "Edit Project", "Delete Project", "Back to Projects"),
         (
             f"/system/project-assignments/{assignment.id}/",
@@ -1650,6 +1664,102 @@ def test_general_charge_code_approval_role_management_create_via_html() -> None:
     approval_role = GeneralChargeCodeApprovalRole.objects.get(role_code="HR_APPROVER")
     assert approval_role.name == "HR Approver"
     assert approval_role.member_assignments.filter(employee=member_employee).exists()
+
+
+@pytest.mark.django_db
+def test_general_charge_code_approval_role_collection_shows_dependency_and_coverage_via_html(
+) -> None:
+    client, employee, business_units = _build_ts_admin_client()
+    member_employee = create_employee(
+        employee_code="EMP-GCC-ROLE-MEMBER-DETAIL",
+        full_name="GCC Role Member Detail",
+        email="gcc-role-member-detail@example.com",
+        primary_business_unit=employee.primary_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=member_employee,
+        business_unit=employee.primary_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=member_employee, role_code="USER")
+    cost_center = create_cost_center(
+        business_unit=business_units[0],
+        cost_center_code="CC-GCC-ROLE-DETAIL",
+        name="HTML Cost Center",
+    )
+    approval_role = create_general_charge_code_approval_role(
+        office=business_units[0].office,
+        role_code="HR_DETAIL",
+        name="HR Detail Approver",
+    )
+    assign_general_charge_code_approval_role(
+        employee=member_employee,
+        approval_role=approval_role,
+    )
+    create_general_charge_code(
+        business_unit=business_units[0],
+        code="GCC-DETAIL",
+        name="Detail General Charge Code",
+        cost_center=cost_center,
+        valid_from=date(2026, 1, 1),
+        requires_approval_flag=True,
+        ad_hoc_approval_roles=[approval_role],
+    )
+
+    response = client.get("/system/general-charge-code-approval-roles/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert ">GCCs<" in content
+    assert ">Coverage<" in content
+    assert "HR_DETAIL" in content
+    assert "HR Detail Approver" in content
+
+
+@pytest.mark.django_db
+def test_general_charge_code_collection_shows_routing_status_via_html() -> None:
+    client, employee, business_units = _build_ts_admin_client()
+    member_employee = create_employee(
+        employee_code="EMP-GCC-DETAIL-MEMBER",
+        full_name="GCC Detail Member",
+        email="gcc-detail-member@example.com",
+        primary_business_unit=employee.primary_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=member_employee,
+        business_unit=employee.primary_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=member_employee, role_code="USER")
+    cost_center = create_cost_center(
+        business_unit=business_units[0],
+        cost_center_code="CC-GCC-DETAIL",
+        name="HTML Cost Center",
+    )
+    approval_role = create_general_charge_code_approval_role(
+        office=business_units[0].office,
+        role_code="HR_ROUTING",
+        name="HR Routing Approver",
+    )
+    assign_general_charge_code_approval_role(
+        employee=member_employee,
+        approval_role=approval_role,
+    )
+    create_general_charge_code(
+        business_unit=business_units[0],
+        code="GCC-ROUTING",
+        name="Routing General Charge Code",
+        cost_center=cost_center,
+        valid_from=date(2026, 1, 1),
+        requires_approval_flag=True,
+        ad_hoc_approval_roles=[approval_role],
+    )
+
+    response = client.get("/system/general-charge-codes/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert ">Routing<" in content
 
 
 @pytest.mark.django_db

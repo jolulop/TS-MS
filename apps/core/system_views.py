@@ -2,8 +2,8 @@ import calendar as month_calendar
 from dataclasses import dataclass
 from datetime import date
 
-from django.http import HttpRequest, HttpResponse, QueryDict
 from django.db.models import Q
+from django.http import HttpRequest, HttpResponse, QueryDict
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
@@ -598,6 +598,10 @@ def _general_charge_code_approval_role_member_options(
     )
 
 
+def _member_count_label(count: int) -> str:
+    return f"{count} active member" if count == 1 else f"{count} active members"
+
+
 def _general_charge_code_approver_options(
     current_user: CurrentUser,
     *,
@@ -615,12 +619,35 @@ def _general_charge_code_approver_options(
     options.extend(
         _option(
             f"ADHOC:{approval_role.id}",
-            f"[Ad hoc] {approval_role.role_code} - {approval_role.name}",
+            (
+                f"[Ad hoc] {approval_role.role_code} - {approval_role.name}"
+                f" ({_member_count_label(active_member_count)})"
+                if approval_role.status.value_code == "ACTIVE" and active_member_count > 0
+                else (
+                    f"[Ad hoc] {approval_role.role_code} - {approval_role.name} "
+                    "(inactive role)"
+                    if approval_role.status.value_code != "ACTIVE"
+                    else f"[Ad hoc] {approval_role.role_code} - {approval_role.name} "
+                    "(no active members)"
+                )
+            ),
             selected_values=selected_values,
         )
-        for approval_role in GeneralChargeCodeApprovalRole.objects.filter(
-            office_id=current_user.office_id
-        ).order_by("role_code")
+        for approval_role in GeneralChargeCodeApprovalRole.objects.prefetch_related(
+            "member_assignments__employee__status",
+            "member_assignments__status__domain",
+        )
+        .select_related("status")
+        .filter(office_id=current_user.office_id)
+        .order_by("role_code")
+        for active_member_count in [
+            approval_role.member_assignments.filter(
+                    status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
+                    status__value_code="ACTIVE",
+                    valid_to__isnull=True,
+                    employee__status__value_code="ACTIVE",
+                ).count()
+        ]
     )
     return options
 
@@ -2143,7 +2170,10 @@ def _render_master_create(
         current_user,
         title=f"Create {config.singular_label}",
         eyebrow=config.list_eyebrow,
-        intro=f"Standalone {config.singular_label.lower()} creation screen inside the shared system management shell.",
+        intro=(
+            f"Standalone {config.singular_label.lower()} creation screen inside the "
+            "shared system management shell."
+        ),
         detail_rows=[],
         form_sections=[
             {
@@ -2455,6 +2485,7 @@ def _general_charge_code_rows(general_charge_codes: list[dict]) -> list[dict]:
                     if general_charge_code["requires_approval_flag"]
                     else "Not required"
                 ),
+                general_charge_code["routing_health"]["status"],
                 general_charge_code["charge_type"],
                 general_charge_code["status"],
             ],
@@ -2492,10 +2523,22 @@ def _general_charge_code_detail_rows(general_charge_code: dict) -> list[tuple[st
         (
             "Approver Roles",
             (
-                ", ".join(role["code"] for role in general_charge_code["approver_roles"])
+                ", ".join(
+                    (
+                        f"{role['code']} ({_member_count_label(role['active_member_count'])})"
+                        if role["kind"] == "AD_HOC_ROLE"
+                        else role["code"]
+                    )
+                    for role in general_charge_code["approver_roles"]
+                )
                 if general_charge_code["approver_roles"]
                 else "None"
             ),
+        ),
+        ("Routing Status", general_charge_code["routing_health"]["status"]),
+        (
+            "Routing Warning",
+            general_charge_code["routing_health"]["warning"] or "None",
         ),
         ("Valid From", general_charge_code["valid_from"]),
         ("Valid To", general_charge_code["valid_to"] or "Open-ended"),
@@ -2510,7 +2553,9 @@ def _general_charge_code_approval_role_rows(approval_roles: list[dict]) -> list[
             "cells": [
                 approval_role["role_code"],
                 approval_role["name"],
-                str(len(approval_role["member_employees"])),
+                str(approval_role["active_member_count"]),
+                str(approval_role["dependent_general_charge_code_count"]),
+                approval_role["routing_health"]["status"],
                 approval_role["status"],
             ],
         }
@@ -2535,6 +2580,26 @@ def _general_charge_code_approval_role_detail_rows(
                 if approval_role["member_employees"]
                 else "None"
             ),
+        ),
+        ("Active Member Count", str(approval_role["active_member_count"])),
+        (
+            "Referenced General Charge Codes",
+            (
+                ", ".join(
+                    (
+                        f"{general_charge_code['business_unit']['bu_code']} - "
+                        f"{general_charge_code['code']} - {general_charge_code['name']}"
+                    )
+                    for general_charge_code in approval_role["dependent_general_charge_codes"]
+                )
+                if approval_role["dependent_general_charge_codes"]
+                else "None"
+            ),
+        ),
+        ("Routing Coverage", approval_role["routing_health"]["status"]),
+        (
+            "Coverage Warning",
+            approval_role["routing_health"]["warning"] or "None",
         ),
         ("Status", approval_role["status"]),
     ]
@@ -2704,7 +2769,11 @@ def _office_form_fields(
     ]
 
 
-def _country_form_fields(*, post_data: QueryDict | None = None, entity: dict | None = None) -> list[dict]:
+def _country_form_fields(
+    *,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
     submitted_data = post_data or QueryDict("")
     return [
         _field(
@@ -3271,8 +3340,11 @@ GENERAL_CHARGE_CODE_APPROVAL_ROLE_CONFIG = MasterUiConfig(
     plural_label="General Charge Code Approval Roles",
     collection_path="/system/general-charge-code-approval-roles/",
     detail_path_prefix="/system/general-charge-code-approval-roles/",
-    table_headers=("Role Code", "Name", "Members", "Status"),
-    empty_message="No ad-hoc General Charge Code approval roles are available in your active Office yet.",
+    table_headers=("Role Code", "Name", "Members", "GCCs", "Coverage", "Status"),
+    empty_message=(
+        "No ad-hoc General Charge Code approval roles are available in your active "
+        "Office yet."
+    ),
 )
 
 GENERAL_CHARGE_CODE_CONFIG = MasterUiConfig(
@@ -3299,6 +3371,7 @@ GENERAL_CHARGE_CODE_CONFIG = MasterUiConfig(
         "Name",
         "Cost Center",
         "Approvers",
+        "Routing",
         "Charge Type",
         "Status",
     ),
@@ -3378,8 +3451,6 @@ def business_units_collection(request: HttpRequest) -> HttpResponse:
     if not isinstance(current_user, CurrentUser):
         return current_user
 
-    form_error = ""
-    post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
         try:
             business_unit = BusinessUnitManagementService.create_business_unit(
@@ -3391,8 +3462,8 @@ def business_units_collection(request: HttpRequest) -> HttpResponse:
                     "status_code": request.POST.get("status_code", "ACTIVE"),
                 },
             )
-        except AuthError as error:
-            form_error = error.message
+        except AuthError:
+            pass
         else:
             return redirect(f"/system/business-units/{business_unit['id']}/")
 
@@ -3561,7 +3632,10 @@ def business_unit_detail(request: HttpRequest, business_unit_id: int) -> HttpRes
         back_label="Back to Business Units",
         entity_status=business_unit["status"],
         show_detail_panel=False,
-        page_action={"label": "Back to Business Units", "href": BUSINESS_UNIT_CONFIG.collection_path},
+        page_action={
+            "label": "Back to Business Units",
+            "href": BUSINESS_UNIT_CONFIG.collection_path,
+        },
     )
 
 
@@ -3841,7 +3915,10 @@ def office_create(request: HttpRequest) -> HttpResponse:
         entity_status="New",
         show_detail_panel=False,
         detail_content_class="office-detail-layout",
-        page_action={"label": f"Back to {OFFICE_CONFIG.plural_label}", "href": OFFICE_CONFIG.collection_path},
+        page_action={
+            "label": f"Back to {OFFICE_CONFIG.plural_label}",
+            "href": OFFICE_CONFIG.collection_path,
+        },
     )
 
 
@@ -3987,7 +4064,10 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
         entity_status=office["status"],
         show_detail_panel=False,
         detail_content_class="office-detail-layout",
-        page_action={"label": f"Back to {OFFICE_CONFIG.plural_label}", "href": OFFICE_CONFIG.collection_path},
+        page_action={
+            "label": f"Back to {OFFICE_CONFIG.plural_label}",
+            "href": OFFICE_CONFIG.collection_path,
+        },
     )
 
 
@@ -4304,8 +4384,6 @@ def clients_collection(request: HttpRequest) -> HttpResponse:
     if not isinstance(current_user, CurrentUser):
         return current_user
 
-    form_error = ""
-    post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
         try:
             client = ClientManagementService.create_client(
@@ -4317,8 +4395,8 @@ def clients_collection(request: HttpRequest) -> HttpResponse:
                     "parent_client_id": request.POST.get("parent_client_id", ""),
                 },
             )
-        except AuthError as error:
-            form_error = error.message
+        except AuthError:
+            pass
         else:
             return redirect(f"/system/clients/{client['id']}/")
 
@@ -4638,8 +4716,6 @@ def cost_centers_collection(request: HttpRequest) -> HttpResponse:
     if not isinstance(current_user, CurrentUser):
         return current_user
 
-    form_error = ""
-    post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
         try:
             cost_center = CostCenterManagementService.create_cost_center(
@@ -4651,8 +4727,8 @@ def cost_centers_collection(request: HttpRequest) -> HttpResponse:
                     "status_code": request.POST.get("status_code", "ACTIVE"),
                 },
             )
-        except AuthError as error:
-            form_error = error.message
+        except AuthError:
+            pass
         else:
             return redirect(f"/system/cost-centers/{cost_center['id']}/")
 
@@ -4793,8 +4869,6 @@ def pricing_models_collection(request: HttpRequest) -> HttpResponse:
     if not isinstance(current_user, CurrentUser):
         return current_user
 
-    form_error = ""
-    post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
         try:
             pricing_model = PricingModelManagementService.create_pricing_model(
@@ -4804,8 +4878,8 @@ def pricing_models_collection(request: HttpRequest) -> HttpResponse:
                     "description": request.POST.get("description", ""),
                 },
             )
-        except AuthError as error:
-            form_error = error.message
+        except AuthError:
+            pass
         else:
             return redirect(f"/system/pricing-models/{pricing_model['id']}/")
 
@@ -5369,8 +5443,14 @@ def project_create(request: HttpRequest) -> HttpResponse:
                     "project_code": request.POST.get("project_code", ""),
                     "name": request.POST.get("name", ""),
                     "description": request.POST.get("description", ""),
-                    "project_owner_employee_id": request.POST.get("project_owner_employee_id", ""),
-                    "project_manager_employee_id": request.POST.get("project_manager_employee_id", ""),
+                    "project_owner_employee_id": request.POST.get(
+                        "project_owner_employee_id",
+                        "",
+                    ),
+                    "project_manager_employee_id": request.POST.get(
+                        "project_manager_employee_id",
+                        "",
+                    ),
                     "client_id": request.POST.get("client_id", ""),
                     "internal_category_id": request.POST.get("internal_category_id", ""),
                     "cost_center_id": request.POST.get("cost_center_id", ""),

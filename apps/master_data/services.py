@@ -22,6 +22,7 @@ from apps.master_data.models import (
     EmployeeRole,
     GeneralChargeCodeApprovalRole,
     GeneralChargeCodeApprovalRoleAssignment,
+    GeneralChargeCodeApproverRole,
     Office,
     OfficeConfiguration,
     Project,
@@ -39,9 +40,6 @@ from apps.master_data.models import (
 )
 from apps.master_data.models import (
     GeneralChargeCode as GeneralChargeCodeRecord,
-)
-from apps.master_data.models import (
-    GeneralChargeCodeApproverRole,
 )
 from apps.master_data.models import (
     InternalCategory as InternalCategoryRecord,
@@ -574,7 +572,97 @@ def _serialize_pricing_model(pricing_model: PricingModelRecord) -> dict:
     }
 
 
+def _active_general_charge_code_role_assignments(
+    approval_role: GeneralChargeCodeApprovalRole,
+) -> list[GeneralChargeCodeApprovalRoleAssignment]:
+    assignments = [
+        assignment
+        for assignment in approval_role.member_assignments.all()
+        if assignment.status.domain.domain_code == "ROLE_ASSIGNMENT_STATUS"
+        and assignment.status.value_code == "ACTIVE"
+        and assignment.valid_to is None
+        and assignment.employee.status.value_code == "ACTIVE"
+    ]
+    assignments.sort(key=lambda assignment: assignment.employee.employee_code)
+    return assignments
+
+
+def _dependent_general_charge_codes_for_approval_role(
+    approval_role: GeneralChargeCodeApprovalRole,
+) -> list[GeneralChargeCodeRecord]:
+    general_charge_codes = [
+        mapping.general_charge_code
+        for mapping in approval_role.general_charge_code_assignments.all()
+    ]
+    general_charge_codes.sort(
+        key=lambda general_charge_code: (
+            general_charge_code.business_unit.bu_code,
+            general_charge_code.code,
+        )
+    )
+    return general_charge_codes
+
+
+def _serialize_general_charge_code_routing_health(
+    general_charge_code: GeneralChargeCodeRecord,
+) -> dict:
+    if not general_charge_code.requires_approval_flag:
+        return {
+            "status": "NOT_REQUIRED",
+            "warning": None,
+            "ad_hoc_roles_without_active_members": [],
+            "inactive_ad_hoc_roles": [],
+        }
+
+    ad_hoc_roles_without_active_members: list[str] = []
+    inactive_ad_hoc_roles: list[str] = []
+    for approver_role in general_charge_code.approver_roles.all():
+        if approver_role.approval_role_id is None:
+            continue
+        if approver_role.approval_role.status.value_code != "ACTIVE":
+            inactive_ad_hoc_roles.append(approver_role.approval_role.role_code)
+            continue
+        if not _active_general_charge_code_role_assignments(approver_role.approval_role):
+            ad_hoc_roles_without_active_members.append(approver_role.approval_role.role_code)
+
+    if not general_charge_code.approver_roles.exists():
+        return {
+            "status": "BROKEN",
+            "warning": "Requires approval but no approver roles are configured.",
+            "ad_hoc_roles_without_active_members": [],
+            "inactive_ad_hoc_roles": [],
+        }
+
+    if inactive_ad_hoc_roles:
+        role_list = ", ".join(sorted(inactive_ad_hoc_roles))
+        return {
+            "status": "ATTENTION",
+            "warning": f"Inactive ad-hoc approver roles are still assigned: {role_list}.",
+            "ad_hoc_roles_without_active_members": [],
+            "inactive_ad_hoc_roles": sorted(inactive_ad_hoc_roles),
+        }
+
+    if ad_hoc_roles_without_active_members:
+        role_list = ", ".join(sorted(ad_hoc_roles_without_active_members))
+        return {
+            "status": "ATTENTION",
+            "warning": f"Ad-hoc approver roles without active members: {role_list}.",
+            "ad_hoc_roles_without_active_members": sorted(
+                ad_hoc_roles_without_active_members
+            ),
+            "inactive_ad_hoc_roles": [],
+        }
+
+    return {
+        "status": "READY",
+        "warning": None,
+        "ad_hoc_roles_without_active_members": [],
+        "inactive_ad_hoc_roles": [],
+    }
+
+
 def _serialize_general_charge_code(general_charge_code: GeneralChargeCodeRecord) -> dict:
+    routing_health = _serialize_general_charge_code_routing_health(general_charge_code)
     return {
         "id": general_charge_code.id,
         "code": general_charge_code.code,
@@ -613,6 +701,7 @@ def _serialize_general_charge_code(general_charge_code: GeneralChargeCodeRecord)
                 ),
             )
         ],
+        "routing_health": routing_health,
     }
 
 
@@ -633,14 +722,35 @@ def _serialize_yearly_calendar(yearly_calendar: YearlyCalendar) -> dict:
 def _serialize_general_charge_code_approval_role(
     approval_role: GeneralChargeCodeApprovalRole,
 ) -> dict:
-    active_members = [
-        assignment
-        for assignment in approval_role.member_assignments.all()
-        if assignment.status.domain.domain_code == "ROLE_ASSIGNMENT_STATUS"
-        and assignment.status.value_code == "ACTIVE"
-        and assignment.valid_to is None
-    ]
-    active_members.sort(key=lambda assignment: assignment.employee.employee_code)
+    active_members = _active_general_charge_code_role_assignments(approval_role)
+    dependent_general_charge_codes = _dependent_general_charge_codes_for_approval_role(
+        approval_role
+    )
+    has_active_members = bool(active_members)
+    is_referenced = bool(dependent_general_charge_codes)
+    coverage_status = "READY"
+    coverage_warning = None
+    if approval_role.status.value_code != "ACTIVE":
+        coverage_status = "ATTENTION" if is_referenced else "INACTIVE"
+        coverage_warning = (
+            "This ad-hoc approval role is inactive and should not be used for new routing."
+            if not is_referenced
+            else (
+                "This ad-hoc approval role is inactive but still referenced by "
+                "General Charge Codes."
+            )
+        )
+    elif is_referenced and not has_active_members:
+        coverage_status = "ATTENTION"
+        coverage_warning = (
+            "This ad-hoc approval role is referenced by General Charge Codes but "
+            "has no active members."
+        )
+    elif not has_active_members:
+        coverage_status = "UNMANNED"
+        coverage_warning = (
+            "This ad-hoc approval role has no active members and is not ready for new routing."
+        )
     return {
         "id": approval_role.id,
         "role_code": approval_role.role_code,
@@ -659,10 +769,33 @@ def _serialize_general_charge_code_approval_role(
             }
             for assignment in active_members
         ],
+        "active_member_count": len(active_members),
+        "has_active_members": has_active_members,
+        "dependent_general_charge_code_count": len(dependent_general_charge_codes),
+        "dependent_general_charge_codes": [
+            {
+                "id": general_charge_code.id,
+                "code": general_charge_code.code,
+                "name": general_charge_code.name,
+                "business_unit": {
+                    "id": general_charge_code.business_unit_id,
+                    "bu_code": general_charge_code.business_unit.bu_code,
+                    "name": general_charge_code.business_unit.name,
+                },
+                "status": general_charge_code.status.value_code,
+            }
+            for general_charge_code in dependent_general_charge_codes
+        ],
+        "routing_health": {
+            "status": coverage_status,
+            "warning": coverage_warning,
+        },
     }
 
 
-def _serialize_general_charge_code_approver_role(approver_role: GeneralChargeCodeApproverRole) -> dict:
+def _serialize_general_charge_code_approver_role(
+    approver_role: GeneralChargeCodeApproverRole,
+) -> dict:
     if approver_role.existing_role_id is not None:
         return {
             "key": f"ROLE:{approver_role.existing_role.value_code}",
@@ -670,12 +803,18 @@ def _serialize_general_charge_code_approver_role(approver_role: GeneralChargeCod
             "code": approver_role.existing_role.value_code,
             "name": approver_role.existing_role.value_label,
         }
+    active_member_assignments = _active_general_charge_code_role_assignments(
+        approver_role.approval_role
+    )
     return {
         "key": f"ADHOC:{approver_role.approval_role_id}",
         "kind": "AD_HOC_ROLE",
         "code": approver_role.approval_role.role_code,
         "name": approver_role.approval_role.name,
         "id": approver_role.approval_role_id,
+        "status": approver_role.approval_role.status.value_code,
+        "active_member_count": len(active_member_assignments),
+        "has_active_members": bool(active_member_assignments),
     }
 
 
@@ -1512,7 +1651,8 @@ class CountryManagementService:
         except ProtectedError as exc:
             raise AuthError(
                 "COUNTRY_DELETE_BLOCKED",
-                "Country cannot be deleted because it is still referenced by Offices or other records.",
+                "Country cannot be deleted because it is still referenced by Offices "
+                "or other records.",
                 400,
             ) from exc
 
@@ -1689,7 +1829,9 @@ class OfficeManagementService:
             )
             if new_country_id != office.country_id:
                 new_country = CountryManagementService._refresh_country(new_country_id)
-                changed_fields.append(("country", office.country.country_code, new_country.country_code))
+                changed_fields.append(
+                    ("country", office.country.country_code, new_country.country_code)
+                )
                 office.country = new_country
 
         if "office_name" in payload:
@@ -3698,8 +3840,10 @@ class GeneralChargeCodeApprovalRoleManagementService:
         approval_roles = _apply_status_filter(
             GeneralChargeCodeApprovalRole.objects.select_related("office", "status")
             .prefetch_related(
-                "member_assignments__employee",
+                "member_assignments__employee__status",
                 "member_assignments__status__domain",
+                "general_charge_code_assignments__general_charge_code__business_unit",
+                "general_charge_code_assignments__general_charge_code__status",
             )
             .filter(office_id=current_user.office_id)
             .order_by("role_code"),
@@ -3749,7 +3893,10 @@ class GeneralChargeCodeApprovalRoleManagementService:
             payload,
             code_prefix="GENERAL_CHARGE_CODE_APPROVAL_ROLE",
             expected_office_id=current_office.id,
-            mismatch_message="General Charge Code approval role office must match your active office.",
+            mismatch_message=(
+                "General Charge Code approval role office must match your active "
+                "office."
+            ),
         )
 
         member_employee_ids = (
@@ -3833,6 +3980,7 @@ class GeneralChargeCodeApprovalRoleManagementService:
         )
 
         changed_fields: list[tuple[str, str, str]] = []
+        is_referenced = approval_role.general_charge_code_assignments.exists()
 
         if "role_code" in payload:
             new_role_code = str(payload.get("role_code", "")).strip()
@@ -3869,6 +4017,13 @@ class GeneralChargeCodeApprovalRoleManagementService:
                 "GENERAL_CHARGE_CODE_APPROVAL_ROLE_STATUS",
                 str(payload.get("status_code", "")).strip(),
             )
+            if new_status.value_code != "ACTIVE" and is_referenced:
+                raise AuthError(
+                    "GENERAL_CHARGE_CODE_APPROVAL_ROLE_INACTIVE_BLOCKED",
+                    "Ad-hoc approval roles referenced by General Charge Codes cannot "
+                    "be set inactive.",
+                    400,
+                )
             if new_status.id != approval_role.status_id:
                 changed_fields.append(
                     ("status", approval_role.status.value_code, new_status.value_code)
@@ -3907,6 +4062,13 @@ class GeneralChargeCodeApprovalRoleManagementService:
                 current_user,
                 member_employee_ids,
             )
+            if is_referenced and not member_employee_ids:
+                raise AuthError(
+                    "GENERAL_CHARGE_CODE_APPROVAL_ROLE_MEMBERS_REQUIRED",
+                    "Ad-hoc approval roles referenced by General Charge Codes must "
+                    "keep at least one active member.",
+                    400,
+                )
             GeneralChargeCodeApprovalRoleManagementService._replace_member_assignments(
                 current_user,
                 approval_role,
@@ -3973,8 +4135,10 @@ class GeneralChargeCodeApprovalRoleManagementService:
             approval_role = (
                 GeneralChargeCodeApprovalRole.objects.select_related("office", "status")
                 .prefetch_related(
-                    "member_assignments__employee",
+                    "member_assignments__employee__status",
                     "member_assignments__status__domain",
+                    "general_charge_code_assignments__general_charge_code__business_unit",
+                    "general_charge_code_assignments__general_charge_code__status",
                 )
                 .get(id=approval_role_id)
             )
@@ -3997,8 +4161,10 @@ class GeneralChargeCodeApprovalRoleManagementService:
         return (
             GeneralChargeCodeApprovalRole.objects.select_related("office", "status")
             .prefetch_related(
-                "member_assignments__employee",
+                "member_assignments__employee__status",
                 "member_assignments__status__domain",
+                "general_charge_code_assignments__general_charge_code__business_unit",
+                "general_charge_code_assignments__general_charge_code__status",
             )
             .get(id=approval_role_id)
         )
@@ -4136,6 +4302,23 @@ class GeneralChargeCodeApprovalRoleManagementService:
                 reason_text=reason,
             )
 
+    @staticmethod
+    def _ensure_routing_ready_for_general_charge_code_assignment(
+        approval_role: GeneralChargeCodeApprovalRole,
+    ) -> None:
+        if approval_role.status.value_code != "ACTIVE":
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVER_ROLE_INACTIVE",
+                "Selected ad-hoc approver roles must be active.",
+                400,
+            )
+        if not _active_general_charge_code_role_assignments(approval_role):
+            raise AuthError(
+                "GENERAL_CHARGE_CODE_APPROVER_ROLE_UNMANNED",
+                "Selected ad-hoc approver roles must have at least one active member.",
+                400,
+            )
+
 
 class GeneralChargeCodeManagementService:
     @staticmethod
@@ -4156,6 +4339,9 @@ class GeneralChargeCodeManagementService:
             .prefetch_related(
                 "approver_roles__existing_role",
                 "approver_roles__approval_role",
+                "approver_roles__approval_role__status",
+                "approver_roles__approval_role__member_assignments__employee__status",
+                "approver_roles__approval_role__member_assignments__status__domain",
             )
             .filter(business_unit_id__in=current_user.scoped_business_unit_ids)
             .filter(office_id=current_user.office_id)
@@ -4571,6 +4757,9 @@ class GeneralChargeCodeManagementService:
             ).prefetch_related(
                 "approver_roles__existing_role",
                 "approver_roles__approval_role",
+                "approver_roles__approval_role__status",
+                "approver_roles__approval_role__member_assignments__employee__status",
+                "approver_roles__approval_role__member_assignments__status__domain",
             ).get(id=general_charge_code_id)
         except GeneralChargeCodeRecord.DoesNotExist as exc:
             raise AuthError(
@@ -4596,6 +4785,9 @@ class GeneralChargeCodeManagementService:
         ).prefetch_related(
             "approver_roles__existing_role",
             "approver_roles__approval_role",
+            "approver_roles__approval_role__status",
+            "approver_roles__approval_role__member_assignments__employee__status",
+            "approver_roles__approval_role__member_assignments__status__domain",
         ).get(id=general_charge_code_id)
 
     @staticmethod
@@ -4722,9 +4914,17 @@ class GeneralChargeCodeManagementService:
                     400,
                 ) from exc
 
-        existing_roles = [_ref_value("ROLE_CODE", role_code) for role_code in sorted(existing_role_codes)]
+        existing_roles = [
+            _ref_value("ROLE_CODE", role_code)
+            for role_code in sorted(existing_role_codes)
+        ]
         ad_hoc_roles = list(
-            GeneralChargeCodeApprovalRole.objects.select_related("status").filter(id__in=ad_hoc_role_ids)
+            GeneralChargeCodeApprovalRole.objects.select_related("status")
+            .prefetch_related(
+                "member_assignments__employee__status",
+                "member_assignments__status__domain",
+            )
+            .filter(id__in=ad_hoc_role_ids)
         )
         if len(ad_hoc_roles) != len(ad_hoc_role_ids):
             raise AuthError(
@@ -4733,12 +4933,18 @@ class GeneralChargeCodeManagementService:
                 400,
             )
         for approval_role in ad_hoc_roles:
-            if approval_role.office_id != office_id or approval_role.office_id != current_user.office_id:
+            if (
+                approval_role.office_id != office_id
+                or approval_role.office_id != current_user.office_id
+            ):
                 raise AuthError(
                     "GENERAL_CHARGE_CODE_APPROVER_ROLE_OUT_OF_SCOPE",
                     "Ad-hoc approver roles must belong to the active office.",
                     403,
                 )
+            GeneralChargeCodeApprovalRoleManagementService._ensure_routing_ready_for_general_charge_code_assignment(
+                approval_role
+            )
         return existing_roles, sorted(ad_hoc_roles, key=lambda role: role.role_code)
 
     @staticmethod
@@ -6363,7 +6569,9 @@ class ProjectManagementService:
             message=f"{code_prefix.lower()}_employee_id is required.",
         )
         try:
-            employee = Employee.objects.select_related("office", "status").get(id=resolved_employee_id)
+            employee = Employee.objects.select_related("office", "status").get(
+                id=resolved_employee_id
+            )
         except Employee.DoesNotExist as exc:
             raise AuthError("EMPLOYEE_NOT_FOUND", "Employee not found.", 404) from exc
         _ensure_office_in_scope(
