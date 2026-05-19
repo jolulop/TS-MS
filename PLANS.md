@@ -2,6 +2,12 @@
 
 ## Active Plans
 
+- `2026-05-19`: `docs/plans/2026-05-19-employee-office-transfer.md`
+  - status: completed
+  - focus: add a master-only cross-Office employee transfer workflow that archives the source employee record and creates a new target-Office employee safely
+- `2026-05-19`: `docs/plans/2026-05-19-docs-v5.9.1-promotion.md`
+  - status: completed
+  - focus: publish the v5.9.1 markdown source-of-truth set and repoint repo guidance to it after report, admin API, and GCC governance updates
 - `2026-05-19`: `docs/plans/2026-05-19-general-charge-code-routing-governance.md`
   - status: completed
   - focus: add richer GCC approval-role visibility plus guardrails against unmanned or inactive ad-hoc routing dependencies
@@ -104,7 +110,7 @@
 
 Historical note:
 - completed plan files intentionally preserve the source-document references and milestone wording that existed when those plans were written
-- use `AGENTS.md`, this file, and the v5.8 markdown spec set for current implementation work
+- use `AGENTS.md`, this file, and the v5.9.1 markdown spec set for current implementation work
 
 ## Purpose
 

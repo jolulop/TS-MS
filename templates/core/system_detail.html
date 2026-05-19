@@ -88,7 +88,16 @@
                   {% csrf_token %}
                   <input type="hidden" name="form_name" value="{{ section.form_name }}">
                   {% include "core/partials/form_fields.html" with fields=section.fields field_grid_class=section.fields_grid_class %}
-                  <div>
+                  <div class="button-row">
+                    {% if section.extra_actions %}
+                      {% for action in section.extra_actions %}
+                        <button
+                          class="{{ action.button_class|default:'button secondary' }}"
+                          type="submit"
+                          name="form_action"
+                          value="{{ action.form_name }}">{{ action.label }}</button>
+                      {% endfor %}
+                    {% endif %}
                     <button class="button" type="submit">{{ section.submit_label }}</button>
                   </div>
                 </form>
@@ -142,7 +151,16 @@
                 {% csrf_token %}
                 <input type="hidden" name="form_name" value="{{ section.form_name }}">
                 {% include "core/partials/form_fields.html" with fields=section.fields field_grid_class=section.fields_grid_class %}
-                <div>
+                <div class="button-row">
+                  {% if section.extra_actions %}
+                    {% for action in section.extra_actions %}
+                      <button
+                        class="{{ action.button_class|default:'button secondary' }}"
+                        type="submit"
+                        name="form_action"
+                        value="{{ action.form_name }}">{{ action.label }}</button>
+                    {% endfor %}
+                  {% endif %}
                   <button class="button" type="submit">{{ section.submit_label }}</button>
                 </div>
               </form>

@@ -237,10 +237,12 @@ def test_ts_admin_master_sees_country_management_only() -> None:
     assert "System Management" in dashboard_content
     assert "Countries" in dashboard_content
     assert "Offices" in dashboard_content
+    assert "Employee Transfers" in dashboard_content
     assert "Employees" not in dashboard_content
     assert system_response.status_code == 200
     assert "Countries" in system_content
     assert "Offices" in system_content
+    assert "Employee Transfers" in system_content
     assert "Employees" not in system_content
     assert countries_response.status_code == 200
     assert "Country Management" in countries_response.content.decode()
@@ -248,6 +250,17 @@ def test_ts_admin_master_sees_country_management_only() -> None:
     assert "Office Management" in offices_response.content.decode()
     assert employees_response.status_code == 403
     assert "Access Denied" in employees_response.content.decode()
+    system_group = next(
+        group
+        for group in system_response.context["navigation_groups"]
+        if group.label == "System Management"
+    )
+    assert [item.label for item in system_group.items] == [
+        "System Management",
+        "Countries",
+        "Offices",
+        "Employee Transfers",
+    ]
 
 
 @pytest.mark.django_db

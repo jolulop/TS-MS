@@ -15,6 +15,7 @@ from apps.master_data.models import (
     Country,
     Employee,
     GeneralChargeCodeApprovalRole,
+    Office,
     Project,
     YearlyCalendar,
 )
@@ -126,6 +127,7 @@ def _system_section_links(current_user: CurrentUser, current_path: str) -> list[
             [
                 ("countries", "Countries", "/system/countries/"),
                 ("offices", "Offices", "/system/offices/"),
+                ("employee-transfers", "Employee Transfers", "/system/employee-transfers/new/"),
             ]
         )
     if current_user.is_ts_admin:
@@ -285,6 +287,30 @@ def _country_options(
     return options
 
 
+def _active_office_options(
+    *,
+    selected: object = None,
+    include_blank: bool = False,
+    exclude_office_id: int | None = None,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select an Office", selected_values=selected_values))
+    offices = Office.objects.filter(status__value_code="ACTIVE").order_by("office_name")
+    if exclude_office_id is not None:
+        offices = offices.exclude(id=exclude_office_id)
+    options.extend(
+        _option(
+            office.id,
+            office.office_name,
+            selected_values=selected_values,
+        )
+        for office in offices
+    )
+    return options
+
+
 def _scoped_business_unit_options(
     current_user: CurrentUser,
     *,
@@ -306,6 +332,60 @@ def _scoped_business_unit_options(
             selected_values=selected_values,
         )
         for business_unit in business_units
+    )
+    return options
+
+
+def _master_business_unit_options(
+    *,
+    selected: object = None,
+    include_blank: bool = False,
+    office_id: int | None = None,
+    exclude_office_id: int | None = None,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select a Business Unit", selected_values=selected_values))
+    business_units = BusinessUnit.objects.select_related("office").filter(
+        office__status__value_code="ACTIVE"
+    )
+    if office_id is not None:
+        business_units = business_units.filter(office_id=office_id)
+    if exclude_office_id is not None:
+        business_units = business_units.exclude(office_id=exclude_office_id)
+    business_units = business_units.order_by("office__office_name", "bu_code")
+    options.extend(
+        _option(
+            business_unit.id,
+            f"{business_unit.office.office_name} / {business_unit.bu_code} - {business_unit.name}",
+            selected_values=selected_values,
+        )
+        for business_unit in business_units
+    )
+    return options
+
+
+def _employee_transfer_candidate_options(
+    candidates: list[dict],
+    *,
+    selected: object = None,
+    include_blank: bool = False,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select an Employee", selected_values=selected_values))
+    options.extend(
+        _option(
+            employee["id"],
+            (
+                f"{employee['employee_code']} - {employee['full_name']} / "
+                f"{employee['office']['office_name']} / {employee['email']}"
+            ),
+            selected_values=selected_values,
+        )
+        for employee in candidates
     )
     return options
 
@@ -943,6 +1023,226 @@ def _employee_business_unit_fields(
             options=_scoped_business_unit_options(current_user, selected=selected_scope),
             help_text=help_text,
         ),
+    ]
+
+
+def _employee_transfer_source_fields(
+    candidates: list[dict],
+    *,
+    office_filter_id: object = "",
+    primary_business_unit_filter_id: object = "",
+    full_name_filter: str = "",
+    selected_source_id: object = "",
+) -> list[dict]:
+    filtered_office_id = None
+    if str(office_filter_id).strip():
+        try:
+            filtered_office_id = int(str(office_filter_id).strip())
+        except ValueError:
+            filtered_office_id = None
+    return [
+        _field(
+            name="filter_office_id",
+            label="Office",
+            kind="select",
+            options=_active_office_options(
+                selected=office_filter_id,
+                include_blank=True,
+            ),
+        ),
+        _field(
+            name="filter_primary_business_unit_id",
+            label="Primary BU",
+            kind="select",
+            options=_master_business_unit_options(
+                selected=primary_business_unit_filter_id,
+                include_blank=True,
+                office_id=filtered_office_id,
+            ),
+        ),
+        _field(
+            name="filter_full_name",
+            label="Full Name",
+            kind="text",
+            value=full_name_filter,
+            help_text="Search source employees by full name text.",
+        ),
+        _field(
+            name="source_employee_id",
+            label="Source Employee",
+            kind="select",
+            options=_employee_transfer_candidate_options(
+                candidates,
+                selected=selected_source_id,
+                include_blank=True,
+            ),
+            help_text=(
+                "Choose the active source employee record that should be archived "
+                "and recreated in another Office."
+            ),
+            width_mode="full",
+        )
+    ]
+
+
+def _employee_transfer_fields(
+    source_employee: dict,
+    *,
+    post_data: QueryDict | None = None,
+) -> list[dict]:
+    selected_target_roles = (
+        post_data.getlist("target_role_codes")
+        if post_data is not None
+        else source_employee["role_codes"]
+    )
+    selected_target_business_units = (
+        post_data.getlist("target_business_unit_ids") if post_data is not None else []
+    )
+    return [
+        _field(
+            name="source_employee_id",
+            label="Source Employee",
+            kind="hidden",
+            value=source_employee["id"],
+        ),
+        _field(
+            name="new_employee_code",
+            label="New Employee Code",
+            kind="text",
+            value=(
+                post_data.get("new_employee_code", f"{source_employee['employee_code']}-XFER")
+                if post_data is not None
+                else f"{source_employee['employee_code']}-XFER"
+            ),
+            required=True,
+            help_text=(
+                "The source employee code stays on the historical record. "
+                "The target Office record needs a new unique employee code."
+            ),
+        ),
+        _field(
+            name="target_office_id",
+            label="Target Office",
+            kind="select",
+            options=_active_office_options(
+                selected=post_data.get("target_office_id", "") if post_data is not None else "",
+                include_blank=True,
+                exclude_office_id=source_employee["office"]["id"],
+            ),
+            required=True,
+        ),
+        _field(
+            name="target_primary_business_unit_id",
+            label="Target Primary Business Unit",
+            kind="select",
+            options=_master_business_unit_options(
+                selected=(
+                    post_data.get("target_primary_business_unit_id", "")
+                    if post_data is not None
+                    else ""
+                ),
+                include_blank=True,
+                exclude_office_id=source_employee["office"]["id"],
+            ),
+            required=True,
+        ),
+        _field(
+            name="target_business_unit_ids",
+            label="Target Additional Business Units",
+            kind="multiselect",
+            options=_master_business_unit_options(
+                selected=selected_target_business_units,
+                exclude_office_id=source_employee["office"]["id"],
+            ),
+            help_text=(
+                "Select any additional Business Units for the target record. "
+                "Use only Business Units from the selected target Office. "
+                "If the target roles include TS_ADMIN, full target-Office scope is applied "
+                "automatically."
+            ),
+        ),
+        _field(
+            name="target_role_codes",
+            label="Target Role Codes",
+            kind="multiselect",
+            options=_ref_options("ROLE_CODE", selected=selected_target_roles),
+            help_text=(
+                "The new target-Office employee starts with these active TS roles. "
+                "The source employee roles are selected by default."
+            ),
+        ),
+        _field(
+            name="archived_email_preview",
+            label="Archived Source Email",
+            kind="email",
+            value=source_employee["archived_email_preview"],
+            readonly=True,
+            help_text=(
+                "The source record will be rewritten to this archival email so the real "
+                "login email can move to the new target-Office employee."
+            ),
+            width_mode="full",
+        ),
+    ]
+
+
+def _employee_transfer_source_rows(source_employee: dict) -> list[tuple[str, str]]:
+    return [
+        ("Employee Code", source_employee["employee_code"]),
+        ("Full Name", source_employee["full_name"]),
+        ("Email", source_employee["email"]),
+        ("Office", source_employee["office"]["office_name"]),
+        (
+            "Primary Business Unit",
+            source_employee["primary_business_unit"]["bu_code"],
+        ),
+        (
+            "Business Unit Scope",
+            (
+                ", ".join(
+                    business_unit["bu_code"]
+                    for business_unit in source_employee["business_units"]
+                )
+                or "None"
+            ),
+        ),
+        ("Role Codes", ", ".join(source_employee["role_codes"]) or "None"),
+    ]
+
+
+def _employee_transfer_readiness_rows(source_employee: dict) -> list[tuple[str, str]]:
+    blockers = source_employee.get("transfer_blockers", [])
+    if not blockers:
+        return [
+            ("Status", "READY"),
+            (
+                "Outcome",
+                "No active cross-Office transfer blockers were detected for the source employee.",
+            ),
+        ]
+    rows = [("Status", "BLOCKED")]
+    rows.extend(
+        (blocker["label"], f"{blocker['count']} — {blocker['message']}") for blocker in blockers
+    )
+    return rows
+
+
+def _employee_transfer_result_rows(label: str, employee: dict) -> list[tuple[str, str]]:
+    return [
+        ("Record", label),
+        ("Employee Id", str(employee["id"])),
+        ("Employee Code", employee["employee_code"]),
+        ("Full Name", employee["full_name"]),
+        ("Email", employee["email"]),
+        ("Status", employee["status"]),
+        ("Office", employee["office"]["office_name"]),
+        ("Primary Business Unit", employee["primary_business_unit"]["bu_code"]),
+        (
+            "Business Unit Scope",
+            ", ".join(business_unit["bu_code"] for business_unit in employee["business_units"])
+            or "None",
+        ),
+        ("Role Codes", ", ".join(employee["role_codes"]) or "None"),
     ]
 
 
@@ -2718,7 +3018,10 @@ def _project_assignment_rows(assignments: list[dict]) -> list[dict]:
             "cells": [
                 assignment["project"]["business_unit"]["bu_code"],
                 assignment["project"]["project_code"],
-                assignment["employee"]["employee_code"],
+                (
+                    f"{assignment['employee']['employee_code']} - "
+                    f"{assignment['employee']['full_name']}"
+                ),
                 assignment["assignment_start_date"],
                 assignment["assignment_end_date"] or "Open-ended",
                 assignment["status"],
@@ -2732,7 +3035,10 @@ def _project_assignment_detail_rows(assignment: dict) -> list[tuple[str, str]]:
     return [
         ("Business Unit", assignment["project"]["business_unit"]["bu_code"]),
         ("Project", assignment["project"]["project_code"]),
-        ("Employee", assignment["employee"]["employee_code"]),
+        (
+            "Employee",
+            f"{assignment['employee']['employee_code']} - {assignment['employee']['full_name']}",
+        ),
         ("Assignment Start Date", assignment["assignment_start_date"]),
         ("Assignment End Date", assignment["assignment_end_date"] or "Open-ended"),
         ("Status", assignment["status"]),
@@ -4374,6 +4680,188 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
         show_detail_panel=False,
         detail_content_class="employee-detail-layout",
         page_action={"label": "Back to Employees", "href": "/system/employees/"},
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def employee_transfer_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin_master(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    selected_source_id = ""
+    source_employee = None
+    transfer_result = None
+    form_error = ""
+    active_form = "select_source"
+    post_data = request.POST if request.method == "POST" else None
+    filter_office_id = request.POST.get("filter_office_id", "").strip() if post_data else ""
+    filter_primary_business_unit_id = (
+        request.POST.get("filter_primary_business_unit_id", "").strip() if post_data else ""
+    )
+    filter_full_name = request.POST.get("filter_full_name", "").strip() if post_data else ""
+
+    try:
+        source_candidates = EmployeeManagementService.list_transfer_candidates_filtered(
+            current_user,
+            office_id=filter_office_id,
+            primary_business_unit_id=filter_primary_business_unit_id,
+            full_name_query=filter_full_name,
+        )
+    except AuthError as error:
+        source_candidates = EmployeeManagementService.list_transfer_candidates(current_user)
+        form_error = error.message
+
+    if request.method == "POST":
+        active_form = request.POST.get("form_action") or request.POST.get(
+            "form_name", "select_source"
+        )
+        selected_source_id = request.POST.get("source_employee_id", "").strip()
+        if active_form == "transfer":
+            try:
+                transfer_result = EmployeeManagementService.transfer_employee_to_office(
+                    current_user,
+                    int(selected_source_id),
+                    {
+                        "new_employee_code": request.POST.get("new_employee_code", ""),
+                        "target_office_id": request.POST.get("target_office_id", ""),
+                        "target_primary_business_unit_id": request.POST.get(
+                            "target_primary_business_unit_id", ""
+                        ),
+                        "target_business_unit_ids": request.POST.getlist(
+                            "target_business_unit_ids"
+                        ),
+                        "target_role_codes": request.POST.getlist("target_role_codes"),
+                    },
+                )
+            except (AuthError, ValueError) as error:
+                form_error = error.message if isinstance(error, AuthError) else (
+                    "Select a valid source employee before starting the transfer."
+                )
+            else:
+                selected_source_id = str(transfer_result["source_employee"]["id"])
+
+    if selected_source_id and transfer_result is None:
+        try:
+            source_employee = EmployeeManagementService.get_transfer_candidate(
+                current_user,
+                int(selected_source_id),
+            )
+        except (AuthError, ValueError) as error:
+            form_error = error.message if isinstance(error, AuthError) else (
+                "Select a valid source employee to continue."
+            )
+            selected_source_id = ""
+
+    form_sections = [
+        {
+            "form_name": "select_source",
+            "title": "Source Employee",
+            "intro": (
+                "Load an active employee record before configuring the Office transfer workflow."
+            ),
+            "submit_label": "Load Transfer Setup",
+            "extra_actions": [
+                {
+                    "form_name": "apply_filters",
+                    "label": "Apply Filters",
+                    "button_class": "button secondary",
+                }
+            ],
+            "form_error": form_error if active_form in {"select_source", "apply_filters"} else "",
+            "fields_grid_class": "three-column",
+            "fields": _employee_transfer_source_fields(
+                source_candidates,
+                office_filter_id=filter_office_id,
+                primary_business_unit_filter_id=filter_primary_business_unit_id,
+                full_name_filter=filter_full_name,
+                selected_source_id=selected_source_id,
+            ),
+        }
+    ]
+
+    if transfer_result is not None:
+        form_sections.extend(
+            [
+                _read_only_detail_section(
+                    title="Source Employee Archived",
+                    intro=(
+                        "The original employee record is preserved in the source Office as a "
+                        "historical inactive record."
+                    ),
+                    detail_rows=_employee_transfer_result_rows(
+                        "Archived Source",
+                        transfer_result["source_employee"],
+                    ),
+                ),
+                _read_only_detail_section(
+                    title="Target Employee Created",
+                    intro=(
+                        "The new target-Office employee record now owns the live login email "
+                        "and operational scope."
+                    ),
+                    detail_rows=_employee_transfer_result_rows(
+                        "New Target",
+                        transfer_result["target_employee"],
+                    ),
+                ),
+            ]
+        )
+    elif source_employee is not None:
+        form_sections.append(
+            _read_only_detail_section(
+                title="Source Employee Summary",
+                intro="Review the source identity, scope, and roles before transferring it.",
+                detail_rows=_employee_transfer_source_rows(source_employee),
+            )
+        )
+        form_sections.append(
+            {
+                **_read_only_detail_section(
+                    title="Transfer Readiness",
+                    intro=(
+                        "The source employee must be free of active operational dependencies "
+                        "before the archive-and-recreate transfer can proceed."
+                    ),
+                    detail_rows=_employee_transfer_readiness_rows(source_employee),
+                ),
+                "form_error": form_error if active_form == "transfer" else "",
+            }
+        )
+        if source_employee["can_transfer"]:
+            form_sections.append(
+                {
+                    "form_name": "transfer",
+                    "title": "Target Setup",
+                    "intro": (
+                        "Archive the source record and create a new active employee in the "
+                        "target Office."
+                    ),
+                    "submit_label": "Transfer Employee",
+                    "form_error": form_error if active_form == "transfer" else "",
+                    "fields": _employee_transfer_fields(
+                        source_employee,
+                        post_data=post_data if active_form == "transfer" else None,
+                    ),
+                }
+            )
+
+    return _render_detail_page(
+        request,
+        current_user,
+        title="Employee Transfer",
+        eyebrow="SCR-112",
+        intro=(
+            "Cross-Office employee transfer screen for safely archiving the source record and "
+            "creating a new target-Office employee."
+        ),
+        detail_rows=[],
+        form_sections=form_sections,
+        back_href="/system/",
+        back_label="Back to System Management",
+        entity_status="Ready",
+        show_detail_panel=False,
+        page_action={"label": "Back to System Management", "href": "/system/"},
     )
 
 

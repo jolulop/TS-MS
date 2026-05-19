@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from apps.auth.policies import AuthorizationPolicyService
 from apps.auth.context import CurrentUser
+from apps.auth.policies import AuthorizationPolicyService
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,10 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
             _nav_item(
                 label="Project Management",
                 href="/ts/projects/",
-                summary="Role-aware project summary with drill-down access into project, approval, and reporting screens.",
+                summary=(
+                    "Role-aware project summary with drill-down access into project, "
+                    "approval, and reporting screens."
+                ),
                 current_path=current_path,
             )
         )
@@ -126,6 +129,15 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         label="Offices",
                         href="/system/offices/",
                         summary="Office lifecycle management for master administration.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Employee Transfers",
+                        href="/system/employee-transfers/new/",
+                        summary=(
+                            "Cross-Office employee transfer workflow for safely archiving "
+                            "source records and creating new target-Office records."
+                        ),
                         current_path=current_path,
                     ),
                 ]
@@ -225,7 +237,10 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                     _nav_item(
                         label="Project Assignments",
                         href="/system/project-assignments/",
-                        summary="Owned project staffing and assignment lifecycle management screens.",
+                        summary=(
+                            "Owned project staffing and assignment lifecycle management "
+                            "screens."
+                        ),
                         current_path=current_path,
                     ),
                 ]
@@ -236,7 +251,10 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                     _nav_item(
                         label="Project Assignments",
                         href="/system/project-assignments/",
-                        summary="Managed project staffing and assignment lifecycle management screens.",
+                        summary=(
+                            "Managed project staffing and assignment lifecycle management "
+                            "screens."
+                        ),
                         current_path=current_path,
                     ),
                 ]

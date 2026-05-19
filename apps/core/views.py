@@ -147,6 +147,15 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         "status": "Ready now",
                         "href": "/system/offices/",
                     },
+                    {
+                        "title": "Employee Transfers",
+                        "summary": (
+                            "Safely move a real person across Offices by archiving the "
+                            "source employee record and creating a new target-Office record."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/employee-transfers/new/",
+                    },
                 ]
             )
         if current_user.is_ts_admin:

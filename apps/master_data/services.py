@@ -48,6 +48,7 @@ from apps.master_data.models import (
     PricingModel as PricingModelRecord,
 )
 from apps.reference_data.models import RefValue
+from apps.timesheets.models import ApprovalItem, WeeklyTimesheet
 
 
 def _ref_value(domain_code: str, value_code: str) -> RefValue:
@@ -503,6 +504,162 @@ def _serialize_employee(employee: Employee) -> dict:
             for business_unit in active_business_units
         ],
     }
+
+
+def _refresh_employee_for_transfer(employee_id: int) -> Employee:
+    return (
+        Employee.objects.select_related(
+            "primary_business_unit",
+            "office",
+            "office__status",
+            "status",
+        )
+        .prefetch_related(
+            "business_unit_assignments__business_unit",
+            "business_unit_assignments__status__domain",
+            "role_assignments__role",
+            "role_assignments__status__domain",
+        )
+        .get(id=employee_id)
+    )
+
+
+def _get_employee_for_transfer(employee_id: int) -> Employee:
+    try:
+        return _refresh_employee_for_transfer(employee_id)
+    except Employee.DoesNotExist as exc:
+        raise AuthError("EMPLOYEE_NOT_FOUND", "Employee not found.", 404) from exc
+
+
+def _build_archived_email(email: str, employee_id: int) -> str:
+    normalized_email = email.strip()
+    local_part, separator, domain_part = normalized_email.partition("@")
+    if not separator:
+        local_part = local_part or f"employee-{employee_id}"
+        domain_part = "archived.local"
+    archived_local = local_part or f"employee-{employee_id}"
+    base_email = f"{archived_local}+archived-{employee_id}@{domain_part}"
+    candidate = base_email
+    counter = 1
+    while Employee.objects.filter(canonical_email=canonicalize_email(candidate)).exists():
+        candidate = f"{archived_local}+archived-{employee_id}-{counter}@{domain_part}"
+        counter += 1
+    return candidate
+
+
+def _active_transfer_candidate_queryset():
+    return (
+        Employee.objects.select_related(
+            "primary_business_unit",
+            "office",
+            "office__status",
+            "status",
+        )
+        .prefetch_related(
+            "business_unit_assignments__business_unit",
+            "business_unit_assignments__status__domain",
+            "role_assignments__role",
+            "role_assignments__status__domain",
+        )
+        .filter(status__value_code="ACTIVE")
+        .order_by("office__office_name", "employee_code")
+    )
+
+
+def _employee_transfer_blockers(employee: Employee) -> list[dict]:
+    today = date.today()
+    blockers: list[dict] = []
+
+    def add_blocker(code: str, label: str, count: int, message: str) -> None:
+        if count <= 0:
+            return
+        blockers.append(
+            {
+                "code": code,
+                "label": label,
+                "count": count,
+                "message": message,
+            }
+        )
+
+    add_blocker(
+        "OPEN_TIMESHEETS",
+        "Open Timesheets",
+        WeeklyTimesheet.objects.filter(employee_id=employee.id)
+        .exclude(status__value_code__in={"APPROVED", "ARCHIVED"})
+        .count(),
+        "Close, submit, or resolve the employee's non-final timesheets before transfer.",
+    )
+    add_blocker(
+        "DIRECT_REPORTS",
+        "Active Direct Reports",
+        Employee.objects.filter(
+            manager_employee_id=employee.id,
+            status__value_code="ACTIVE",
+        ).count(),
+        "Reassign or clear active direct-report relationships before transfer.",
+    )
+    add_blocker(
+        "OWNED_PROJECTS",
+        "Active Owned Projects",
+        Project.objects.filter(
+            project_owner_employee_id=employee.id,
+            status__value_code="ACTIVE",
+        ).count(),
+        "Reassign active project ownership before transfer.",
+    )
+    add_blocker(
+        "MANAGED_PROJECTS",
+        "Active Managed Projects",
+        Project.objects.filter(
+            project_manager_employee_id=employee.id,
+            status__value_code="ACTIVE",
+        ).count(),
+        "Reassign active project management before transfer.",
+    )
+    add_blocker(
+        "PROJECT_ASSIGNMENTS",
+        "Active Project Assignments",
+        ProjectAssignment.objects.filter(
+            employee_id=employee.id,
+            status__value_code="ACTIVE",
+            assignment_start_date__lte=today,
+        )
+        .filter(Q(assignment_end_date__isnull=True) | Q(assignment_end_date__gte=today))
+        .count(),
+        "Close or reassign active project staffing before transfer.",
+    )
+    add_blocker(
+        "GCC_APPROVAL_ROLE_ASSIGNMENTS",
+        "Active GCC Approval Memberships",
+        GeneralChargeCodeApprovalRoleAssignment.objects.filter(
+            employee_id=employee.id,
+            status__value_code="ACTIVE",
+            valid_from__lte=today,
+        )
+        .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=today))
+        .count(),
+        "Remove or reassign active General Charge Code approval-role memberships before transfer.",
+    )
+    add_blocker(
+        "PENDING_APPROVAL_ITEMS",
+        "Pending Approval Items",
+        ApprovalItem.objects.filter(
+            approver_employee_id=employee.id,
+            status__value_code="PENDING",
+        ).count(),
+        "Resolve or reroute pending approval items before transfer.",
+    )
+    return blockers
+
+
+def _serialize_employee_transfer_summary(employee: Employee) -> dict:
+    payload = _serialize_employee(employee)
+    blockers = _employee_transfer_blockers(employee)
+    payload["transfer_blockers"] = blockers
+    payload["can_transfer"] = not blockers
+    payload["archived_email_preview"] = _build_archived_email(employee.email, employee.id)
+    return payload
 
 
 def _serialize_client(client: ClientRecord) -> dict:
@@ -2306,6 +2463,269 @@ class EmployeeManagementService:
         return _serialize_employee(employee)
 
     @staticmethod
+    def list_transfer_candidates(current_user: CurrentUser) -> list[dict]:
+        _ensure_ts_admin_master(current_user)
+        employees = _active_transfer_candidate_queryset().exclude(id=current_user.employee_id)
+        return [_serialize_employee_transfer_summary(employee) for employee in employees]
+
+    @staticmethod
+    def list_transfer_candidates_filtered(
+        current_user: CurrentUser,
+        *,
+        office_id: object = None,
+        primary_business_unit_id: object = None,
+        full_name_query: str = "",
+    ) -> list[dict]:
+        _ensure_ts_admin_master(current_user)
+        employees = _active_transfer_candidate_queryset().exclude(id=current_user.employee_id)
+        if office_id not in (None, ""):
+            employees = employees.filter(
+                office_id=_parse_required_int(
+                    office_id,
+                    code="EMPLOYEE_TRANSFER_FILTER_OFFICE_INVALID",
+                    message="Office filter must be a valid Office identifier.",
+                )
+            )
+        if primary_business_unit_id not in (None, ""):
+            employees = employees.filter(
+                primary_business_unit_id=_parse_required_int(
+                    primary_business_unit_id,
+                    code="EMPLOYEE_TRANSFER_FILTER_PRIMARY_BU_INVALID",
+                    message="Primary BU filter must be a valid Business Unit identifier.",
+                )
+            )
+        normalized_query = full_name_query.strip()
+        if normalized_query:
+            employees = employees.filter(full_name__icontains=normalized_query)
+        return [_serialize_employee_transfer_summary(employee) for employee in employees]
+
+    @staticmethod
+    def get_transfer_candidate(current_user: CurrentUser, employee_id: int) -> dict:
+        _ensure_ts_admin_master(current_user)
+        employee = _get_employee_for_transfer(employee_id)
+        return _serialize_employee_transfer_summary(employee)
+
+    @staticmethod
+    @transaction.atomic
+    def transfer_employee_to_office(
+        current_user: CurrentUser,
+        source_employee_id: int,
+        payload: dict,
+    ) -> dict:
+        _ensure_ts_admin_master(current_user)
+        actor_employee = _actor_employee(current_user)
+
+        if current_user.employee_id == source_employee_id:
+            raise AuthError(
+                "EMPLOYEE_TRANSFER_SELF_BLOCKED",
+                "You cannot transfer your own current employee record.",
+                400,
+            )
+
+        source_employee = _get_employee_for_transfer(source_employee_id)
+        if source_employee.status.value_code != "ACTIVE":
+            raise AuthError(
+                "EMPLOYEE_TRANSFER_SOURCE_INACTIVE",
+                "Only active employees can be transferred.",
+                400,
+            )
+
+        blockers = _employee_transfer_blockers(source_employee)
+        if blockers:
+            blocker_summary = "; ".join(
+                f"{blocker['label']}: {blocker['count']}" for blocker in blockers
+            )
+            raise AuthError(
+                "EMPLOYEE_TRANSFER_BLOCKED",
+                f"Employee transfer is blocked until these active dependencies are resolved: "
+                f"{blocker_summary}.",
+                400,
+            )
+
+        new_employee_code = str(payload.get("new_employee_code", "")).strip()
+        if not new_employee_code:
+            raise AuthError(
+                "EMPLOYEE_TRANSFER_CODE_REQUIRED",
+                "New employee code is required for the target Office record.",
+                400,
+            )
+        if Employee.objects.filter(employee_code=new_employee_code).exists():
+            raise AuthError(
+                "EMPLOYEE_CODE_NOT_UNIQUE",
+                "Employee code must be unique.",
+                400,
+            )
+
+        target_office_id = _parse_required_int(
+            payload.get("target_office_id"),
+            code="EMPLOYEE_TRANSFER_TARGET_OFFICE_REQUIRED",
+            message="target_office_id is required.",
+        )
+        try:
+            target_office = Office.objects.select_related("status").get(id=target_office_id)
+        except Office.DoesNotExist as exc:
+            raise AuthError("COUNTRY_NOT_FOUND", "Target Office not found.", 404) from exc
+        if target_office.id == source_employee.office_id:
+            raise AuthError(
+                "EMPLOYEE_TRANSFER_SAME_OFFICE",
+                "Source and target Offices must be different.",
+                400,
+            )
+        _ensure_office_active_for_write(
+            target_office,
+            message="Target Office must be active before an employee can be transferred into it.",
+        )
+
+        primary_business_unit_id, business_unit_ids = _parse_business_unit_scope(
+            {
+                "primary_business_unit_id": payload.get("target_primary_business_unit_id"),
+                "business_unit_ids": payload.get("target_business_unit_ids", []),
+            }
+        )
+        role_codes = _parse_role_codes({"role_codes": payload.get("target_role_codes", [])})
+
+        try:
+            target_primary_business_unit = BusinessUnit.objects.select_related("office").get(
+                id=primary_business_unit_id
+            )
+        except BusinessUnit.DoesNotExist as exc:
+            raise AuthError(
+                "BUSINESS_UNIT_NOT_FOUND",
+                "Target primary Business Unit not found.",
+                404,
+            ) from exc
+        if target_primary_business_unit.office_id != target_office.id:
+            raise AuthError(
+                "EMPLOYEE_TRANSFER_TARGET_OFFICE_MISMATCH",
+                "Target primary Business Unit must belong to the selected target Office.",
+                400,
+            )
+
+        archived_email = _build_archived_email(source_employee.email, source_employee.id)
+        source_email = source_employee.email
+        serialized_source_employee = _serialize_employee(source_employee)
+        source_role_codes = serialized_source_employee["role_codes"]
+        source_scope_codes = [
+            business_unit["bu_code"]
+            for business_unit in serialized_source_employee["business_units"]
+        ]
+
+        source_employee.email = archived_email
+        source_employee.canonical_email = canonicalize_email(archived_email)
+        source_employee.status = _ref_value("EMPLOYEE_STATUS", "INACTIVE")
+        source_employee.updated_by = current_user.email
+        source_employee.save(
+            update_fields=["email", "canonical_email", "status", "updated_by", "updated_at"]
+        )
+
+        write_audit_event(
+            action_code="UPDATE",
+            entity_name="employee",
+            entity_id=source_employee.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=source_employee.primary_business_unit,
+            field_name="email",
+            old_value=source_email,
+            new_value=archived_email,
+            reason_text="Employee source record email archived during Office transfer.",
+        )
+        write_audit_event(
+            action_code="UPDATE",
+            entity_name="employee",
+            entity_id=source_employee.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=source_employee.primary_business_unit,
+            field_name="status",
+            old_value="ACTIVE",
+            new_value="INACTIVE",
+            reason_text="Employee source record deactivated during Office transfer.",
+        )
+
+        EmployeeManagementService._replace_role_assignments(
+            current_user,
+            source_employee,
+            actor_employee=actor_employee,
+            role_codes=[],
+            reason="Employee roles closed on source record during Office transfer.",
+        )
+        EmployeeManagementService._deactivate_business_unit_assignments(
+            current_user,
+            source_employee,
+            actor_employee=actor_employee,
+            reason="Employee Business Unit scope closed on source record during Office transfer.",
+        )
+
+        target_employee = Employee.objects.create(
+            employee_code=new_employee_code,
+            full_name=source_employee.full_name,
+            email=source_email,
+            canonical_email=canonicalize_email(source_email),
+            office=target_office,
+            status=_ref_value("EMPLOYEE_STATUS", "ACTIVE"),
+            primary_business_unit=target_primary_business_unit,
+            created_by=current_user.email,
+            updated_by=current_user.email,
+        )
+
+        EmployeeManagementService._replace_business_unit_assignments(
+            current_user,
+            target_employee,
+            actor_employee=actor_employee,
+            primary_business_unit_id=primary_business_unit_id,
+            business_unit_ids=business_unit_ids,
+            reason="Employee Business Unit scope created during Office transfer.",
+            enforce_current_office_scope=False,
+            force_full_office_scope="TS_ADMIN" in role_codes,
+        )
+        EmployeeManagementService._replace_role_assignments(
+            current_user,
+            target_employee,
+            actor_employee=actor_employee,
+            role_codes=role_codes,
+            reason="Employee roles created during Office transfer.",
+        )
+
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="employee",
+            entity_id=target_employee.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=target_employee.primary_business_unit,
+            reason_text="Employee target record created during Office transfer.",
+        )
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="employee_transfer",
+            entity_id=target_employee.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=target_employee.primary_business_unit,
+            old_value=(
+                f"{source_employee.employee_code}|{source_email}|"
+                f"{source_employee.office.office_name}|{','.join(source_scope_codes)}|"
+                f"{','.join(source_role_codes)}"
+            ),
+            new_value=(
+                f"{target_employee.employee_code}|{target_employee.email}|"
+                f"{target_employee.office.office_name}"
+            ),
+            reason_text=(
+                "Employee transferred across Offices using archive-and-recreate workflow."
+            ),
+        )
+
+        refreshed_source_employee = _get_employee_for_transfer(source_employee.id)
+        refreshed_target_employee = _refresh_employee(target_employee.id)
+        return {
+            "source_employee": _serialize_employee(refreshed_source_employee),
+            "target_employee": _serialize_employee(refreshed_target_employee),
+            "archived_email": archived_email,
+        }
+
+    @staticmethod
     @transaction.atomic
     def create_employee(current_user: CurrentUser, payload: dict) -> dict:
         _ensure_ts_admin(current_user)
@@ -2620,6 +3040,64 @@ class EmployeeManagementService:
                 reason_text="Employee Business Unit scope deleted with Employee deletion.",
             )
             assignment.delete()
+
+    @staticmethod
+    def _deactivate_business_unit_assignments(
+        current_user: CurrentUser,
+        employee: Employee,
+        *,
+        actor_employee: Employee | None,
+        reason: str,
+    ) -> None:
+        active_assignments = list(
+            employee.business_unit_assignments.select_related(
+                "business_unit",
+                "status",
+                "status__domain",
+            ).filter(valid_to__isnull=True)
+        )
+        if not active_assignments:
+            return
+
+        inactive_status = _ref_value("EMPLOYEE_BU_STATUS", "INACTIVE")
+        previous_scope_codes = sorted(
+            assignment.business_unit.bu_code
+            for assignment in active_assignments
+            if assignment.status.domain.domain_code == "EMPLOYEE_BU_STATUS"
+            and assignment.status.value_code == "ACTIVE"
+        )
+        for assignment in active_assignments:
+            if (
+                assignment.status.domain.domain_code != "EMPLOYEE_BU_STATUS"
+                or assignment.status.value_code != "ACTIVE"
+            ):
+                continue
+            assignment.is_primary_flag = False
+            assignment.status = inactive_status
+            assignment.valid_to = date.today()
+            assignment.updated_by = current_user.email
+            assignment.save(
+                update_fields=[
+                    "is_primary_flag",
+                    "status",
+                    "valid_to",
+                    "updated_by",
+                    "updated_at",
+                ]
+            )
+
+        write_audit_event(
+            action_code="UPDATE",
+            entity_name="employee_business_unit",
+            entity_id=employee.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=employee.primary_business_unit,
+            field_name="business_unit_scope",
+            old_value=",".join(previous_scope_codes),
+            new_value="",
+            reason_text=reason,
+        )
 
     @staticmethod
     def _replace_role_assignments(

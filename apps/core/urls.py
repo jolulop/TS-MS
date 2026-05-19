@@ -37,6 +37,11 @@ urlpatterns = [
     ),
     path("system/employees/", system_views.employees_collection, name="system-employees"),
     path(
+        "system/employee-transfers/new/",
+        system_views.employee_transfer_create,
+        name="system-employee-transfer-create",
+    ),
+    path(
         "system/employees/new/",
         system_views.employee_create,
         name="system-employee-create",

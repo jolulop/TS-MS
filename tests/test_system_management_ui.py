@@ -232,6 +232,319 @@ def _build_project_management_context(
 
 
 @pytest.mark.django_db
+def test_ts_admin_master_can_transfer_employee_to_another_office_via_ui() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    source_office = create_office(office_name="Source Office")
+    target_office = create_office(office_name="Target Office")
+    source_bu = create_business_unit(
+        bu_code="SRC-BU",
+        name="Source BU",
+        office=source_office,
+    )
+    target_primary_bu = create_business_unit(
+        bu_code="TGT-BU-1",
+        name="Target Primary BU",
+        office=target_office,
+    )
+    target_secondary_bu = create_business_unit(
+        bu_code="TGT-BU-2",
+        name="Target Secondary BU",
+        office=target_office,
+    )
+    source_employee = create_employee(
+        employee_code="EMP-SOURCE-1",
+        full_name="Source Employee",
+        email="source.employee@example.com",
+        primary_business_unit=source_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=source_employee,
+        business_unit=source_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=source_employee, role_code="USER")
+
+    load_response = client.post(
+        "/system/employee-transfers/new/",
+        data={
+            "form_name": "select_source",
+            "source_employee_id": str(source_employee.id),
+        },
+    )
+
+    assert load_response.status_code == 200
+    assert "Transfer Readiness" in load_response.content.decode()
+    assert "READY" in load_response.content.decode()
+
+    transfer_response = client.post(
+        "/system/employee-transfers/new/",
+        data={
+            "form_name": "transfer",
+            "source_employee_id": str(source_employee.id),
+            "new_employee_code": "EMP-TARGET-1",
+            "target_office_id": str(target_office.id),
+            "target_primary_business_unit_id": str(target_primary_bu.id),
+            "target_business_unit_ids": [str(target_secondary_bu.id)],
+            "target_role_codes": ["USER"],
+        },
+    )
+
+    assert transfer_response.status_code == 200
+    content = transfer_response.content.decode()
+    assert "Source Employee Archived" in content
+    assert "Target Employee Created" in content
+
+    source_employee.refresh_from_db()
+    assert source_employee.status.value_code == "INACTIVE"
+    assert source_employee.email == f"source.employee+archived-{source_employee.id}@example.com"
+    assert source_employee.canonical_email == source_employee.email
+    assert not EmployeeRole.objects.filter(
+        employee=source_employee,
+        status__value_code="ACTIVE",
+        valid_to__isnull=True,
+    ).exists()
+    assert not EmployeeBusinessUnit.objects.filter(
+        employee=source_employee,
+        status__value_code="ACTIVE",
+        valid_to__isnull=True,
+    ).exists()
+
+    target_employee = Employee.objects.get(employee_code="EMP-TARGET-1")
+    assert target_employee.full_name == "Source Employee"
+    assert target_employee.email == "source.employee@example.com"
+    assert target_employee.office_id == target_office.id
+    assert target_employee.primary_business_unit_id == target_primary_bu.id
+    assert EmployeeBusinessUnit.objects.filter(
+        employee=target_employee,
+        business_unit=target_primary_bu,
+        status__value_code="ACTIVE",
+        valid_to__isnull=True,
+    ).exists()
+    assert EmployeeBusinessUnit.objects.filter(
+        employee=target_employee,
+        business_unit=target_secondary_bu,
+        status__value_code="ACTIVE",
+        valid_to__isnull=True,
+    ).exists()
+    assert EmployeeRole.objects.filter(
+        employee=target_employee,
+        role__value_code="USER",
+        status__value_code="ACTIVE",
+        valid_to__isnull=True,
+    ).exists()
+    assert AuditLog.objects.filter(
+        entity_name="employee_transfer",
+        entity_id=target_employee.id,
+        action_type__value_code="CREATE",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_employee_transfer_source_filters_limit_visible_candidates() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    alpha_office = create_office(office_name="Alpha Office")
+    beta_office = create_office(office_name="Beta Office")
+    alpha_bu = create_business_unit(
+        bu_code="ALPHA-BU",
+        name="Alpha BU",
+        office=alpha_office,
+    )
+    beta_bu = create_business_unit(
+        bu_code="BETA-BU",
+        name="Beta BU",
+        office=beta_office,
+    )
+    alpha_employee = create_employee(
+        employee_code="EMP-ALPHA-1",
+        full_name="Alice Alpha",
+        email="alice.alpha@example.com",
+        primary_business_unit=alpha_bu,
+    )
+    beta_employee = create_employee(
+        employee_code="EMP-BETA-1",
+        full_name="Bob Beta",
+        email="bob.beta@example.com",
+        primary_business_unit=beta_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=alpha_employee,
+        business_unit=alpha_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=beta_employee,
+        business_unit=beta_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=alpha_employee, role_code="USER")
+    assign_role(employee=beta_employee, role_code="USER")
+
+    response = client.post(
+        "/system/employee-transfers/new/",
+        data={
+            "form_name": "select_source",
+            "filter_office_id": str(alpha_office.id),
+            "filter_primary_business_unit_id": str(alpha_bu.id),
+            "filter_full_name": "alice",
+        },
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "name=\"filter_office_id\"" in content
+    assert "name=\"filter_primary_business_unit_id\"" in content
+    assert "name=\"filter_full_name\"" in content
+    assert "Apply Filters" in content
+    assert "Alice Alpha" in content
+    assert "Bob Beta" not in content
+
+
+@pytest.mark.django_db
+def test_employee_transfer_apply_filters_button_uses_filter_action() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    alpha_office = create_office(office_name="Filter Alpha Office")
+    beta_office = create_office(office_name="Filter Beta Office")
+    alpha_bu = create_business_unit(
+        bu_code="FILTER-ALPHA-BU",
+        name="Filter Alpha BU",
+        office=alpha_office,
+    )
+    beta_bu = create_business_unit(
+        bu_code="FILTER-BETA-BU",
+        name="Filter Beta BU",
+        office=beta_office,
+    )
+    alpha_employee = create_employee(
+        employee_code="EMP-FILTER-ALPHA",
+        full_name="Alpha Filter Employee",
+        email="alpha.filter@example.com",
+        primary_business_unit=alpha_bu,
+    )
+    beta_employee = create_employee(
+        employee_code="EMP-FILTER-BETA",
+        full_name="Beta Filter Employee",
+        email="beta.filter@example.com",
+        primary_business_unit=beta_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=alpha_employee,
+        business_unit=alpha_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=beta_employee,
+        business_unit=beta_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=alpha_employee, role_code="USER")
+    assign_role(employee=beta_employee, role_code="USER")
+
+    response = client.post(
+        "/system/employee-transfers/new/",
+        data={
+            "form_name": "select_source",
+            "form_action": "apply_filters",
+            "filter_office_id": str(alpha_office.id),
+            "filter_full_name": "alpha",
+        },
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Alpha Filter Employee" in content
+    assert "Beta Filter Employee" not in content
+
+
+@pytest.mark.django_db
+def test_employee_transfer_ui_blocks_source_employee_with_active_direct_reports() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    source_office = create_office(office_name="Blocked Source Office")
+    target_office = create_office(office_name="Blocked Target Office")
+    source_bu = create_business_unit(
+        bu_code="SRC-BLOCK",
+        name="Blocked Source BU",
+        office=source_office,
+    )
+    target_bu = create_business_unit(
+        bu_code="TGT-BLOCK",
+        name="Blocked Target BU",
+        office=target_office,
+    )
+    source_employee = create_employee(
+        employee_code="EMP-BLOCK-1",
+        full_name="Blocked Source Employee",
+        email="blocked.source@example.com",
+        primary_business_unit=source_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=source_employee,
+        business_unit=source_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=source_employee, role_code="USER")
+    direct_report = create_employee(
+        employee_code="EMP-BLOCK-DR",
+        full_name="Direct Report",
+        email="direct.report@example.com",
+        primary_business_unit=source_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=direct_report,
+        business_unit=source_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=direct_report, role_code="USER")
+    direct_report.manager_employee = source_employee
+    direct_report.updated_by = "test"
+    direct_report.save(update_fields=["manager_employee", "updated_by", "updated_at"])
+
+    load_response = client.post(
+        "/system/employee-transfers/new/",
+        data={
+            "form_name": "select_source",
+            "source_employee_id": str(source_employee.id),
+        },
+    )
+
+    assert load_response.status_code == 200
+    content = load_response.content.decode()
+    assert "Transfer Readiness" in content
+    assert "BLOCKED" in content
+    assert "Active Direct Reports" in content
+    assert "Target Setup" not in content
+
+    transfer_response = client.post(
+        "/system/employee-transfers/new/",
+        data={
+            "form_name": "transfer",
+            "source_employee_id": str(source_employee.id),
+            "new_employee_code": "EMP-BLOCK-TARGET",
+            "target_office_id": str(target_office.id),
+            "target_primary_business_unit_id": str(target_bu.id),
+            "target_role_codes": ["USER"],
+        },
+    )
+
+    assert transfer_response.status_code == 200
+    assert "Employee transfer is blocked" in transfer_response.content.decode()
+    source_employee.refresh_from_db()
+    assert source_employee.status.value_code == "ACTIVE"
+    assert not Employee.objects.filter(employee_code="EMP-BLOCK-TARGET").exists()
+
+
+@pytest.mark.django_db
+def test_ts_admin_is_denied_employee_transfer_screen() -> None:
+    client, _, _ = _build_ts_admin_client()
+
+    response = client.get("/system/employee-transfers/new/")
+
+    assert response.status_code == 403
+    assert "You do not have permission to open this Office Management screen." in (
+        response.content.decode()
+    )
+
+
+@pytest.mark.django_db
 def test_system_management_hub_shows_real_admin_screen_links() -> None:
     client, _, _ = _build_ts_admin_client()
 
@@ -307,11 +620,14 @@ def test_system_management_hub_shows_country_and_office_links_for_master_admin()
     assert "Open Screen" not in content
     assert '<a href="/system/countries/">Countries</a>' in content
     assert '<a href="/system/offices/">Offices</a>' in content
+    assert '<a href="/system/employee-transfers/new/">Employee Transfers</a>' in content
     assert "Countries" in content
     assert "Offices" in content
+    assert "Employee Transfers" in content
     card_hrefs = {card["href"] for card in response.context["section_cards"]}
     assert "/system/countries/" in card_hrefs
     assert "/system/offices/" in card_hrefs
+    assert "/system/employee-transfers/new/" in card_hrefs
 
 
 @pytest.mark.django_db
@@ -2669,12 +2985,14 @@ def test_project_manager_can_manage_assignments_for_managed_projects_only() -> N
     assert collection_response.status_code == 200
     assert "PRJ-MANAGED-ASN" in collection_content
     assert "PRJ-FOREIGN-MGR-ASN" not in collection_content
+    assert "EMP-MGR-ASN - Managed Assignment Employee" in collection_content
 
     create_page = client.get("/system/project-assignments/new/")
     create_content = create_page.content.decode()
     assert create_page.status_code == 200
     assert "PRJ-MANAGED-ASN" in create_content
     assert "PRJ-FOREIGN-MGR-ASN" not in create_content
+    assert "EMP-MGR-ASN - Managed Assignment Employee" in create_content
 
     create_response = client.post(
         "/system/project-assignments/new/",
