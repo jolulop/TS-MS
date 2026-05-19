@@ -8,6 +8,7 @@ urlpatterns = [
     path("profile/", views.profile, name="profile"),
     path("system/", views.system_management, name="system-management"),
     path("system/countries/", system_views.countries_collection, name="system-countries"),
+    path("system/countries/new/", system_views.country_create, name="system-country-create"),
     path(
         "system/countries/<int:country_id>/",
         system_views.country_detail,

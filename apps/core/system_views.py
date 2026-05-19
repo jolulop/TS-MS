@@ -2497,10 +2497,18 @@ def _delete_action_section(
     *,
     form_name: str = "delete",
     submit_label: str,
+    title: str | None = None,
+    intro: str | None = None,
     form_error: str = "",
 ) -> dict:
     return {
         "form_name": form_name,
+        "title": title or submit_label,
+        "intro": intro
+        or (
+            "Delete this record only if it has no dependent references. "
+            "If it is still in use, deletion will be blocked."
+        ),
         "submit_label": submit_label,
         "form_error": form_error,
         "fields": [],
@@ -4014,8 +4022,39 @@ def business_unit_detail(request: HttpRequest, business_unit_id: int) -> HttpRes
     )
 
 
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET"])
 def countries_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_ts_admin_master(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="COUNTRY_STATUS",
+        default_code="ACTIVE",
+    )
+    countries = CountryManagementService.list_countries(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+    )
+    return _render_list_only_collection(
+        request,
+        current_user,
+        title=COUNTRY_CONFIG.list_title,
+        eyebrow=COUNTRY_CONFIG.list_eyebrow,
+        intro=COUNTRY_CONFIG.list_intro,
+        table_headers=COUNTRY_CONFIG.table_headers,
+        table_rows=_country_rows(countries),
+        empty_message=COUNTRY_CONFIG.empty_message,
+        create_label="Create Country",
+        create_href="/system/countries/new/",
+        filter_links=filter_links,
+        filter_title="Country Status",
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def country_create(request: HttpRequest) -> HttpResponse:
     current_user = _require_ts_admin_master(request)
     if not isinstance(current_user, CurrentUser):
         return current_user
@@ -4037,31 +4076,13 @@ def countries_collection(request: HttpRequest) -> HttpResponse:
         else:
             return redirect(f"/system/countries/{country['id']}/")
 
-    selected_status_code, filter_links = _status_filter_links(
-        request,
-        domain_code="COUNTRY_STATUS",
-        default_code="ACTIVE",
-    )
-    countries = CountryManagementService.list_countries(
-        current_user,
-        status_code=_service_status_code(selected_status_code),
-    )
-    return _render_collection_page(
+    return _render_master_create(
         request,
         current_user,
-        title=COUNTRY_CONFIG.list_title,
-        eyebrow=COUNTRY_CONFIG.list_eyebrow,
-        intro=COUNTRY_CONFIG.list_intro,
-        table_headers=COUNTRY_CONFIG.table_headers,
-        table_rows=_country_rows(countries),
-        empty_message=COUNTRY_CONFIG.empty_message,
-        form_title="Create Country",
-        form_intro="Create a new Country that Offices can be assigned to.",
+        config=COUNTRY_CONFIG,
         form_fields=_country_form_fields(post_data=post_data),
-        submit_label="Create Country",
         form_error=form_error,
-        filter_links=filter_links,
-        filter_title="Country Status",
+        form_intro="Create a new Country that Offices can be assigned to.",
     )
 
 
@@ -4655,12 +4676,15 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
             ),
         },
         {
-            "form_name": "delete",
-            "submit_label": "Delete Employee",
-            "form_error": form_error if active_form == "delete" else "",
-            "fields": [],
-            "action_only": True,
-            "button_class": "button danger",
+            **_delete_action_section(
+                title="Delete Employee",
+                intro=(
+                    "Delete this employee only if no protected references still depend on it. "
+                    "If the employee is still in use, deletion will be blocked."
+                ),
+                submit_label="Delete Employee",
+                form_error=form_error if active_form == "delete" else "",
+            ),
         },
     ]
     return _render_detail_page(

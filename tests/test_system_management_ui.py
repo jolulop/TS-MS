@@ -1242,6 +1242,7 @@ def test_employee_detail_business_unit_form_explains_primary_scope_is_automatic(
     assert "Role Assignments" in content
     assert "Business Unit Scope" in content
     assert "Delete Employee" in content
+    assert "Delete this employee only if no protected references still depend on it." in content
     primary_match = re.search(
         r'<select\s+id="primary_business_unit_id"\s+name="primary_business_unit_id"\s+size="(\d+)".*?>(.*?)</select>',
         content,
@@ -3557,8 +3558,24 @@ def test_calendar_delete_is_blocked_when_special_days_still_reference_it() -> No
 def test_country_master_management_create_and_update_via_html() -> None:
     client, _, _ = _build_ts_admin_master_client()
 
+    collection_response = client.get("/system/countries/")
+    collection_content = collection_response.content.decode()
+    assert collection_response.status_code == 200
+    assert "Current Records" not in collection_content
+    assert 'href="/system/countries/new/"' in collection_content
+    assert '<form class="form-stack" method="post" action="">' not in collection_content
+    assert 'aria-label="Country Status"' in collection_content
+
+    create_screen_response = client.get("/system/countries/new/")
+    create_screen_content = create_screen_response.content.decode()
+    assert create_screen_response.status_code == 200
+    assert "Country Setup" in create_screen_content
+    assert "Current State" not in create_screen_content
+    assert 'name="form_name" value="create"' in create_screen_content
+    assert 'name="country_code"' in create_screen_content
+
     create_response = client.post(
-        "/system/countries/",
+        "/system/countries/new/",
         data={
             "country_code": "CHL",
             "country_name": "Chile",

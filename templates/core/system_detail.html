@@ -19,7 +19,7 @@
           <h1>{{ page_title }}</h1>
           <p>{{ page_intro }}</p>
         </div>
-        <div class="content-stack" style="justify-items: end;">
+        <div class="detail-header-actions">
           <span class="chip">{{ entity_status }}</span>
           {% if page_action %}
             <a class="button secondary" href="{{ page_action.href }}">{{ page_action.label }}</a>
@@ -48,6 +48,17 @@
         <div class="content-stack">
           {% for section in form_sections %}
             {% if section.action_only %}
+            <section class="surface-card{% if section.section_class %} {{ section.section_class }}{% endif %}">
+              {% if section.title or section.intro %}
+                <div class="section-header">
+                  {% if section.title %}
+                    <h2>{{ section.title }}</h2>
+                  {% endif %}
+                  {% if section.intro %}
+                    <p>{{ section.intro }}</p>
+                  {% endif %}
+                </div>
+              {% endif %}
               <form class="detail-action-form" method="post" action="">
                 {% csrf_token %}
                 <input type="hidden" name="form_name" value="{{ section.form_name }}">
@@ -58,6 +69,7 @@
                   <button class="{{ section.button_class|default:'button' }}" type="submit">{{ section.submit_label }}</button>
                 </div>
               </form>
+            </section>
             {% else %}
             <section class="surface-card{% if section.section_class %} {{ section.section_class }}{% endif %}">
               <div class="section-header">
@@ -111,6 +123,17 @@
       <div class="{{ detail_content_class }}">
         {% for section in form_sections %}
           {% if section.action_only %}
+          <section class="surface-card{% if section.section_class %} {{ section.section_class }}{% endif %}">
+            {% if section.title or section.intro %}
+              <div class="section-header">
+                {% if section.title %}
+                  <h2>{{ section.title }}</h2>
+                {% endif %}
+                {% if section.intro %}
+                  <p>{{ section.intro }}</p>
+                {% endif %}
+              </div>
+            {% endif %}
             <form class="detail-action-form" method="post" action="">
               {% csrf_token %}
               <input type="hidden" name="form_name" value="{{ section.form_name }}">
@@ -121,6 +144,7 @@
                 <button class="{{ section.button_class|default:'button' }}" type="submit">{{ section.submit_label }}</button>
               </div>
             </form>
+          </section>
           {% else %}
           <section class="surface-card{% if section.section_class %} {{ section.section_class }}{% endif %}">
             <div class="section-header">
