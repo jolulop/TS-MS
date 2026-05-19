@@ -58,6 +58,9 @@ v5.8 captures these major implemented changes relative to the older baseline doc
 - timesheet detail shows short-date submission and approval metadata.
 - `Enable Copy Previous Week` is now a real Office-controlled user action on
   `My Timesheets`; `Timer` and `Leave Integration` remain inactive.
+- advanced TS Admin analytics reports now include Employee Utilization,
+  Office / BU Time Summary, General Charge Code Usage, and Approval Turnaround
+  with CSV export.
 
 ## Reading Order
 

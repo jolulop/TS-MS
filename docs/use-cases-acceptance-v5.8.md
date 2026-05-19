@@ -347,12 +347,47 @@ report viewer without copying rows manually from the browser.
 - Archived Timesheets can be exported to CSV from the report viewer
 - Audit History can be exported to CSV from the report viewer
 - Integration Jobs can be exported to CSV from the report viewer
+- Employee Utilization can be exported to CSV from the report viewer
+- Office / BU Time Summary can be exported to CSV from the report viewer
+- General Charge Code Usage can be exported to CSV from the report viewer
+- Approval Turnaround can be exported to CSV from the report viewer
 - each CSV export uses the currently selected filters
 - each CSV export keeps the same server-side authorization and row scope as the
   visible report grid
 - each CSV export is audited
 - Missing Timesheets by Project keeps its existing API export flow in addition
   to the UI export
+
+## 11BB. Advanced TS Admin Reports
+
+### Use Case
+
+`TS_ADMIN` runs deeper operational analytics inside the current active Office
+and scoped Business Units.
+
+### Acceptance
+
+- Reports Hub shows these additional reports for `TS_ADMIN` only:
+  - `Employee Utilization`
+  - `Office / BU Time Summary`
+  - `General Charge Code Usage`
+  - `Approval Turnaround`
+- `PROJECT_OWNER` and `PROJECT_MANAGER` do not gain access to these four admin
+  reports from this change
+- Employee Utilization supports filters for Business Unit, employee, and
+  work-date range and shows expected hours, worked hours, billable split, and
+  utilization percent
+- Office / BU Time Summary supports filters for Business Unit and work-date
+  range and aggregates employee count, timesheet count, lines, and hour totals
+- General Charge Code Usage supports filters for Business Unit, General Charge
+  Code, employee, and work-date range and aggregates usage totals by code
+- Approval Turnaround supports filters for Business Unit, project, approver,
+  status, and submitted-date range
+- Approval Turnaround shows both completed and pending rows, including elapsed
+  hours and stalled-age visibility
+- all four reports support CSV export from the shared report viewer
+- each export uses the same filters and scope as the visible grid
+- each export is audited
 
 ## 11C. TS Admin Approval Oversight
 

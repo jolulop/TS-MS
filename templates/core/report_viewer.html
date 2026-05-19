@@ -9,22 +9,21 @@
       <div class="detail-header">
         <div>
           <h1>{{ page_title }}</h1>
-          <p>{{ page_intro }}</p>
+          <p><a href="{{ back_href }}">{{ back_label }}</a></p>
         </div>
         <span class="chip">{{ report_definition.audience }}</span>
       </div>
     </div>
 
-    <div class="{{ report_split_grid_class|default:'split-grid' }}">
+    <div class="report-panel-stack">
       <section class="surface-card">
         <div class="section-header">
           <h2>Filter Panel</h2>
-          <p>Filters stay inside your authorized report scope. Empty values keep the broader scoped default.</p>
         </div>
         <form class="form-stack" method="get" action="">
-          <div class="form-grid two-column">
+          <div class="{{ report_filter_grid_class|default:'report-filter-grid' }}">
             {% for field in filter_fields %}
-              <div class="field">
+              <div class="field report-filter-field">
                 <label for="{{ field.name }}">{{ field.label }}</label>
                 {% if field.type == "select" %}
                   <select id="{{ field.name }}" name="{{ field.name }}">
@@ -62,9 +61,8 @@
       <section class="surface-card">
         <div class="section-header">
           <h2>Report Totals</h2>
-          <p>These totals reflect the currently filtered rows only.</p>
         </div>
-        <dl class="meta-grid">
+        <dl class="meta-grid meta-grid-inline">
           {% for total in totals %}
             <div class="meta-row">
               <dt>{{ total.label }}</dt>
@@ -78,7 +76,6 @@
     <section class="surface-card">
       <div class="section-header">
         <h2>Results Grid</h2>
-        <p><a href="{{ back_href }}">{{ back_label }}</a></p>
       </div>
       {% if table_rows %}
         <div class="table-wrap">

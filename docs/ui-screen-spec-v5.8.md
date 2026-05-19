@@ -469,6 +469,8 @@ Important UI behavior:
   - summary
   - audience
 - includes `Missing Timesheets by Project` for `PROJECT_OWNER`, `PROJECT_MANAGER`, and `TS_ADMIN`
+- includes `Employee Utilization`, `Office / BU Time Summary`,
+  `General Charge Code Usage`, and `Approval Turnaround` for `TS_ADMIN`
 
 ### SCR-410 Report Viewer
 
@@ -511,6 +513,28 @@ Important UI behavior:
   - `Export CSV` available from the shared report viewer actions
 - Integration Jobs:
   - `Export CSV` available from the shared report viewer actions
+- Employee Utilization:
+  - `Export CSV` available from the shared report viewer actions
+  - filters: `Business Unit`, `Employee`, `Work Date From`, `Work Date To`
+  - result grid includes expected hours, worked hours, billable split, and
+    utilization percent by employee
+- Office / BU Time Summary:
+  - `Export CSV` available from the shared report viewer actions
+  - filters: `Business Unit`, `Work Date From`, `Work Date To`
+  - result grid aggregates employee count, timesheet count, lines, total
+    hours, and billable split by Office and Business Unit
+- General Charge Code Usage:
+  - `Export CSV` available from the shared report viewer actions
+  - filters: `Business Unit`, `General Charge Code`, `Employee`,
+    `Work Date From`, `Work Date To`
+  - result grid aggregates employee count, line count, total hours, and
+    billable split by General Charge Code
+- Approval Turnaround:
+  - `Export CSV` available from the shared report viewer actions
+  - filters: `Business Unit`, `Project`, `Approver`, `Status`,
+    `Submitted From`, `Submitted To`
+  - result grid shows approval-item timing, decision state, elapsed hours,
+    and aging bucket
 
 ## 13. Detail Screen Delete Pattern
 

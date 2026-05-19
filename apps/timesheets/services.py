@@ -103,7 +103,11 @@ def _eligible_general_charge_code_approver_employee_ids(
 ) -> set[int]:
     today = date.today()
     approver_mappings = list(
-        general_charge_code.approver_roles.select_related("existing_role", "approval_role", "approval_role__status")
+        general_charge_code.approver_roles.select_related(
+            "existing_role",
+            "approval_role",
+            "approval_role__status",
+        )
     )
     existing_role_codes = [
         mapping.existing_role.value_code
@@ -479,9 +483,7 @@ def _available_work_dates_for_week(
 ) -> list[date]:
     return [
         current_day
-        for current_day in (
-            week_start_date + timedelta(days=offset) for offset in range(7)
-        )
+        for current_day in (week_start_date + timedelta(days=offset) for offset in range(7))
         if _is_chargeable_work_date(employee, business_unit_id, current_day)
     ]
 
@@ -872,9 +874,7 @@ def _submission_blockers(timesheet: WeeklyTimesheet) -> list[str]:
         blockers.append(
             "General charge code approval routing does not currently resolve to any "
             "eligible approver other than the timesheet owner. Update the approver "
-            "roles or remove lines charged to: "
-            + ", ".join(unroutable_general_codes)
-            + "."
+            "roles or remove lines charged to: " + ", ".join(unroutable_general_codes) + "."
         )
 
     for line in timesheet.lines.select_related("project", "general_charge_code").all():
@@ -892,6 +892,35 @@ def _submission_blockers(timesheet: WeeklyTimesheet) -> list[str]:
 
 
 class TimesheetService:
+    @staticmethod
+    def expected_capacity_hours(
+        employee: Employee,
+        business_unit_id: int,
+        start_date: date,
+        end_date: date,
+    ) -> Decimal:
+        total_hours = Decimal("0.00")
+        current_day = start_date
+        while current_day <= end_date:
+            if employee.employment_start_date and current_day < employee.employment_start_date:
+                current_day += timedelta(days=1)
+                continue
+            if employee.employment_end_date and current_day > employee.employment_end_date:
+                current_day += timedelta(days=1)
+                continue
+            try:
+                if _is_chargeable_work_date(employee, business_unit_id, current_day):
+                    total_hours += _daily_limit_for_date(employee, business_unit_id, current_day)
+            except AuthError as error:
+                if error.code not in {
+                    "TIMESHEET_CALENDAR_REQUIRED",
+                    "TIMESHEET_DAY_LIMIT_NOT_FOUND",
+                    "TIMESHEET_DAY_LIMIT_CONFLICT",
+                }:
+                    raise
+            current_day += timedelta(days=1)
+        return total_hours
+
     @staticmethod
     def can_copy_previous_week(current_user: CurrentUser) -> bool:
         employee = _employee_for_current_user(current_user)
@@ -948,8 +977,12 @@ class TimesheetService:
             "can_admin_withdraw": AuthorizationPolicyService.can_admin_withdraw_timesheet(
                 current_user, timesheet
             ),
-            "can_archive": AuthorizationPolicyService.can_archive_timesheet(current_user, timesheet),
-            "can_restore": AuthorizationPolicyService.can_restore_timesheet(current_user, timesheet),
+            "can_archive": AuthorizationPolicyService.can_archive_timesheet(
+                current_user, timesheet
+            ),
+            "can_restore": AuthorizationPolicyService.can_restore_timesheet(
+                current_user, timesheet
+            ),
             "submit_blockers": submit_blockers,
         }
 
@@ -1137,7 +1170,7 @@ class TimesheetService:
                     "comment_text": str(raw_line.get("comment_text", "")).strip(),
                     "billable_flag": billable_flag,
                 }
-        )
+            )
 
         for work_date, hours in hours_by_date.items():
             max_hours = _daily_limit_for_date(employee, timesheet.business_unit_id, work_date)
@@ -1463,7 +1496,10 @@ class TimesheetService:
         except ProtectedError as exc:
             raise AuthError(
                 "TIMESHEET_DELETE_BLOCKED",
-                "This timesheet cannot be deleted because other protected records still reference it.",
+                (
+                    "This timesheet cannot be deleted because other protected "
+                    "records still reference it."
+                ),
                 400,
             ) from exc
 
@@ -1487,22 +1523,19 @@ class TimesheetService:
                 403,
             )
 
-        approval_items = (
-            ApprovalItem.objects.select_related(
-                "scope_type",
-                "status",
-                "project",
-                "approver_employee",
-                "general_charge_code",
-                "submission_cycle",
-                "submission_cycle__weekly_timesheet",
-                "submission_cycle__weekly_timesheet__employee",
-                "submission_cycle__weekly_timesheet__business_unit",
-            )
-            .prefetch_related(
-                "approver_roles__existing_role",
-                "approver_roles__approval_role",
-            )
+        approval_items = ApprovalItem.objects.select_related(
+            "scope_type",
+            "status",
+            "project",
+            "approver_employee",
+            "general_charge_code",
+            "submission_cycle",
+            "submission_cycle__weekly_timesheet",
+            "submission_cycle__weekly_timesheet__employee",
+            "submission_cycle__weekly_timesheet__business_unit",
+        ).prefetch_related(
+            "approver_roles__existing_role",
+            "approver_roles__approval_role",
         )
         if current_user.is_ts_admin:
             approval_items = approval_items.filter(

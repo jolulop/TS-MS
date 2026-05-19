@@ -4,20 +4,26 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from urllib.parse import urlencode
 
-from django.http import Http404
-from django.db.models import Q, Sum
-from django.http import HttpRequest, HttpResponse
+from django.db.models import Count, Max, Min, Q, Sum
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET
 
-from apps.audit.services import write_audit_event
 from apps.audit.models import AuditLog
+from apps.audit.services import write_audit_event
 from apps.auth.context import CurrentUser
 from apps.auth.policies import AuthorizationPolicyService
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.integrations.models import IntegrationJob
-from apps.master_data.models import BusinessUnit, Employee, Project, ProjectAssignment
-from apps.timesheets.models import ApprovalItem, TimesheetLine, WeeklyTimesheet
+from apps.master_data.models import (
+    BusinessUnit,
+    Employee,
+    GeneralChargeCode,
+    Project,
+    ProjectAssignment,
+)
+from apps.timesheets.models import ApprovalAction, ApprovalItem, TimesheetLine, WeeklyTimesheet
+from apps.timesheets.services import TimesheetService
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,39 @@ REPORT_DEFINITIONS = {
         summary="Import, export, and sync job history within the current Business Unit scope.",
         audience="TS_ADMIN",
     ),
+    "employee-utilization": ReportDefinition(
+        code="employee-utilization",
+        title="Employee Utilization",
+        summary=(
+            "Worked versus expected capacity by employee inside the current "
+            "TS admin scope."
+        ),
+        audience="TS_ADMIN",
+    ),
+    "office-bu-time-summary": ReportDefinition(
+        code="office-bu-time-summary",
+        title="Office / BU Time Summary",
+        summary=(
+            "Aggregated worked hours by Office and Business Unit inside the "
+            "current TS admin scope."
+        ),
+        audience="TS_ADMIN",
+    ),
+    "general-charge-code-usage": ReportDefinition(
+        code="general-charge-code-usage",
+        title="General Charge Code (GCC) Usage",
+        summary="Usage analytics for internal charging codes inside the current TS admin scope.",
+        audience="TS_ADMIN",
+    ),
+    "approval-turnaround": ReportDefinition(
+        code="approval-turnaround",
+        title="Approval Turnaround",
+        summary=(
+            "Elapsed approval timing and stalled-item visibility inside the "
+            "current TS admin scope."
+        ),
+        audience="TS_ADMIN",
+    ),
 }
 
 EXPORTABLE_REPORT_CODES = {
@@ -82,6 +121,10 @@ EXPORTABLE_REPORT_CODES = {
     "archived-timesheets",
     "audit-history",
     "integration-jobs",
+    "employee-utilization",
+    "office-bu-time-summary",
+    "general-charge-code-usage",
+    "approval-turnaround",
 }
 
 
@@ -122,6 +165,17 @@ def _date_display(value) -> str:
     return str(value)
 
 
+def _decimal_display(value: Decimal | None) -> str:
+    decimal_value = value if value is not None else Decimal("0.00")
+    return f"{decimal_value:.2f}"
+
+
+def _percent_display(numerator: Decimal, denominator: Decimal) -> str:
+    if denominator <= 0:
+        return "0.00%"
+    return f"{((numerator / denominator) * Decimal('100')):.2f}%"
+
+
 def _report_url(report_code: str) -> str:
     return f"/reports/{report_code}/"
 
@@ -153,6 +207,37 @@ def _scoped_project_ids(current_user: CurrentUser) -> list[int]:
     return list(_scoped_project_queryset(current_user).values_list("id", flat=True))
 
 
+def _coerce_date_value(value: date | datetime | None) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
+def _aggregate_date_bounds(queryset, field_name: str) -> tuple[date | None, date | None]:
+    bounds = queryset.aggregate(
+        min_value=Min(field_name),
+        max_value=Max(field_name),
+    )
+    return _coerce_date_value(bounds["min_value"]), _coerce_date_value(bounds["max_value"])
+
+
+def _resolved_date_range(
+    raw_start: str,
+    raw_end: str,
+    *,
+    default_start: date | None,
+    default_end: date | None,
+) -> tuple[date | None, date | None, str, str]:
+    resolved_start = _parse_date_query(raw_start) or default_start
+    resolved_end = _parse_date_query(raw_end) or default_end
+    return (
+        resolved_start,
+        resolved_end,
+        resolved_start.isoformat() if resolved_start is not None else raw_start,
+        resolved_end.isoformat() if resolved_end is not None else raw_end,
+    )
+
+
 def _first_monday_on_or_after(start_date: date) -> date:
     return start_date + timedelta(days=(7 - start_date.weekday()) % 7)
 
@@ -165,7 +250,9 @@ def _selected_project_values(request: HttpRequest) -> list[str]:
     return _selected_values(request, "project_ids")
 
 
-def _project_filter_options(current_user: CurrentUser, *, selected_values: set[str] | None = None) -> list[dict]:
+def _project_filter_options(
+    current_user: CurrentUser, *, selected_values: set[str] | None = None
+) -> list[dict]:
     selected = selected_values or set()
     return [
         {
@@ -402,6 +489,34 @@ def _report_count(current_user: CurrentUser, report_code: str) -> int:
         return IntegrationJob.objects.filter(
             business_unit_id__in=current_user.scoped_business_unit_ids
         ).count()
+    if report_code == "employee-utilization":
+        return Employee.objects.filter(
+            primary_business_unit_id__in=current_user.scoped_business_unit_ids,
+            status__value_code="ACTIVE",
+        ).count()
+    if report_code == "office-bu-time-summary":
+        return (
+            TimesheetLine.objects.filter(
+                weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids
+            )
+            .values("weekly_timesheet__business_unit_id")
+            .distinct()
+            .count()
+        )
+    if report_code == "general-charge-code-usage":
+        return (
+            TimesheetLine.objects.filter(
+                weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids,
+                general_charge_code_id__isnull=False,
+            )
+            .values("general_charge_code_id")
+            .distinct()
+            .count()
+        )
+    if report_code == "approval-turnaround":
+        return ApprovalItem.objects.filter(
+            submission_cycle__weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids
+        ).count()
     return 0
 
 
@@ -451,6 +566,38 @@ def _employee_filter_options(
             "label": f"{employee.employee_code} - {employee.full_name}",
         }
         for employee in queryset.distinct().order_by("employee_code")
+    ]
+
+
+def _general_charge_code_filter_options(current_user: CurrentUser) -> list[dict]:
+    queryset = GeneralChargeCode.objects.filter(
+        business_unit_id__in=current_user.scoped_business_unit_ids
+    ).order_by("code")
+    return [
+        {
+            "value": str(code.id),
+            "label": f"{code.code} - {code.name}",
+        }
+        for code in queryset
+    ]
+
+
+def _approval_approver_filter_options(current_user: CurrentUser) -> list[dict]:
+    approver_ids = list(
+        ApprovalItem.objects.filter(
+            submission_cycle__weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids,
+            approver_employee_id__isnull=False,
+        )
+        .values_list("approver_employee_id", flat=True)
+        .distinct()
+    )
+    queryset = Employee.objects.filter(id__in=approver_ids).order_by("employee_code")
+    return [
+        {
+            "value": str(employee.id),
+            "label": f"{employee.employee_code} - {employee.full_name}",
+        }
+        for employee in queryset
     ]
 
 
@@ -609,7 +756,7 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
         "definition": REPORT_DEFINITIONS["project-time"],
         "filters": [
             {
-                "label": "Business Unit",
+                "label": "BU",
                 "name": "business_unit_id",
                 "type": "select",
                 "value": business_unit_id,
@@ -632,13 +779,13 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
                 "options": _employee_filter_options(current_user, project_scoped=True),
             },
             {
-                "label": "Work Date From",
+                "label": "From",
                 "name": "work_date_from",
                 "type": "date",
                 "value": work_date_from,
             },
             {
-                "label": "Work Date To",
+                "label": "To",
                 "name": "work_date_to",
                 "type": "date",
                 "value": work_date_to,
@@ -672,8 +819,10 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
 
 
 def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -> dict:
-    active_ad_hoc_role_ids = AuthorizationPolicyService._active_general_charge_code_approval_role_ids(
-        current_user
+    active_ad_hoc_role_ids = (
+        AuthorizationPolicyService._active_general_charge_code_approval_role_ids(
+            current_user
+        )
     )
     queryset = ApprovalItem.objects.select_related(
         "status",
@@ -741,7 +890,7 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
         "definition": REPORT_DEFINITIONS["pending-approvals"],
         "filters": [
             {
-                "label": "Business Unit",
+                "label": "BU",
                 "name": "business_unit_id",
                 "type": "select",
                 "value": business_unit_id,
@@ -856,7 +1005,7 @@ def _archived_timesheets_report(current_user: CurrentUser, request: HttpRequest)
         "definition": REPORT_DEFINITIONS["archived-timesheets"],
         "filters": [
             {
-                "label": "Business Unit",
+                "label": "BU",
                 "name": "business_unit_id",
                 "type": "select",
                 "value": business_unit_id,
@@ -872,13 +1021,13 @@ def _archived_timesheets_report(current_user: CurrentUser, request: HttpRequest)
                 "options": _employee_filter_options(current_user),
             },
             {
-                "label": "Week Start From",
+                "label": "From",
                 "name": "week_start_from",
                 "type": "date",
                 "value": week_start_from,
             },
             {
-                "label": "Week Start To",
+                "label": "To",
                 "name": "week_start_to",
                 "type": "date",
                 "value": week_start_to,
@@ -940,9 +1089,10 @@ def _audit_history_report(current_user: CurrentUser, request: HttpRequest) -> di
     ]
     return {
         "definition": REPORT_DEFINITIONS["audit-history"],
+        "filter_grid_class": "report-filter-grid report-filter-grid-dense",
         "filters": [
             {
-                "label": "Business Unit",
+                "label": "BU",
                 "name": "business_unit_id",
                 "type": "select",
                 "value": business_unit_id,
@@ -951,7 +1101,7 @@ def _audit_history_report(current_user: CurrentUser, request: HttpRequest) -> di
             if len(current_user.scoped_business_units) > 1
             else None,
             {
-                "label": "Entity Name",
+                "label": "Entity",
                 "name": "entity_name",
                 "type": "text",
                 "value": entity_name,
@@ -963,13 +1113,13 @@ def _audit_history_report(current_user: CurrentUser, request: HttpRequest) -> di
                 "value": action_code,
             },
             {
-                "label": "Event From",
+                "label": "From",
                 "name": "event_from",
                 "type": "date",
                 "value": event_from,
             },
             {
-                "label": "Event To",
+                "label": "To",
                 "name": "event_to",
                 "type": "date",
                 "value": event_to,
@@ -977,7 +1127,7 @@ def _audit_history_report(current_user: CurrentUser, request: HttpRequest) -> di
         ],
         "headers": (
             "Event Timestamp",
-            "BU",
+            "Business Unit",
             "Actor",
             "Action",
             "Entity",
@@ -1029,7 +1179,7 @@ def _integration_jobs_report(current_user: CurrentUser, request: HttpRequest) ->
         "definition": REPORT_DEFINITIONS["integration-jobs"],
         "filters": [
             {
-                "label": "Business Unit",
+                "label": "BU",
                 "name": "business_unit_id",
                 "type": "select",
                 "value": business_unit_id,
@@ -1075,6 +1225,656 @@ def _integration_jobs_report(current_user: CurrentUser, request: HttpRequest) ->
     }
 
 
+def _employee_utilization_report(current_user: CurrentUser, request: HttpRequest) -> dict:
+    business_unit_id = _selected_value(request, "business_unit_id")
+    employee_id = _selected_value(request, "employee_id")
+    work_date_from = _selected_value(request, "work_date_from")
+    work_date_to = _selected_value(request, "work_date_to")
+
+    scope_business_unit_ids = current_user.scoped_business_unit_ids
+    if business_unit_id:
+        scope_business_unit_ids = [
+            scoped_id
+            for scoped_id in current_user.scoped_business_unit_ids
+            if str(scoped_id) == business_unit_id
+        ]
+
+    line_queryset = TimesheetLine.objects.filter(
+        weekly_timesheet__business_unit_id__in=scope_business_unit_ids
+    )
+    if employee_id:
+        line_queryset = line_queryset.filter(weekly_timesheet__employee_id=employee_id)
+    default_start, default_end = _aggregate_date_bounds(line_queryset, "work_date")
+    (
+        resolved_start,
+        resolved_end,
+        work_date_from_value,
+        work_date_to_value,
+    ) = _resolved_date_range(
+        work_date_from,
+        work_date_to,
+        default_start=default_start,
+        default_end=default_end,
+    )
+
+    employee_queryset = Employee.objects.select_related("office", "primary_business_unit").filter(
+        primary_business_unit_id__in=scope_business_unit_ids,
+        status__value_code="ACTIVE",
+    )
+    if employee_id:
+        employee_queryset = employee_queryset.filter(id=employee_id)
+
+    filtered_line_queryset = line_queryset
+    if resolved_start is not None:
+        filtered_line_queryset = filtered_line_queryset.filter(work_date__gte=resolved_start)
+    if resolved_end is not None:
+        filtered_line_queryset = filtered_line_queryset.filter(work_date__lte=resolved_end)
+
+    summary_rows = filtered_line_queryset.values("weekly_timesheet__employee_id").annotate(
+        worked_hours=Sum("hours"),
+        billable_hours=Sum("hours", filter=Q(billable_flag=True)),
+        non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
+        timesheet_count=Count("weekly_timesheet", distinct=True),
+    )
+    line_summary_by_employee = {
+        row["weekly_timesheet__employee_id"]: row for row in summary_rows
+    }
+
+    rows: list[list[str]] = []
+    total_expected_hours = Decimal("0.00")
+    total_worked_hours = Decimal("0.00")
+    total_billable_hours = Decimal("0.00")
+    total_non_billable_hours = Decimal("0.00")
+    if resolved_start is not None and resolved_end is not None:
+        for employee in employee_queryset.order_by("employee_code"):
+            summary = line_summary_by_employee.get(employee.id, {})
+            expected_hours = TimesheetService.expected_capacity_hours(
+                employee,
+                employee.primary_business_unit_id,
+                resolved_start,
+                resolved_end,
+            )
+            worked_hours = summary.get("worked_hours") or Decimal("0.00")
+            billable_hours = summary.get("billable_hours") or Decimal("0.00")
+            non_billable_hours = summary.get("non_billable_hours") or Decimal("0.00")
+            timesheet_count = summary.get("timesheet_count") or 0
+            total_expected_hours += expected_hours
+            total_worked_hours += worked_hours
+            total_billable_hours += billable_hours
+            total_non_billable_hours += non_billable_hours
+            rows.append(
+                [
+                    employee.office.office_name,
+                    employee.primary_business_unit.bu_code,
+                    employee.employee_code,
+                    employee.full_name,
+                    _decimal_display(expected_hours),
+                    _decimal_display(worked_hours),
+                    _decimal_display(billable_hours),
+                    _decimal_display(non_billable_hours),
+                    _percent_display(worked_hours, expected_hours),
+                    str(timesheet_count),
+                ]
+            )
+
+    return {
+        "definition": REPORT_DEFINITIONS["employee-utilization"],
+        "split_grid_class": "report-panel-stack",
+        "filters": [
+            {
+                "label": "Business Unit",
+                "name": "business_unit_id",
+                "type": "select",
+                "value": business_unit_id,
+                "options": _bu_filter_options(current_user),
+            }
+            if len(current_user.scoped_business_units) > 1
+            else None,
+            {
+                "label": "Employee",
+                "name": "employee_id",
+                "type": "select",
+                "value": employee_id,
+                "options": _employee_filter_options(current_user),
+            },
+            {
+                "label": "From",
+                "name": "work_date_from",
+                "type": "date",
+                "value": work_date_from_value,
+            },
+            {
+                "label": "To",
+                "name": "work_date_to",
+                "type": "date",
+                "value": work_date_to_value,
+            },
+        ],
+        "headers": (
+            "Office",
+            "BU",
+            "Employee Code",
+            "Employee",
+            "Expected Hours",
+            "Worked Hours",
+            "Billable Hours",
+            "Non-billable Hours",
+            "Utilization",
+            "Timesheets",
+        ),
+        "rows": rows,
+        "totals": [
+            {"label": "Employees Returned", "value": str(len(rows))},
+            {"label": "Expected Hours", "value": _decimal_display(total_expected_hours)},
+            {"label": "Worked Hours", "value": _decimal_display(total_worked_hours)},
+            {"label": "Billable Hours", "value": _decimal_display(total_billable_hours)},
+            {
+                "label": "Non-billable Hours",
+                "value": _decimal_display(total_non_billable_hours),
+            },
+            {
+                "label": "Overall Utilization",
+                "value": _percent_display(total_worked_hours, total_expected_hours),
+            },
+        ],
+        "empty_message": "No employee utilization rows match the current filters.",
+    }
+
+
+def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpRequest) -> dict:
+    business_unit_id = _selected_value(request, "business_unit_id")
+    work_date_from = _selected_value(request, "work_date_from")
+    work_date_to = _selected_value(request, "work_date_to")
+
+    queryset = TimesheetLine.objects.select_related(
+        "weekly_timesheet__business_unit__office"
+    ).filter(weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids)
+    if business_unit_id:
+        queryset = queryset.filter(weekly_timesheet__business_unit_id=business_unit_id)
+
+    default_start, default_end = _aggregate_date_bounds(queryset, "work_date")
+    (
+        resolved_start,
+        resolved_end,
+        work_date_from_value,
+        work_date_to_value,
+    ) = _resolved_date_range(
+        work_date_from,
+        work_date_to,
+        default_start=default_start,
+        default_end=default_end,
+    )
+    if resolved_start is not None:
+        queryset = queryset.filter(work_date__gte=resolved_start)
+    if resolved_end is not None:
+        queryset = queryset.filter(work_date__lte=resolved_end)
+
+    grouped_rows = queryset.values(
+        "weekly_timesheet__business_unit__office__office_name",
+        "weekly_timesheet__business_unit__bu_code",
+        "weekly_timesheet__business_unit__name",
+    ).annotate(
+        employee_count=Count("weekly_timesheet__employee", distinct=True),
+        timesheet_count=Count("weekly_timesheet", distinct=True),
+        line_count=Count("id"),
+        total_hours=Sum("hours"),
+        billable_hours=Sum("hours", filter=Q(billable_flag=True)),
+        non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
+    ).order_by(
+        "weekly_timesheet__business_unit__office__office_name",
+        "weekly_timesheet__business_unit__bu_code",
+    )
+
+    rows = [
+        [
+            row["weekly_timesheet__business_unit__office__office_name"],
+            row["weekly_timesheet__business_unit__bu_code"],
+            row["weekly_timesheet__business_unit__name"],
+            str(row["employee_count"]),
+            str(row["timesheet_count"]),
+            str(row["line_count"]),
+            _decimal_display(row["total_hours"]),
+            _decimal_display(row["billable_hours"]),
+            _decimal_display(row["non_billable_hours"]),
+        ]
+        for row in grouped_rows
+    ]
+    totals = queryset.aggregate(
+        employee_count=Count("weekly_timesheet__employee", distinct=True),
+        timesheet_count=Count("weekly_timesheet", distinct=True),
+        total_hours=Sum("hours"),
+        billable_hours=Sum("hours", filter=Q(billable_flag=True)),
+        non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
+    )
+    return {
+        "definition": REPORT_DEFINITIONS["office-bu-time-summary"],
+        "split_grid_class": "report-panel-stack",
+        "filters": [
+            {
+                "label": "Business Unit",
+                "name": "business_unit_id",
+                "type": "select",
+                "value": business_unit_id,
+                "options": _bu_filter_options(current_user),
+            }
+            if len(current_user.scoped_business_units) > 1
+            else None,
+            {
+                "label": "Work Date From",
+                "name": "work_date_from",
+                "type": "date",
+                "value": work_date_from_value,
+            },
+            {
+                "label": "Work Date To",
+                "name": "work_date_to",
+                "type": "date",
+                "value": work_date_to_value,
+            },
+        ],
+        "headers": (
+            "Office",
+            "BU",
+            "BU Name",
+            "Employees",
+            "Timesheets",
+            "Lines",
+            "Total Hours",
+            "Billable Hours",
+            "Non-billable Hours",
+        ),
+        "rows": rows,
+        "totals": [
+            {"label": "Rows Returned", "value": str(len(rows))},
+            {"label": "Employees", "value": str(totals["employee_count"] or 0)},
+            {"label": "Timesheets", "value": str(totals["timesheet_count"] or 0)},
+            {"label": "Total Hours", "value": _decimal_display(totals["total_hours"])},
+            {"label": "Billable Hours", "value": _decimal_display(totals["billable_hours"])},
+            {
+                "label": "Non-billable Hours",
+                "value": _decimal_display(totals["non_billable_hours"]),
+            },
+        ],
+        "empty_message": "No Office or Business Unit summary rows match the current filters.",
+    }
+
+
+def _general_charge_code_usage_report(current_user: CurrentUser, request: HttpRequest) -> dict:
+    business_unit_id = _selected_value(request, "business_unit_id")
+    general_charge_code_id = _selected_value(request, "general_charge_code_id")
+    employee_id = _selected_value(request, "employee_id")
+    work_date_from = _selected_value(request, "work_date_from")
+    work_date_to = _selected_value(request, "work_date_to")
+
+    queryset = TimesheetLine.objects.select_related(
+        "weekly_timesheet__business_unit__office",
+        "general_charge_code",
+    ).filter(
+        weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids,
+        general_charge_code_id__isnull=False,
+    )
+    if business_unit_id:
+        queryset = queryset.filter(weekly_timesheet__business_unit_id=business_unit_id)
+    if general_charge_code_id:
+        queryset = queryset.filter(general_charge_code_id=general_charge_code_id)
+    if employee_id:
+        queryset = queryset.filter(weekly_timesheet__employee_id=employee_id)
+
+    default_start, default_end = _aggregate_date_bounds(queryset, "work_date")
+    (
+        resolved_start,
+        resolved_end,
+        work_date_from_value,
+        work_date_to_value,
+    ) = _resolved_date_range(
+        work_date_from,
+        work_date_to,
+        default_start=default_start,
+        default_end=default_end,
+    )
+    if resolved_start is not None:
+        queryset = queryset.filter(work_date__gte=resolved_start)
+    if resolved_end is not None:
+        queryset = queryset.filter(work_date__lte=resolved_end)
+
+    grouped_rows = queryset.values(
+        "weekly_timesheet__business_unit__office__office_name",
+        "weekly_timesheet__business_unit__bu_code",
+        "general_charge_code__code",
+        "general_charge_code__name",
+    ).annotate(
+        employee_count=Count("weekly_timesheet__employee", distinct=True),
+        line_count=Count("id"),
+        total_hours=Sum("hours"),
+        billable_hours=Sum("hours", filter=Q(billable_flag=True)),
+        non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
+    ).order_by("general_charge_code__code")
+
+    rows = [
+        [
+            row["weekly_timesheet__business_unit__office__office_name"],
+            row["weekly_timesheet__business_unit__bu_code"],
+            row["general_charge_code__code"],
+            row["general_charge_code__name"],
+            str(row["employee_count"]),
+            str(row["line_count"]),
+            _decimal_display(row["total_hours"]),
+            _decimal_display(row["billable_hours"]),
+            _decimal_display(row["non_billable_hours"]),
+        ]
+        for row in grouped_rows
+    ]
+    totals = queryset.aggregate(
+        code_count=Count("general_charge_code", distinct=True),
+        line_count=Count("id"),
+        total_hours=Sum("hours"),
+        billable_hours=Sum("hours", filter=Q(billable_flag=True)),
+        non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
+    )
+    return {
+        "definition": REPORT_DEFINITIONS["general-charge-code-usage"],
+        "split_grid_class": "report-panel-stack",
+        "filter_grid_class": "report-filter-grid report-filter-grid-dense",
+        "filters": [
+            {
+                "label": "BU",
+                "name": "business_unit_id",
+                "type": "select",
+                "value": business_unit_id,
+                "options": _bu_filter_options(current_user),
+            }
+            if len(current_user.scoped_business_units) > 1
+            else None,
+            {
+                "label": "GCC",
+                "name": "general_charge_code_id",
+                "type": "select",
+                "value": general_charge_code_id,
+                "options": _general_charge_code_filter_options(current_user),
+            },
+            {
+                "label": "Employee",
+                "name": "employee_id",
+                "type": "select",
+                "value": employee_id,
+                "options": _employee_filter_options(current_user),
+            },
+            {
+                "label": "From",
+                "name": "work_date_from",
+                "type": "date",
+                "value": work_date_from_value,
+            },
+            {
+                "label": "To",
+                "name": "work_date_to",
+                "type": "date",
+                "value": work_date_to_value,
+            },
+        ],
+        "headers": (
+            "Office",
+            "Business Unit",
+            "GCC Code",
+            "GCC Name",
+            "Employees",
+            "Lines",
+            "Total Hours",
+            "Billable Hours",
+            "Non-billable Hours",
+        ),
+        "rows": rows,
+        "totals": [
+            {"label": "Codes Returned", "value": str(totals["code_count"] or 0)},
+            {"label": "Lines", "value": str(totals["line_count"] or 0)},
+            {"label": "Total Hours", "value": _decimal_display(totals["total_hours"])},
+            {"label": "Billable Hours", "value": _decimal_display(totals["billable_hours"])},
+            {
+                "label": "Non-billable Hours",
+                "value": _decimal_display(totals["non_billable_hours"]),
+            },
+        ],
+        "empty_message": "No General Charge Code usage rows match the current filters.",
+    }
+
+
+def _approval_target_code(approval_item: ApprovalItem) -> str:
+    if approval_item.project_id is not None:
+        return approval_item.project.project_code
+    if approval_item.general_charge_code_id is not None:
+        return approval_item.general_charge_code.code
+    return ""
+
+
+def _approval_target_name(approval_item: ApprovalItem) -> str:
+    if approval_item.project_id is not None:
+        return approval_item.project.name
+    if approval_item.general_charge_code_id is not None:
+        return approval_item.general_charge_code.name
+    return ""
+
+
+def _approval_approver_label(approval_item: ApprovalItem) -> str:
+    if approval_item.approver_employee_id is not None:
+        return approval_item.approver_employee.employee_code
+    role_labels = []
+    for mapping in approval_item.approver_roles.all():
+        if mapping.existing_role_id is not None:
+            role_labels.append(mapping.existing_role.value_code)
+        elif mapping.approval_role_id is not None:
+            role_labels.append(mapping.approval_role.role_code)
+    return ", ".join(role_labels)
+
+
+def _approval_elapsed_hours(
+    *,
+    submitted_at: datetime,
+    decision_at: datetime | None,
+    status_code: str,
+) -> Decimal:
+    end_time = (
+        decision_at
+        if status_code in {"APPROVED", "REJECTED"} and decision_at is not None
+        else datetime.now(tz=submitted_at.tzinfo)
+    )
+    elapsed_seconds = max((end_time - submitted_at).total_seconds(), 0)
+    return Decimal(str(elapsed_seconds / 3600)).quantize(Decimal("0.01"))
+
+
+def _approval_aging_bucket(*, status_code: str, elapsed_hours: Decimal) -> str:
+    if status_code == "PENDING" and elapsed_hours >= Decimal("72"):
+        return "Stalled (>72h)"
+    if elapsed_hours < Decimal("24"):
+        return "<24h"
+    if elapsed_hours < Decimal("72"):
+        return "24-72h"
+    return ">72h"
+
+
+def _approval_turnaround_report(current_user: CurrentUser, request: HttpRequest) -> dict:
+    business_unit_id = _selected_value(request, "business_unit_id")
+    project_id = _selected_value(request, "project_id")
+    approver_employee_id = _selected_value(request, "approver_employee_id")
+    status_code = _selected_value(request, "status")
+    submitted_from = _selected_value(request, "submitted_from")
+    submitted_to = _selected_value(request, "submitted_to")
+
+    queryset = ApprovalItem.objects.select_related(
+        "status",
+        "project",
+        "general_charge_code",
+        "approver_employee",
+        "submission_cycle",
+        "submission_cycle__weekly_timesheet",
+        "submission_cycle__weekly_timesheet__employee",
+        "submission_cycle__weekly_timesheet__business_unit",
+    ).prefetch_related(
+        "approver_roles__existing_role",
+        "approver_roles__approval_role",
+    ).filter(
+        submission_cycle__weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids
+    )
+    if business_unit_id:
+        queryset = queryset.filter(
+            submission_cycle__weekly_timesheet__business_unit_id=business_unit_id
+        )
+    if project_id:
+        queryset = queryset.filter(project_id=project_id)
+    if approver_employee_id:
+        queryset = queryset.filter(approver_employee_id=approver_employee_id)
+    if status_code:
+        queryset = queryset.filter(status__value_code=status_code)
+
+    default_start, default_end = _aggregate_date_bounds(queryset, "submission_cycle__submitted_at")
+    (
+        resolved_start,
+        resolved_end,
+        submitted_from_value,
+        submitted_to_value,
+    ) = _resolved_date_range(
+        submitted_from,
+        submitted_to,
+        default_start=default_start,
+        default_end=default_end,
+    )
+    if resolved_start is not None:
+        queryset = queryset.filter(submission_cycle__submitted_at__date__gte=resolved_start)
+    if resolved_end is not None:
+        queryset = queryset.filter(submission_cycle__submitted_at__date__lte=resolved_end)
+
+    approval_items = list(queryset.order_by("-submission_cycle__submitted_at", "id"))
+    decision_timestamps = {
+        row["approval_item_id"]: row["decision_at"]
+        for row in ApprovalAction.objects.filter(
+            approval_item_id__in=[item.id for item in approval_items],
+            action_type__value_code__in=("APPROVE", "REJECT"),
+        )
+        .values("approval_item_id")
+        .annotate(decision_at=Max("action_timestamp"))
+    }
+
+    rows: list[list[str]] = []
+    approved_count = 0
+    rejected_count = 0
+    pending_count = 0
+    stalled_pending_count = 0
+    total_elapsed_hours = Decimal("0.00")
+    for item in approval_items:
+        decision_at = decision_timestamps.get(item.id)
+        elapsed_hours = _approval_elapsed_hours(
+            submitted_at=item.submission_cycle.submitted_at,
+            decision_at=decision_at,
+            status_code=item.status.value_code,
+        )
+        aging_bucket = _approval_aging_bucket(
+            status_code=item.status.value_code,
+            elapsed_hours=elapsed_hours,
+        )
+        total_elapsed_hours += elapsed_hours
+        if item.status.value_code == "APPROVED":
+            approved_count += 1
+        elif item.status.value_code == "REJECTED":
+            rejected_count += 1
+        elif item.status.value_code == "PENDING":
+            pending_count += 1
+            if aging_bucket == "Stalled (>72h)":
+                stalled_pending_count += 1
+        rows.append(
+            [
+                str(item.id),
+                item.submission_cycle.weekly_timesheet.business_unit.bu_code,
+                item.submission_cycle.weekly_timesheet.employee.employee_code,
+                item.submission_cycle.weekly_timesheet.employee.full_name,
+                _approval_target_code(item),
+                _approval_target_name(item),
+                _approval_approver_label(item),
+                _date_display(item.submission_cycle.submitted_at),
+                _date_display(decision_at) if decision_at is not None else "Pending",
+                item.status.value_code,
+                _decimal_display(elapsed_hours),
+                aging_bucket,
+            ]
+        )
+
+    average_elapsed_hours = (
+        (total_elapsed_hours / Decimal(len(rows))).quantize(Decimal("0.01"))
+        if rows
+        else Decimal("0.00")
+    )
+    return {
+        "definition": REPORT_DEFINITIONS["approval-turnaround"],
+        "split_grid_class": "report-panel-stack",
+        "filters": [
+            {
+                "label": "Business Unit",
+                "name": "business_unit_id",
+                "type": "select",
+                "value": business_unit_id,
+                "options": _bu_filter_options(current_user),
+            }
+            if len(current_user.scoped_business_units) > 1
+            else None,
+            {
+                "label": "Project",
+                "name": "project_id",
+                "type": "select",
+                "value": project_id,
+                "options": _project_filter_options(current_user),
+            },
+            {
+                "label": "Approver",
+                "name": "approver_employee_id",
+                "type": "select",
+                "value": approver_employee_id,
+                "options": _approval_approver_filter_options(current_user),
+            },
+            {
+                "label": "Status",
+                "name": "status",
+                "type": "select",
+                "value": status_code,
+                "options": _status_filter_options(queryset),
+            },
+            {
+                "label": "Submitted From",
+                "name": "submitted_from",
+                "type": "date",
+                "value": submitted_from_value,
+            },
+            {
+                "label": "Submitted To",
+                "name": "submitted_to",
+                "type": "date",
+                "value": submitted_to_value,
+            },
+        ],
+        "headers": (
+            "Approval Item",
+            "BU",
+            "Employee Code",
+            "Employee",
+            "Target Code",
+            "Target",
+            "Approver",
+            "Submitted At",
+            "Decision At",
+            "Status",
+            "Elapsed Hours",
+            "Aging Bucket",
+        ),
+        "rows": rows,
+        "totals": [
+            {"label": "Rows Returned", "value": str(len(rows))},
+            {"label": "Approved", "value": str(approved_count)},
+            {"label": "Rejected", "value": str(rejected_count)},
+            {"label": "Pending", "value": str(pending_count)},
+            {"label": "Stalled Pending", "value": str(stalled_pending_count)},
+            {"label": "Average Elapsed Hours", "value": _decimal_display(average_elapsed_hours)},
+        ],
+        "empty_message": "No approval turnaround rows match the current filters.",
+    }
+
+
 REPORT_BUILDERS = {
     "my-timesheet-history": _my_timesheet_history_report,
     "project-time": _project_time_report,
@@ -1083,6 +1883,10 @@ REPORT_BUILDERS = {
     "archived-timesheets": _archived_timesheets_report,
     "audit-history": _audit_history_report,
     "integration-jobs": _integration_jobs_report,
+    "employee-utilization": _employee_utilization_report,
+    "office-bu-time-summary": _office_bu_time_summary_report,
+    "general-charge-code-usage": _general_charge_code_usage_report,
+    "approval-turnaround": _approval_turnaround_report,
 }
 
 
@@ -1159,6 +1963,7 @@ def render_report_view(
             "report_path": report_path or _report_url(report_code),
             "report_definition": definition,
             "filter_fields": filters,
+            "report_filter_grid_class": payload.get("filter_grid_class", "report-filter-grid"),
             "table_headers": payload["headers"],
             "table_rows": payload["rows"],
             "totals": payload["totals"],

@@ -2,12 +2,11 @@ from datetime import date
 
 from django.db.models import Q
 
+from apps.auth.context import CurrentUser
 from apps.master_data.models import (
     GeneralChargeCodeApprovalRoleAssignment,
     GeneralChargeCodeApproverRole,
 )
-
-from apps.auth.context import CurrentUser
 
 
 class AuthorizationPolicyService:
@@ -19,6 +18,10 @@ class AuthorizationPolicyService:
         "archived-timesheets",
         "audit-history",
         "integration-jobs",
+        "employee-utilization",
+        "office-bu-time-summary",
+        "general-charge-code-usage",
+        "approval-turnaround",
     }
 
     @staticmethod
@@ -53,9 +56,7 @@ class AuthorizationPolicyService:
             current_user.is_ts_admin
             or current_user.has_role("PROJECT_MANAGER")
             or current_user.has_role("PROJECT_OWNER")
-            or (
-                AuthorizationPolicyService.has_general_charge_code_approval_access(current_user)
-            )
+            or (AuthorizationPolicyService.has_general_charge_code_approval_access(current_user))
         )
 
     @staticmethod
@@ -174,8 +175,8 @@ class AuthorizationPolicyService:
             return True
         if approval_item.general_charge_code_id is None:
             return False
-        active_ad_hoc_role_ids = AuthorizationPolicyService._active_general_charge_code_approval_role_ids(
-            current_user
+        active_ad_hoc_role_ids = (
+            AuthorizationPolicyService._active_general_charge_code_approval_role_ids(current_user)
         )
         return approval_item.approver_roles.filter(
             Q(existing_role__value_code__in=current_user.role_codes)
@@ -192,8 +193,8 @@ class AuthorizationPolicyService:
             return True
         if approval_item.general_charge_code_id is None:
             return False
-        active_ad_hoc_role_ids = AuthorizationPolicyService._active_general_charge_code_approval_role_ids(
-            current_user
+        active_ad_hoc_role_ids = (
+            AuthorizationPolicyService._active_general_charge_code_approval_role_ids(current_user)
         )
         return approval_item.approver_roles.filter(
             Q(existing_role__value_code__in=current_user.role_codes)
@@ -217,8 +218,9 @@ class AuthorizationPolicyService:
                 or current_user.has_role("PROJECT_MANAGER")
             )
         if report_code == "pending-approvals":
-            return current_user.is_ts_admin or AuthorizationPolicyService.can_access_approval_worklist(
-                current_user
+            return (
+                current_user.is_ts_admin
+                or AuthorizationPolicyService.can_access_approval_worklist(current_user)
             )
         if report_code == "missing-timesheets":
             return (
@@ -226,6 +228,14 @@ class AuthorizationPolicyService:
                 or current_user.has_role("PROJECT_OWNER")
                 or current_user.has_role("PROJECT_MANAGER")
             )
-        if report_code in {"archived-timesheets", "audit-history", "integration-jobs"}:
+        if report_code in {
+            "archived-timesheets",
+            "audit-history",
+            "integration-jobs",
+            "employee-utilization",
+            "office-bu-time-summary",
+            "general-charge-code-usage",
+            "approval-turnaround",
+        }:
             return current_user.is_ts_admin
         return False

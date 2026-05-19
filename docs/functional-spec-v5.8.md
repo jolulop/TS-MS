@@ -406,12 +406,24 @@ Implemented reports:
 - Archived Timesheets
 - Audit History
 - Integration Jobs
+- Employee Utilization
+- Office / BU Time Summary
+- General Charge Code Usage
+- Approval Turnaround
 
 Audience highlights:
 - `USER`: personal history stays in `My Timesheets`
 - `PROJECT_OWNER`: Project Time, Missing Timesheets by Project
 - `PROJECT_MANAGER`: Project Time, Pending Approvals, Missing Timesheets by Project
-- `TS_ADMIN`: administrative reports across scoped Business Units, including Missing Timesheets by Project
+- `TS_ADMIN`: administrative reports across scoped Business Units, including:
+  - Missing Timesheets by Project
+  - Archived Timesheets
+  - Audit History
+  - Integration Jobs
+  - Employee Utilization
+  - Office / BU Time Summary
+  - General Charge Code Usage
+  - Approval Turnaround
 
 CSV export behavior:
 - The report viewer supports CSV export for:
@@ -421,10 +433,35 @@ CSV export behavior:
   - Archived Timesheets
   - Audit History
   - Integration Jobs
+  - Employee Utilization
+  - Office / BU Time Summary
+  - General Charge Code Usage
+  - Approval Turnaround
 - CSV export always uses the currently applied filters and the same server-side
   scope rules as the visible report grid.
 - Missing Timesheets by Project keeps its dedicated API export flow in addition
   to the HTML/UI export path.
+
+Advanced admin-report behavior:
+- Employee Utilization:
+  - compares expected chargeable capacity against worked hours by employee
+  - expected capacity is derived from the employee calendar, active Calendar
+    Period Rules, weekend-working rules, and active Special Days
+  - supports filtering by Business Unit, employee, and work-date range
+- Office / BU Time Summary:
+  - aggregates total, billable, and non-billable hours by Office and Business
+    Unit
+  - supports filtering by Business Unit and work-date range
+- General Charge Code Usage:
+  - aggregates internal charging usage by General Charge Code
+  - supports filtering by Business Unit, General Charge Code, employee, and
+    work-date range
+- Approval Turnaround:
+  - shows pending and completed approval items with elapsed hours and aging
+    buckets
+  - identifies stalled pending items
+  - supports filtering by Business Unit, project, approver, status, and
+    submitted-date range
 
 Missing Timesheets by Project behavior:
 - filters by one or more accessible projects

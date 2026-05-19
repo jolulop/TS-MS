@@ -332,6 +332,7 @@
       .hero-grid,
       .card-grid,
       .meta-grid,
+      .report-panel-stack,
       .split-grid,
       .form-grid {
         display: grid;
@@ -339,6 +340,32 @@
       }
 
       @media (min-width: 760px) {
+        .report-filter-grid {
+          grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+        }
+
+        .report-filter-grid.report-filter-grid-dense {
+          grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        }
+
+        .report-filter-field {
+          grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
+          align-items: center;
+          gap: 0.75rem;
+        }
+
+        .report-filter-grid.report-filter-grid-dense .report-filter-field {
+          grid-template-columns: minmax(3rem, auto) minmax(0, 1fr);
+        }
+
+        .report-filter-field label {
+          margin: 0;
+        }
+
+        .report-filter-field select[multiple] {
+          min-height: 10rem;
+        }
+
         .hero-grid,
         .card-grid,
         .split-grid {
@@ -366,7 +393,7 @@
         }
 
         .meta-grid.meta-grid-inline {
-          grid-template-columns: repeat(5, minmax(0, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
         }
 
         .employee-detail-layout {
@@ -449,6 +476,16 @@
       .surface-card h2,
       .surface-card h3 {
         margin: 0;
+      }
+
+      .report-filter-grid {
+        display: grid;
+        gap: 0.85rem 1rem;
+      }
+
+      .report-filter-field {
+        display: grid;
+        gap: 0.35rem;
       }
 
       .chip {

@@ -243,6 +243,10 @@ HTML report export routes:
 - `GET /reports/archived-timesheets/export/`
 - `GET /reports/audit-history/export/`
 - `GET /reports/integration-jobs/export/`
+- `GET /reports/employee-utilization/export/`
+- `GET /reports/office-bu-time-summary/export/`
+- `GET /reports/general-charge-code-usage/export/`
+- `GET /reports/approval-turnaround/export/`
 
 Current `/api/v1` export support remains narrower than the HTML UI and is only
 implemented for Missing Timesheets by Project.
@@ -270,6 +274,9 @@ GET behavior:
 - `TS_ADMIN` can call the implemented admin master-data endpoints inside active Office and Business Unit scope
 - `TS_ADMIN` can use approval `GET` endpoints for scoped oversight and can use
   admin timesheet action endpoints for exception handling
+- `TS_ADMIN` can use the advanced admin reports only inside active Office and
+  Business Unit scope, with the same scope enforcement applied to HTML CSV
+  exports
 - `PROJECT_MANAGER` is the approval-workflow API role
 - `PROJECT_OWNER`, `PROJECT_MANAGER`, and `TS_ADMIN` can use the project missing-timesheets export API inside their project scope
 - `PROJECT_OWNER` and `PROJECT_MANAGER` gain reporting and inquiry access through the UI/report layer

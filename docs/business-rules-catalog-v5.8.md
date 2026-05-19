@@ -108,6 +108,13 @@
   or `APPROVED` weekly timesheets as present when evaluating assignment-week
   gaps.
 - The project missing-timesheets report shows missing employee weeks only within active project-assignment windows and deduplicates rows by employee and week.
+- Employee Utilization expected hours are derived from the employee calendar,
+  chargeable working days, weekend-working flags, and active Special Days for
+  the selected date range.
+- Approval Turnaround uses submission timestamps plus final approval or
+  rejection action timestamps to derive elapsed hours for completed items.
+- Pending Approval Turnaround rows are considered stalled when they exceed the
+  report aging threshold.
 - Weekend entry is allowed only when the active Business Unit Calendar Period Rule enables it and no active Special Day overrides it.
 - A line charges exactly one target:
   - Project
@@ -160,3 +167,7 @@ Audit is required for:
 - archived-timesheets CSV export
 - audit-history CSV export
 - integration-jobs CSV export
+- employee-utilization CSV export
+- office-bu-time-summary CSV export
+- general-charge-code-usage CSV export
+- approval-turnaround CSV export

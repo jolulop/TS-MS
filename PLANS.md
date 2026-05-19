@@ -2,6 +2,9 @@
 
 ## Active Plans
 
+- `2026-05-19`: `docs/plans/2026-05-19-advanced-report-expansion.md`
+  - status: completed
+  - focus: add the first advanced TS_ADMIN analytics tier with four new reports, filters, and CSV export inside the existing report viewer
 - `2026-05-18`: `docs/plans/2026-05-18-docs-v5.8-promotion.md`
   - status: completed
   - focus: publish the v5.8 markdown source-of-truth set and repoint repo guidance to it after enabling Copy Prev. Week

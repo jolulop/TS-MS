@@ -25,6 +25,10 @@
 | Run Project Time report | No | Yes, owned projects | Yes, managed projects | Yes, scoped BUs | No direct role grant |
 | Run Missing Timesheets by Project report | No | Yes, owned projects | Yes, managed projects | Yes, scoped Office/BU project scope | No direct role grant |
 | Run admin reports | No | No | Pending Approvals only | Yes | No direct role grant |
+| Run Employee Utilization | No | No | No | Yes, scoped BUs | No direct role grant |
+| Run Office / BU Time Summary | No | No | No | Yes, scoped BUs | No direct role grant |
+| Run General Charge Code Usage | No | No | No | Yes, scoped BUs | No direct role grant |
+| Run Approval Turnaround | No | No | No | Yes, scoped BUs | No direct role grant |
 | Manage Employees | No | No | No | Yes, scoped BUs | No |
 | Manage Business Units | No | No | No | Yes, scoped BUs | No |
 | Manage Clients | No | No | No | Yes, active Office | No |
@@ -68,6 +72,8 @@
 - can open approval oversight inside scoped Business Units
 - can inspect approval detail and follow related links without gaining
   approve/reject authority from the admin role alone
+- can run the advanced admin analytics reports only inside active Office and
+  scoped Business Units
 
 ### TS_ADMIN_MASTER
 
