@@ -34,32 +34,68 @@
       <p>{{ page_intro }}</p>
     </div>
 
-    {% if filter_links and show_filter_panel %}
+    {% if show_filter_panel %}
+    {% if filter_links or filter_form_fields %}
       <section class="surface-card">
         <div class="section-header">
           <h2>{{ filter_title|default:"Filters" }}</h2>
         </div>
-        <nav class="subnav" aria-label="{{ filter_title|default:'Filters' }}">
-          {% for link in filter_links %}
-            <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
-          {% endfor %}
-        </nav>
+        {% if filter_links %}
+          <nav class="subnav" aria-label="{{ filter_title|default:'Filters' }}">
+            {% for link in filter_links %}
+              <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+            {% endfor %}
+          </nav>
+        {% endif %}
+        {% if filter_form_fields %}
+          <form class="form-stack" method="get" action="">
+            {% include "core/partials/form_fields.html" with fields=filter_form_fields %}
+            <div class="button-row">
+              <button class="button" type="submit">{{ filter_form_submit_label|default:"Apply Filters" }}</button>
+            </div>
+          </form>
+        {% endif %}
       </section>
+    {% endif %}
     {% endif %}
 
     {% if form_title %}
       <div class="{{ split_grid_class|default:'split-grid' }}">
         <section class="surface-card">
-          <div class="section-header{% if inline_filter_links %} section-header-row{% endif %}">
+          <div class="section-header{% if inline_filter_links or inline_filter_form_fields %} section-header-row{% endif %}">
             {% if records_heading %}
               <h2>{{ records_heading }}</h2>
             {% endif %}
-            {% if inline_filter_links %}
-              <nav class="subnav" aria-label="{{ inline_filter_title|default:filter_title|default:'Filters' }}">
-                {% for link in inline_filter_links %}
-                  <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
-                {% endfor %}
-              </nav>
+            {% if inline_filter_form_fields or inline_filter_links %}
+              <div class="section-header-controls">
+                {% if inline_filter_form_fields %}
+                  <form class="toolbar-form" method="get" action="">
+                    {% for field in inline_filter_hidden_fields %}
+                      <input type="hidden" name="{{ field.name }}" value="{{ field.value }}">
+                    {% endfor %}
+                    {% for field in inline_filter_form_fields %}
+                      <div class="toolbar-field">
+                        <label for="{{ field.name }}">{{ field.label }}</label>
+                        <select id="{{ field.name }}" name="{{ field.name }}">
+                          {% for option in field.options %}
+                            <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                    {% endfor %}
+                    <div class="toolbar-actions">
+                      <button class="button secondary" type="submit">{{ inline_filter_form_submit_label|default:"Apply" }}</button>
+                    </div>
+                  </form>
+                {% endif %}
+                {% if inline_filter_links %}
+                  <nav class="subnav" aria-label="{{ inline_filter_title|default:filter_title|default:'Filters' }}">
+                    {% for link in inline_filter_links %}
+                      <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+                    {% endfor %}
+                  </nav>
+                {% endif %}
+              </div>
             {% endif %}
           </div>
           {% if table_rows %}
@@ -78,7 +114,9 @@
                     <tr>
                       {% for cell in row.cells %}
                         <td>
-                          {% if forloop.first %}
+                          {% if cell.href %}
+                            <a href="{{ cell.href }}">{{ cell.text }}</a>
+                          {% elif forloop.first %}
                             <a href="{{ row.href }}">{{ cell }}</a>
                           {% else %}
                             {{ cell }}
@@ -115,16 +153,40 @@
       </div>
     {% else %}
       <section class="surface-card">
-        <div class="section-header{% if inline_filter_links %} section-header-row{% endif %}">
+        <div class="section-header{% if inline_filter_links or inline_filter_form_fields %} section-header-row{% endif %}">
           {% if records_heading %}
             <h2>{{ records_heading }}</h2>
           {% endif %}
-          {% if inline_filter_links %}
-            <nav class="subnav" aria-label="{{ inline_filter_title|default:filter_title|default:'Filters' }}">
-              {% for link in inline_filter_links %}
-                <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
-              {% endfor %}
-            </nav>
+          {% if inline_filter_form_fields or inline_filter_links %}
+            <div class="section-header-controls">
+              {% if inline_filter_form_fields %}
+                <form class="toolbar-form" method="get" action="">
+                  {% for field in inline_filter_hidden_fields %}
+                    <input type="hidden" name="{{ field.name }}" value="{{ field.value }}">
+                  {% endfor %}
+                  {% for field in inline_filter_form_fields %}
+                    <div class="toolbar-field">
+                      <label for="{{ field.name }}">{{ field.label }}</label>
+                      <select id="{{ field.name }}" name="{{ field.name }}">
+                        {% for option in field.options %}
+                          <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                  {% endfor %}
+                  <div class="toolbar-actions">
+                    <button class="button secondary" type="submit">{{ inline_filter_form_submit_label|default:"Apply" }}</button>
+                  </div>
+                </form>
+              {% endif %}
+              {% if inline_filter_links %}
+                <nav class="subnav" aria-label="{{ inline_filter_title|default:filter_title|default:'Filters' }}">
+                  {% for link in inline_filter_links %}
+                    <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+                  {% endfor %}
+                </nav>
+              {% endif %}
+            </div>
           {% endif %}
         </div>
         {% if table_rows %}
@@ -143,7 +205,9 @@
                   <tr>
                     {% for cell in row.cells %}
                       <td>
-                        {% if forloop.first %}
+                        {% if cell.href %}
+                          <a href="{{ cell.href }}">{{ cell.text }}</a>
+                        {% elif forloop.first %}
                           <a href="{{ row.href }}">{{ cell }}</a>
                         {% else %}
                           {{ cell }}
@@ -168,4 +232,22 @@
       </div>
     {% endif %}
   </div>
+  {% if filter_form_reset_pairs %}
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        {% for pair in filter_form_reset_pairs %}
+          const source{{ forloop.counter }} = document.getElementById("{{ pair.source_id }}");
+          const target{{ forloop.counter }} = document.getElementById("{{ pair.target_id }}");
+          if (source{{ forloop.counter }} && target{{ forloop.counter }}) {
+            source{{ forloop.counter }}.addEventListener("change", function () {
+              target{{ forloop.counter }}.value = "";
+              if (source{{ forloop.counter }}.form) {
+                source{{ forloop.counter }}.form.submit();
+              }
+            });
+          }
+        {% endfor %}
+      });
+    </script>
+  {% endif %}
 {% endblock %}

@@ -471,12 +471,22 @@ def _status_filter_links(
     )
     allowed_codes = {"ALL", *(value.value_code for value in available_values)}
     selected_code = raw_selected if raw_selected in allowed_codes else default_code
-    all_href = request.path if default_code == "ALL" else f"{request.path}?status=ALL"
+
+    def _href_for(status_code: str) -> str:
+        query_params = request.GET.copy()
+        if status_code == "ALL" and default_code == "ALL":
+            query_params.pop("status", None)
+        else:
+            query_params["status"] = status_code
+        query_string = query_params.urlencode()
+        return request.path if not query_string else f"{request.path}?{query_string}"
+
+    all_href = _href_for("ALL")
     links = [{"label": "All", "href": all_href, "active": selected_code == "ALL"}]
     links.extend(
         {
             "label": ref_value.value_label,
-            "href": f"{request.path}?status={ref_value.value_code}",
+            "href": _href_for(ref_value.value_code),
             "active": selected_code == ref_value.value_code,
         }
         for ref_value in available_values
@@ -498,6 +508,7 @@ def _scoped_client_options(
     business_unit_id: int | None = None,
     selected: object = None,
     include_blank: bool = False,
+    active_only: bool = False,
 ) -> list[dict]:
     selected_values = _selected_values(selected)
     options = []
@@ -506,6 +517,8 @@ def _scoped_client_options(
     clients = ClientRecord.objects.filter(
         office_id=current_user.office_id,
     ).select_related("office")
+    if active_only:
+        clients = clients.filter(status__value_code="ACTIVE")
     clients = clients.order_by("client_code")
     options.extend(
         _option(
@@ -737,6 +750,8 @@ def _scoped_project_options(
     *,
     selected: object = None,
     include_blank: bool = False,
+    client_id: int | None = None,
+    active_only: bool = False,
 ) -> list[dict]:
     selected_values = _selected_values(selected)
     options = []
@@ -750,6 +765,10 @@ def _scoped_project_options(
         )
         .order_by("business_unit__bu_code", "project_code")
     )
+    if client_id is not None:
+        projects = projects.filter(client_id=client_id)
+    if active_only:
+        projects = projects.filter(status__value_code="ACTIVE")
     if not current_user.is_ts_admin:
         scoped_project_filter = None
         if current_user.has_role("PROJECT_OWNER"):
@@ -2119,6 +2138,44 @@ def _project_assignment_fields(
     ]
 
 
+def _project_assignment_filter_fields(
+    current_user: CurrentUser,
+    *,
+    selected_status_code: str,
+    selected_client_id: object = "",
+    selected_project_id: object = "",
+) -> list[dict]:
+    normalized_client_id = (
+        int(str(selected_client_id)) if str(selected_client_id).isdigit() else None
+    )
+    return [
+        _field(name="status", label="", kind="hidden", value=selected_status_code),
+        _field(
+            name="client_id",
+            label="Client",
+            kind="select",
+            options=_scoped_client_options(
+                current_user,
+                selected=selected_client_id,
+                include_blank=True,
+                active_only=True,
+            ),
+        ),
+        _field(
+            name="project_id",
+            label="Project",
+            kind="select",
+            options=_scoped_project_options(
+                current_user,
+                selected=selected_project_id,
+                include_blank=True,
+                client_id=normalized_client_id,
+                active_only=True,
+            ),
+        ),
+    ]
+
+
 def _calendar_period_rule_fields(
     current_user: CurrentUser,
     *,
@@ -2343,6 +2400,12 @@ def _render_collection_page(
     title_filter_links: list[dict] | None = None,
     title_filter_title: str = "Filters",
     bottom_action: dict | None = None,
+    filter_form_fields: list[dict] | None = None,
+    filter_form_submit_label: str = "Apply Filters",
+    filter_form_reset_pairs: list[dict] | None = None,
+    inline_filter_form_fields: list[dict] | None = None,
+    inline_filter_hidden_fields: list[dict] | None = None,
+    inline_filter_form_submit_label: str = "Apply Filters",
 ) -> HttpResponse:
     context = _system_context(
         request,
@@ -2372,6 +2435,12 @@ def _render_collection_page(
             "title_filter_links": title_filter_links or [],
             "title_filter_title": title_filter_title,
             "bottom_action": bottom_action,
+            "filter_form_fields": filter_form_fields or [],
+            "filter_form_submit_label": filter_form_submit_label,
+            "filter_form_reset_pairs": filter_form_reset_pairs or [],
+            "inline_filter_form_fields": inline_filter_form_fields or [],
+            "inline_filter_hidden_fields": inline_filter_hidden_fields or [],
+            "inline_filter_form_submit_label": inline_filter_form_submit_label,
         }
     )
     return render(request, "core/system_collection.html", context)
@@ -2433,6 +2502,12 @@ def _render_list_only_collection(
     create_href: str,
     filter_links: list[dict] | None = None,
     filter_title: str = "Filters",
+    filter_form_fields: list[dict] | None = None,
+    filter_form_submit_label: str = "Apply Filters",
+    filter_form_reset_pairs: list[dict] | None = None,
+    inline_filter_form_fields: list[dict] | None = None,
+    inline_filter_hidden_fields: list[dict] | None = None,
+    inline_filter_form_submit_label: str = "Apply Filters",
 ) -> HttpResponse:
     return _render_collection_page(
         request,
@@ -2446,11 +2521,17 @@ def _render_list_only_collection(
         form_title=None,
         filter_links=[],
         filter_title=filter_title,
-        show_filter_panel=False,
+        show_filter_panel=bool(filter_form_fields),
         inline_filter_links=filter_links or [],
         inline_filter_title=filter_title,
         records_heading="",
         page_action={"label": create_label, "href": create_href},
+        filter_form_fields=filter_form_fields,
+        filter_form_submit_label=filter_form_submit_label,
+        filter_form_reset_pairs=filter_form_reset_pairs,
+        inline_filter_form_fields=inline_filter_form_fields,
+        inline_filter_hidden_fields=inline_filter_hidden_fields,
+        inline_filter_form_submit_label=inline_filter_form_submit_label,
     )
 
 
@@ -2532,6 +2613,25 @@ def _read_only_detail_section(
     }
 
 
+def _read_only_table_section(
+    *,
+    title: str,
+    intro: str,
+    table_headers: tuple[str, ...],
+    table_rows: list[dict],
+    empty_message: str,
+) -> dict:
+    return {
+        "title": title,
+        "intro": intro,
+        "table_headers": table_headers,
+        "table_rows": table_rows,
+        "empty_message": empty_message,
+        "fields": [],
+        "read_only": True,
+    }
+
+
 def _employee_rows(employees: list[dict]) -> list[dict]:
     return [
         {
@@ -2566,19 +2666,69 @@ def _employee_detail_rows(employee: dict) -> list[tuple[str, str]]:
     ]
 
 
-def _client_rows(clients: list[dict]) -> list[dict]:
+def _employee_project_assignment_rows(
+    project_assignments: list[dict],
+) -> list[dict]:
     return [
         {
-            "href": f"/system/clients/{client['id']}/",
+            "href": f"/system/projects/{assignment['project']['id']}/",
             "cells": [
-                client["client_code"],
-                client["name"],
-                client["status"],
-                client["parent_client"]["client_code"] if client["parent_client"] else "None",
+                assignment["project"]["name"],
+                assignment["project"]["business_unit"]["bu_code"],
+                assignment["assignment_start_date"],
+                assignment["assignment_end_date"] or "Open",
             ],
         }
-        for client in clients
+        for assignment in project_assignments
     ]
+
+
+def _client_rows(clients: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for client in clients:
+        summaries = client["project_business_unit_summaries"]
+        if summaries:
+            for summary in summaries:
+                rows.append(
+                    {
+                        "href": f"/system/clients/{client['id']}/",
+                        "cells": [
+                            client["client_code"],
+                            client["name"],
+                            summary["business_unit"]["name"],
+                            {
+                                "text": str(summary["active_project_count"]),
+                                "href": (
+                                    f"/system/clients/{client['id']}/projects/"
+                                    f"{summary['business_unit']['id']}/"
+                                ),
+                            },
+                            str(summary["active_employee_count"]),
+                            client["status"],
+                            (
+                                client["parent_client"]["client_code"]
+                                if client["parent_client"]
+                                else "None"
+                            ),
+                        ],
+                    }
+                )
+            continue
+        rows.append(
+            {
+                "href": f"/system/clients/{client['id']}/",
+                "cells": [
+                    client["client_code"],
+                    client["name"],
+                    "None",
+                    "0",
+                    "0",
+                    client["status"],
+                    client["parent_client"]["client_code"] if client["parent_client"] else "None",
+                ],
+            }
+        )
+    return rows
 
 
 def _client_detail_rows(client: dict) -> list[tuple[str, str]]:
@@ -2987,16 +3137,62 @@ def _project_rows(projects: list[dict]) -> list[dict]:
         {
             "href": f"/system/projects/{project['id']}/",
             "cells": [
-                project["business_unit"]["bu_code"],
+                project["business_unit"]["name"],
                 project["project_code"],
                 project["name"],
+                project["client"]["name"],
                 project["status"],
-                project["project_owner_employee"]["employee_code"],
-                project["project_manager_employee"]["employee_code"],
+                project["project_owner_employee"]["full_name"],
+                project["project_manager_employee"]["full_name"],
+                {
+                    "text": str(project["employee_count"]),
+                    "href": (
+                        "/system/project-assignments/"
+                        f"?status=ALL&client_id={project['client']['id']}"
+                        f"&project_id={project['id']}"
+                    ),
+                },
             ],
         }
         for project in projects
     ]
+
+
+def _project_collection_filter_fields(
+    current_user: CurrentUser,
+    *,
+    selected_client_id: str = "",
+) -> list[dict]:
+    return [
+        _field(
+            name="client_id",
+            label="Client",
+            kind="select",
+            value=selected_client_id,
+            options=_scoped_client_options(
+                current_user,
+                selected=selected_client_id,
+                include_blank=True,
+                active_only=True,
+            ),
+        )
+    ]
+
+
+def _project_collection_hidden_filters(
+    *,
+    selected_status_code: str,
+    selected_business_unit_id: str,
+) -> list[dict]:
+    hidden_fields = [{"name": "status", "value": selected_status_code}]
+    if selected_business_unit_id:
+        hidden_fields.append(
+            {
+                "name": "business_unit_id",
+                "value": selected_business_unit_id,
+            }
+        )
+    return hidden_fields
 
 
 def _project_detail_rows(project: dict) -> list[tuple[str, str]]:
@@ -3024,8 +3220,9 @@ def _project_assignment_rows(assignments: list[dict]) -> list[dict]:
         {
             "href": f"/system/project-assignments/{assignment['id']}/",
             "cells": [
-                assignment["project"]["business_unit"]["bu_code"],
+                assignment["project"]["client"]["name"],
                 assignment["project"]["project_code"],
+                assignment["project"]["name"],
                 (
                     f"{assignment['employee']['employee_code']} - "
                     f"{assignment['employee']['full_name']}"
@@ -3651,7 +3848,15 @@ CLIENT_CONFIG = MasterUiConfig(
     plural_label="Clients",
     collection_path="/system/clients/",
     detail_path_prefix="/system/clients/",
-    table_headers=("Client Code", "Name", "Status", "Parent"),
+    table_headers=(
+        "Client Code",
+        "Name",
+        "Business Unit",
+        "Projects",
+        "Employees",
+        "Status",
+        "Parent",
+    ),
     empty_message="No clients are available in your active Office yet.",
 )
 
@@ -3773,7 +3978,16 @@ PROJECT_CONFIG = MasterUiConfig(
     plural_label="Projects",
     collection_path="/system/projects/",
     detail_path_prefix="/system/projects/",
-    table_headers=("Business Unit", "Project Code", "Name", "Status", "Owner", "Manager"),
+    table_headers=(
+        "Business Unit",
+        "Project Code",
+        "Project Name",
+        "Client",
+        "Status",
+        "Owner",
+        "Manager",
+        "Employees",
+    ),
     empty_message="No projects are available in your assigned Business Units yet.",
 )
 
@@ -3789,7 +4003,7 @@ PROJECT_ASSIGNMENT_CONFIG = MasterUiConfig(
     plural_label="Project Assignments",
     collection_path="/system/project-assignments/",
     detail_path_prefix="/system/project-assignments/",
-    table_headers=("Business Unit", "Project", "Employee", "Start", "End", "Status"),
+    table_headers=("Client", "Project", "Project Name", "Employee", "Start", "End", "Status"),
     empty_message="No project assignments are available in your assigned Business Units yet.",
 )
 
@@ -4624,6 +4838,10 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
 
     try:
         employee = EmployeeManagementService.get_employee(current_user, employee_id)
+        project_assignments = EmployeeManagementService.list_employee_project_assignments(
+            current_user,
+            employee_id,
+        )
     except AuthError as error:
         return _render_auth_error(
             request,
@@ -4675,6 +4893,16 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
                 post_data=post_data if active_form == "business_units" else None,
             ),
         },
+        _read_only_table_section(
+            title="Project Assignments",
+            intro=(
+                "Review the employee's active project assignments in your scoped "
+                "administration area."
+            ),
+            table_headers=("Name", "BU", "From", "To"),
+            table_rows=_employee_project_assignment_rows(project_assignments),
+            empty_message="This employee has no active project assignments in your current scope.",
+        ),
         {
             **_delete_action_section(
                 title="Delete Employee",
@@ -4899,6 +5127,12 @@ def _render_master_collection(
     table_rows: list[dict],
     form_error: str,
     filter_links: list[dict],
+    filter_form_fields: list[dict] | None = None,
+    filter_form_submit_label: str = "Apply Filters",
+    filter_form_reset_pairs: list[dict] | None = None,
+    inline_filter_form_fields: list[dict] | None = None,
+    inline_filter_hidden_fields: list[dict] | None = None,
+    inline_filter_form_submit_label: str = "Apply Filters",
 ) -> HttpResponse:
     return _render_list_only_collection(
         request,
@@ -4913,6 +5147,12 @@ def _render_master_collection(
         create_href=_master_create_path(config),
         filter_links=filter_links,
         filter_title=f"{config.singular_label} Status",
+        filter_form_fields=filter_form_fields,
+        filter_form_submit_label=filter_form_submit_label,
+        filter_form_reset_pairs=filter_form_reset_pairs,
+        inline_filter_form_fields=inline_filter_form_fields,
+        inline_filter_hidden_fields=inline_filter_hidden_fields,
+        inline_filter_form_submit_label=inline_filter_form_submit_label,
     )
 
 
@@ -5003,6 +5243,48 @@ def clients_collection(request: HttpRequest) -> HttpResponse:
         create_href="/system/clients/new/",
         filter_links=filter_links,
         filter_title="Client Status",
+    )
+
+
+@require_http_methods(["GET"])
+def client_projects_redirect(
+    request: HttpRequest,
+    client_id: int,
+    business_unit_id: int,
+) -> HttpResponse:
+    current_user = _require_ts_admin(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    try:
+        client = ClientManagementService.get_client(current_user, client_id)
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=CLIENT_CONFIG.list_title,
+            eyebrow=CLIENT_CONFIG.list_eyebrow,
+            intro=CLIENT_CONFIG.list_intro,
+            error=error,
+        )
+
+    if business_unit_id not in current_user.scoped_business_unit_ids:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=PROJECT_CONFIG.list_title,
+            eyebrow=PROJECT_CONFIG.list_eyebrow,
+            intro=PROJECT_CONFIG.list_intro,
+            error=AuthError(
+                "AUTH_ACCESS_DENIED",
+                "You are not assigned to the Business Unit for the selected client row.",
+                403,
+            ),
+        )
+
+    return redirect(
+        "/system/projects/"
+        f"?status=ALL&client_id={client['id']}&business_unit_id={business_unit_id}"
     )
 
 
@@ -6011,9 +6293,36 @@ def projects_collection(request: HttpRequest) -> HttpResponse:
         domain_code="PROJECT_STATUS",
         default_code="ACTIVE",
     )
+    selected_client_id = request.GET.get("client_id", "").strip()
+    selected_business_unit_id = request.GET.get("business_unit_id", "").strip()
+    valid_business_unit_values = {
+        str(option["value"])
+        for option in _scoped_business_unit_options(current_user)
+        if option["value"] != ""
+    }
+    if selected_business_unit_id and selected_business_unit_id not in valid_business_unit_values:
+        selected_business_unit_id = ""
+    client_options = _scoped_client_options(
+        current_user,
+        selected=selected_client_id,
+        include_blank=True,
+        active_only=True,
+    )
+    valid_client_values = {
+        str(option["value"]) for option in client_options if option["value"] != ""
+    }
+    if selected_client_id and selected_client_id not in valid_client_values:
+        selected_client_id = ""
+
     projects = ProjectManagementService.list_projects(
         current_user,
         status_code=_service_status_code(selected_status_code),
+        client_id=int(selected_client_id) if selected_client_id.isdigit() else None,
+        business_unit_id=(
+            int(selected_business_unit_id)
+            if selected_business_unit_id.isdigit()
+            else None
+        ),
     )
     return _render_master_collection(
         request,
@@ -6024,6 +6333,15 @@ def projects_collection(request: HttpRequest) -> HttpResponse:
         table_rows=_project_rows(projects),
         form_error=form_error,
         filter_links=filter_links,
+        inline_filter_form_fields=_project_collection_filter_fields(
+            current_user,
+            selected_client_id=selected_client_id,
+        ),
+        inline_filter_hidden_fields=_project_collection_hidden_filters(
+            selected_status_code=selected_status_code,
+            selected_business_unit_id=selected_business_unit_id,
+        ),
+        inline_filter_form_submit_label="Apply",
     )
 
 
@@ -6196,9 +6514,39 @@ def project_assignments_collection(request: HttpRequest) -> HttpResponse:
         domain_code="PROJECT_ASSIGNMENT_STATUS",
         default_code="ACTIVE",
     )
+    selected_client_id = request.GET.get("client_id", "").strip()
+    client_options = _scoped_client_options(
+        current_user,
+        selected=selected_client_id,
+        include_blank=True,
+        active_only=True,
+    )
+    valid_client_values = {
+        str(option["value"]) for option in client_options if option["value"] != ""
+    }
+    if selected_client_id and selected_client_id not in valid_client_values:
+        selected_client_id = ""
+
+    normalized_client_id = int(selected_client_id) if selected_client_id.isdigit() else None
+    selected_project_id = request.GET.get("project_id", "").strip()
+    project_options = _scoped_project_options(
+        current_user,
+        selected=selected_project_id,
+        include_blank=True,
+        client_id=normalized_client_id,
+        active_only=True,
+    )
+    valid_project_values = {
+        str(option["value"]) for option in project_options if option["value"] != ""
+    }
+    if selected_project_id and selected_project_id not in valid_project_values:
+        selected_project_id = ""
+
     assignments = ProjectAssignmentManagementService.list_assignments(
         current_user,
         status_code=_service_status_code(selected_status_code),
+        client_id=selected_client_id or None,
+        project_id=selected_project_id or None,
     )
     return _render_master_collection(
         request,
@@ -6209,6 +6557,18 @@ def project_assignments_collection(request: HttpRequest) -> HttpResponse:
         table_rows=_project_assignment_rows(assignments),
         form_error=form_error,
         filter_links=filter_links,
+        filter_form_fields=_project_assignment_filter_fields(
+            current_user,
+            selected_status_code=selected_status_code,
+            selected_client_id=selected_client_id,
+            selected_project_id=selected_project_id,
+        ),
+        filter_form_reset_pairs=[
+            {
+                "source_id": "client_id",
+                "target_id": "project_id",
+            }
+        ],
     )
 
 

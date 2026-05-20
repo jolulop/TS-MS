@@ -2,9 +2,9 @@
 
 ## Active Plans
 
-- `2026-05-20`: `docs/plans/2026-05-20-docs-v5.9.3-promotion.md`
+- `2026-05-21`: `docs/plans/2026-05-21-docs-v5.9.5-promotion.md`
   - status: completed
-  - focus: publish the v5.9.3 markdown source-of-truth set and repoint repo guidance to it after the admin API parity waves
+  - focus: publish the v5.9.5 markdown source-of-truth set and capture the latest employee, client, project, and project-assignment UI refinements
 - `2026-05-20`: `docs/plans/2026-05-20-employee-api-parity-wave.md`
   - status: completed
   - focus: complete the `/api/v1/admin/employees/` surface with list, detail, and guarded delete parity on top of the existing create/update/role/BU endpoints
@@ -122,7 +122,7 @@
 
 Historical note:
 - completed plan files intentionally preserve the source-document references and milestone wording that existed when those plans were written
-- use `AGENTS.md`, this file, and the v5.9.3 markdown spec set for current implementation work
+- use `AGENTS.md`, this file, and the v5.9.5 markdown spec set for current implementation work
 
 ## Purpose
 

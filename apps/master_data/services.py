@@ -662,12 +662,17 @@ def _serialize_employee_transfer_summary(employee: Employee) -> dict:
     return payload
 
 
-def _serialize_client(client: ClientRecord) -> dict:
+def _serialize_client(
+    client: ClientRecord,
+    *,
+    project_business_unit_summaries: list[dict] | None = None,
+) -> dict:
     return {
         "id": client.id,
         "client_code": client.client_code,
         "name": client.name,
         "status": client.status.value_code,
+        "project_business_unit_summaries": project_business_unit_summaries or [],
         "office": {
             "id": client.office_id,
             "office_name": client.office.office_name,
@@ -1140,6 +1145,7 @@ def _serialize_project(project: Project) -> dict:
             "name": project.pricing_model.name,
             "description": project.pricing_model.description,
         },
+        "employee_count": getattr(project, "employee_count", 0),
     }
 
 
@@ -1159,6 +1165,11 @@ def _serialize_project_assignment(assignment: ProjectAssignment) -> dict:
             "id": assignment.project_id,
             "project_code": assignment.project.project_code,
             "name": assignment.project.name,
+            "client": {
+                "id": assignment.project.client_id,
+                "client_code": assignment.project.client.client_code,
+                "name": assignment.project.client.name,
+            },
             "business_unit": {
                 "id": assignment.project.business_unit_id,
                 "bu_code": assignment.project.business_unit.bu_code,
@@ -2463,6 +2474,37 @@ class EmployeeManagementService:
         return _serialize_employee(employee)
 
     @staticmethod
+    def list_employee_project_assignments(
+        current_user: CurrentUser,
+        employee_id: int,
+    ) -> list[dict]:
+        _ensure_ts_admin(current_user)
+        employee = _get_scoped_employee_for_management(current_user, employee_id)
+        assignments = (
+            ProjectAssignment.objects.select_related(
+                "project",
+                "project__office",
+                "project__business_unit",
+                "employee",
+                "employee__primary_business_unit",
+                "status",
+            )
+            .filter(
+                employee_id=employee.id,
+                project__business_unit_id__in=current_user.scoped_business_unit_ids,
+                project__office_id=current_user.office_id,
+                status__domain__domain_code="PROJECT_ASSIGNMENT_STATUS",
+                status__value_code="ACTIVE",
+            )
+            .order_by(
+                "project__business_unit__bu_code",
+                "project__project_code",
+                "-assignment_start_date",
+            )
+        )
+        return [_serialize_project_assignment(assignment) for assignment in assignments]
+
+    @staticmethod
     def list_transfer_candidates(current_user: CurrentUser) -> list[dict]:
         _ensure_ts_admin_master(current_user)
         employees = _active_transfer_candidate_queryset().exclude(id=current_user.employee_id)
@@ -3375,7 +3417,53 @@ class ClientManagementService:
             .order_by("client_code"),
             _parse_status_filter(status_code, domain_code="CLIENT_STATUS"),
         )
-        return [_serialize_client(client) for client in clients]
+        client_ids = [client.id for client in clients]
+        summary_map: dict[int, list[dict]] = {}
+        if client_ids:
+            summary_rows = (
+                Project.objects.filter(
+                    office_id=current_user.office_id,
+                    status__value_code="ACTIVE",
+                    client_id__in=client_ids,
+                )
+                .values(
+                    "client_id",
+                    "business_unit_id",
+                    "business_unit__bu_code",
+                    "business_unit__name",
+                )
+                .annotate(
+                    active_project_count=Count("id", distinct=True),
+                    active_employee_count=Count(
+                        "assignments__employee_id",
+                        filter=Q(
+                            assignments__status__value_code="ACTIVE",
+                            assignments__employee__status__value_code="ACTIVE",
+                        ),
+                        distinct=True,
+                    ),
+                )
+                .order_by("client_id", "business_unit__bu_code")
+            )
+            for summary in summary_rows:
+                summary_map.setdefault(summary["client_id"], []).append(
+                    {
+                        "business_unit": {
+                            "id": summary["business_unit_id"],
+                            "bu_code": summary["business_unit__bu_code"],
+                            "name": summary["business_unit__name"],
+                        },
+                        "active_project_count": summary["active_project_count"],
+                        "active_employee_count": summary["active_employee_count"],
+                    }
+                )
+        return [
+            _serialize_client(
+                client,
+                project_business_unit_summaries=summary_map.get(client.id, []),
+            )
+            for client in clients
+        ]
 
     @staticmethod
     def get_client(current_user: CurrentUser, client_id: int) -> dict:
@@ -6594,6 +6682,8 @@ class ProjectManagementService:
         current_user: CurrentUser,
         *,
         status_code: str | None = None,
+        client_id: int | None = None,
+        business_unit_id: int | None = None,
     ) -> list[dict]:
         _ensure_ts_admin_or_project_owner(current_user)
         projects = Project.objects.select_related(
@@ -6609,9 +6699,13 @@ class ProjectManagementService:
         ).filter(
             business_unit_id__in=current_user.scoped_business_unit_ids,
             office_id=current_user.office_id,
-        )
+        ).annotate(employee_count=Count("assignments__employee_id", distinct=True))
         if not current_user.is_ts_admin:
             projects = projects.filter(project_owner_employee_id=current_user.employee_id)
+        if client_id is not None:
+            projects = projects.filter(client_id=client_id)
+        if business_unit_id is not None:
+            projects = projects.filter(business_unit_id=business_unit_id)
         projects = _apply_status_filter(
             projects.order_by("business_unit__bu_code", "project_code"),
             _parse_status_filter(status_code, domain_code="PROJECT_STATUS"),
@@ -7259,12 +7353,15 @@ class ProjectAssignmentManagementService:
         current_user: CurrentUser,
         *,
         status_code: str | None = None,
+        client_id: object = None,
+        project_id: object = None,
     ) -> list[dict]:
         _ensure_ts_admin_or_project_assignment_manager(current_user)
         assignments = ProjectAssignment.objects.select_related(
             "project",
             "project__office",
             "project__business_unit",
+            "project__client",
             "employee",
             "employee__primary_business_unit",
             "status",
@@ -7272,6 +7369,22 @@ class ProjectAssignmentManagementService:
             project__business_unit_id__in=current_user.scoped_business_unit_ids,
             project__office_id=current_user.office_id,
         )
+        if client_id not in (None, ""):
+            assignments = assignments.filter(
+                project__client_id=_parse_required_int(
+                    client_id,
+                    code="PROJECT_ASSIGNMENT_FILTER_CLIENT_INVALID",
+                    message="Client filter must be a valid Client identifier.",
+                )
+            )
+        if project_id not in (None, ""):
+            assignments = assignments.filter(
+                project_id=_parse_required_int(
+                    project_id,
+                    code="PROJECT_ASSIGNMENT_FILTER_PROJECT_INVALID",
+                    message="Project filter must be a valid Project identifier.",
+                )
+            )
         if not current_user.is_ts_admin:
             assignments = assignments.filter(
                 Q(project__project_owner_employee_id=current_user.employee_id)
@@ -7586,6 +7699,7 @@ class ProjectAssignmentManagementService:
                 "project",
                 "project__office",
                 "project__business_unit",
+                "project__client",
                 "employee",
                 "employee__primary_business_unit",
                 "status",
@@ -7664,6 +7778,7 @@ class ProjectAssignmentManagementService:
             "project",
             "project__office",
             "project__business_unit",
+            "project__client",
             "employee",
             "employee__primary_business_unit",
             "status",

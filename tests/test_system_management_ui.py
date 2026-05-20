@@ -1241,8 +1241,120 @@ def test_employee_detail_business_unit_form_explains_primary_scope_is_automatic(
     assert "Employee Core Data" in content
     assert "Role Assignments" in content
     assert "Business Unit Scope" in content
+    assert "Project Assignments" in content
     assert "Delete Employee" in content
     assert "Delete this employee only if no protected references still depend on it." in content
+
+
+@pytest.mark.django_db
+def test_employee_detail_shows_assigned_projects_section() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    managed_employee = create_employee(
+        employee_code="EMP-MANAGED-PROJ-1",
+        full_name="Managed Project User",
+        email="managed-project@example.com",
+        primary_business_unit=business_units[0],
+    )
+    project_owner = create_employee(
+        employee_code="EMP-PROJ-OWNER-DET",
+        full_name="Detail Owner",
+        email="detail-owner@example.com",
+        primary_business_unit=business_units[0],
+    )
+    project_manager = create_employee(
+        employee_code="EMP-PROJ-MANAGER-DET",
+        full_name="Detail Manager",
+        email="detail-manager@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=managed_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=project_owner,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=project_manager,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=managed_employee, role_code="USER")
+    assign_role(employee=project_owner, role_code="USER")
+    assign_role(employee=project_owner, role_code="PROJECT_OWNER")
+    assign_role(employee=project_manager, role_code="USER")
+    assign_role(employee=project_manager, role_code="PROJECT_MANAGER")
+    project_client = create_client(
+        business_unit=business_units[0],
+        client_code="CLI-EMP-DETAIL",
+        name="Employee Detail Client",
+    )
+    category = create_internal_category(
+        business_unit=business_units[0],
+        category_code="CAT-EMP-DETAIL",
+        name="Employee Detail Category",
+    )
+    cost_center = create_cost_center(
+        business_unit=business_units[0],
+        cost_center_code="CC-EMP-DETAIL",
+        name="Employee Detail Cost Center",
+    )
+    pricing_model = create_pricing_model(
+        business_unit=business_units[0],
+        name="Employee Detail Pricing",
+    )
+    project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-EMP-DETAIL",
+        name="Employee Detail Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 1, 1),
+    )
+    assign_project(
+        project=project,
+        employee=managed_employee,
+        assignment_start_date=date(2026, 2, 1),
+    )
+    archived_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-EMP-HIDDEN",
+        name="Hidden Inactive Assignment",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 3, 1),
+    )
+    ProjectAssignment.objects.create(
+        project=archived_project,
+        employee=managed_employee,
+        assignment_start_date=date(2026, 3, 1),
+        status=ref_value("PROJECT_ASSIGNMENT_STATUS", "INACTIVE"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+
+    response = client.get(f"/system/employees/{managed_employee.id}/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Project Assignments" in content
+    assert "Employee Detail Project" in content
+    assert 'href="/system/projects/' in content
+    assert f'href="/system/projects/{project.id}/"' in content
+    assert ">Employee Detail Project</a>" in content
+    assert "PRJ-EMP-HIDDEN" not in content
+    assert "Hidden Inactive Assignment" not in content
     primary_match = re.search(
         r'<select\s+id="primary_business_unit_id"\s+name="primary_business_unit_id"\s+size="(\d+)".*?>(.*?)</select>',
         content,
@@ -1259,6 +1371,135 @@ def test_employee_detail_business_unit_form_explains_primary_scope_is_automatic(
     assert "required" not in match.group(0)
     assert "selected" not in match.group(1)
     assert "so leaving this empty keeps only the primary Business Unit" in content
+
+
+@pytest.mark.django_db
+def test_project_assignment_collection_shows_client_project_name_and_dependent_filters() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    (
+        project_owner,
+        project_manager,
+        project_client,
+        category,
+        cost_center,
+        pricing_model,
+    ) = _build_project_management_context(business_units[0])
+    second_client = create_client(
+        business_unit=business_units[0],
+        client_code="CLI-PROJ-B",
+        name="Second Project Client",
+    )
+    create_client(
+        business_unit=business_units[0],
+        client_code="CLI-PROJ-HIDDEN",
+        name="Hidden Project Client",
+        active=False,
+    )
+    assigned_employee = create_employee(
+        employee_code="EMP-PA-FILTER",
+        full_name="Project Assignment Filter Employee",
+        email="project-assignment-filter@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=assigned_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=assigned_employee, role_code="USER")
+    first_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-PA-FILTER-A",
+        name="Project Filter Alpha",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 1, 1),
+    )
+    second_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-PA-FILTER-B",
+        name="Project Filter Beta",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=second_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 1, 1),
+    )
+    create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-PA-FILTER-HIDDEN",
+        name="Project Filter Hidden",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 1, 1),
+        active=False,
+    )
+    assign_project(
+        project=first_project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 2, 1),
+    )
+    assign_project(
+        project=second_project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 2, 8),
+    )
+
+    collection_response = client.get("/system/project-assignments/")
+    collection_content = collection_response.content.decode()
+    assert collection_response.status_code == 200
+    assert "<th>Business Unit</th>" not in collection_content
+    assert "<th>Client</th>" in collection_content
+    assert "<th>Project Name</th>" in collection_content
+    assert "Project Client" in collection_content
+    assert "Second Project Client" in collection_content
+    assert "Project Filter Alpha" in collection_content
+    assert "Project Filter Beta" in collection_content
+    assert "Hidden Project Client" not in collection_content
+    assert "Project Filter Hidden" not in collection_content
+
+    client_filtered_response = client.get(
+        f"/system/project-assignments/?status=ACTIVE&client_id={project_client.id}"
+    )
+    client_filtered_content = client_filtered_response.content.decode()
+    assert client_filtered_response.status_code == 200
+    assert "Project Filter Alpha" in client_filtered_content
+    assert "Project Filter Beta" not in client_filtered_content
+    assert "Project Filter Hidden" not in client_filtered_content
+    assert "PRJ-PA-FILTER-A - Project Filter Alpha" in client_filtered_content
+    assert "PRJ-PA-FILTER-B - Project Filter Beta" not in client_filtered_content
+    assert "PRJ-PA-FILTER-HIDDEN - Project Filter Hidden" not in client_filtered_content
+    assert f"?status=ACTIVE&amp;client_id={project_client.id}" in client_filtered_content
+
+    project_filtered_response = client.get(
+        f"/system/project-assignments/?status=ACTIVE&client_id={project_client.id}"
+        f"&project_id={first_project.id}"
+    )
+    project_filtered_content = project_filtered_response.content.decode()
+    assert project_filtered_response.status_code == 200
+    assert "Project Filter Alpha" in project_filtered_content
+    assert "Project Filter Beta" not in project_filtered_content
+    assert f'value="{first_project.id}" selected' in project_filtered_content
+
+    reset_response = client.get(
+        f"/system/project-assignments/?status=ACTIVE&client_id={second_client.id}"
+        f"&project_id={first_project.id}"
+    )
+    reset_content = reset_response.content.decode()
+    assert reset_response.status_code == 200
+    assert f'value="{first_project.id}" selected' not in reset_content
+    assert f'value="{second_project.id}"' in reset_content
+    assert "source1.form.submit();" in reset_content
 
 
 @pytest.mark.django_db
@@ -2371,6 +2612,228 @@ def test_system_management_collection_filter_can_show_active_or_inactive_records
 
 
 @pytest.mark.django_db
+def test_client_management_collection_shows_project_and_employee_counts() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    (
+        project_owner,
+        project_manager,
+        managed_client,
+        category,
+        cost_center,
+        pricing_model,
+    ) = _build_project_management_context(business_units[0])
+    other_client = create_client(
+        office=business_units[0].office,
+        client_code="CLI-OTHER",
+        name="Other Client",
+    )
+    active_employee = create_employee(
+        employee_code="EMP-CLI-ACT",
+        full_name="Client Active Employee",
+        email="client-active@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=active_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    inactive_employee = create_employee(
+        employee_code="EMP-CLI-INACT",
+        full_name="Client Inactive Employee",
+        email="client-inactive@example.com",
+        primary_business_unit=business_units[0],
+        active=False,
+    )
+    assign_employee_to_business_unit(
+        employee=inactive_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    inactive_assignment_employee = create_employee(
+        employee_code="EMP-CLI-ASG",
+        full_name="Client Inactive Assignment Employee",
+        email="client-inactive-assignment@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=inactive_assignment_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    active_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-CLI-ACT",
+        name="Client Active Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=managed_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 5, 1),
+    )
+    create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-CLI-ACT-2",
+        name="Client Second Active Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=managed_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 5, 1),
+    )
+    create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-CLI-CLOSED",
+        name="Client Closed Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=managed_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 5, 1),
+        active=False,
+    )
+    create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-OTHER-CLIENT",
+        name="Other Client Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=other_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 5, 1),
+    )
+    assign_project(
+        project=active_project,
+        employee=active_employee,
+        assignment_start_date=date(2026, 5, 1),
+    )
+    assign_project(
+        project=active_project,
+        employee=inactive_employee,
+        assignment_start_date=date(2026, 5, 1),
+    )
+    assign_project(
+        project=active_project,
+        employee=inactive_assignment_employee,
+        assignment_start_date=date(2026, 5, 1),
+        active=False,
+    )
+
+    response = client.get("/system/clients/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    table_rows = response.context["table_rows"]
+    managed_row = next(
+        row
+        for row in table_rows
+        if row["href"] == f"/system/clients/{managed_client.id}/"
+        and row["cells"][2] == business_units[0].name
+    )
+    project_link = f"/system/clients/{managed_client.id}/projects/{business_units[0].id}/"
+    assert "<th>Projects</th>" in content
+    assert "<th>Employees</th>" in content
+    assert "<th>Business Unit</th>" in content
+    assert managed_row["cells"][3] == {
+        "text": "2",
+        "href": project_link,
+    }
+    assert managed_row["cells"][4] == "1"
+    assert f'href="{project_link}">2</a>' in content
+
+    projects_response = client.get(project_link, follow=False)
+
+    assert projects_response.status_code == 302
+    assert (
+        projects_response.headers["Location"]
+        == f"/system/projects/?status=ALL&client_id={managed_client.id}"
+        f"&business_unit_id={business_units[0].id}"
+    )
+
+    projects_follow_response = client.get(projects_response.headers["Location"])
+    assert projects_follow_response.status_code == 200
+    projects_content = projects_follow_response.content.decode()
+    assert "Client Active Project" in projects_content
+    assert "Client Second Active Project" in projects_content
+    assert "Client Closed Project" in projects_content
+    assert "Other Client Project" not in projects_content
+
+
+@pytest.mark.django_db
+def test_client_management_project_link_requires_assignment_to_row_business_unit() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    (
+        project_owner,
+        project_manager,
+        managed_client,
+        category,
+        cost_center,
+        pricing_model,
+    ) = _build_project_management_context(business_units[0])
+    out_of_scope_business_unit = create_business_unit(
+        office=business_units[0].office,
+        bu_code="BU-OUT-SCOPE",
+        name="Out Scope BU",
+    )
+    create_project(
+        business_unit=out_of_scope_business_unit,
+        project_code="PRJ-OUT-SCOPE",
+        name="Out Scope Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=managed_client,
+        internal_category=create_internal_category(
+            business_unit=out_of_scope_business_unit,
+            category_code="IC-OUT-SCOPE",
+            name="Out Scope Category",
+        ),
+        cost_center=create_cost_center(
+            office=business_units[0].office,
+            cost_center_code="CC-OUT-SCOPE",
+            name="Out Scope Cost Center",
+        ),
+        pricing_model=create_pricing_model(
+            office=business_units[0].office,
+            name="Out Scope Pricing",
+        ),
+        start_date=date(2026, 5, 1),
+    )
+
+    response = client.get("/system/clients/")
+
+    assert response.status_code == 200
+    table_rows = response.context["table_rows"]
+    managed_row = next(
+        row
+        for row in table_rows
+        if row["href"] == f"/system/clients/{managed_client.id}/"
+        and row["cells"][2] == out_of_scope_business_unit.name
+    )
+    assert managed_row["cells"][3] == {
+        "text": "1",
+        "href": (
+            f"/system/clients/{managed_client.id}/projects/"
+            f"{out_of_scope_business_unit.id}/"
+        ),
+    }
+
+    projects_response = client.get(managed_row["cells"][3]["href"])
+
+    assert projects_response.status_code == 403
+    assert "You are not assigned to the Business Unit for the selected client row." in (
+        projects_response.content.decode()
+    )
+
+
+@pytest.mark.django_db
 def test_project_management_create_and_update_via_html() -> None:
     client, _, business_units = _build_ts_admin_client()
     project_owner, project_manager, project_client, category, cost_center, pricing_model = (
@@ -2431,6 +2894,110 @@ def test_project_management_create_and_update_via_html() -> None:
     assert project.name == "Updated Project"
     assert project.close_date == date(2026, 10, 31)
     assert project.status.value_code == "CLOSED"
+
+
+@pytest.mark.django_db
+def test_project_management_collection_shows_requested_grid_and_filter_updates() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    (
+        project_owner,
+        project_manager,
+        primary_client,
+        category,
+        cost_center,
+        pricing_model,
+    ) = _build_project_management_context(business_units[0])
+    secondary_client = create_client(
+        office=business_units[0].office,
+        client_code="CLI-SECONDARY",
+        name="Secondary Client",
+    )
+    active_employee = create_employee(
+        employee_code="EMP-PROJ-ACT",
+        full_name="Assigned Employee Active",
+        email="assigned-active@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=active_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    inactive_employee = create_employee(
+        employee_code="EMP-PROJ-INACT",
+        full_name="Assigned Employee Inactive",
+        email="assigned-inactive@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=inactive_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-COLLECT",
+        name="Collection Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=primary_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 5, 1),
+    )
+    other_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-OTHER",
+        name="Other Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=secondary_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 5, 1),
+    )
+    assign_project(
+        project=project,
+        employee=active_employee,
+        assignment_start_date=date(2026, 5, 1),
+    )
+    assign_project(
+        project=project,
+        employee=inactive_employee,
+        assignment_start_date=date(2026, 5, 1),
+        active=False,
+    )
+
+    response = client.get("/system/projects/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "<th>Client</th>" in content
+    assert "<th>Project Name</th>" in content
+    assert "<th>Employees</th>" in content
+    assert '<a href="/system/projects/' in content
+    assert ">System BU 1<" in content
+    assert primary_client.name in content
+    assert project_owner.full_name in content
+    assert project_manager.full_name in content
+    assert (
+        f'href="/system/project-assignments/?status=ALL&amp;client_id={primary_client.id}'
+        f'&amp;project_id={project.id}">2</a>'
+    ) in content
+    assert 'name="client_id"' in content
+    assert 'type="hidden" name="status" value="ACTIVE"' in content
+
+    filtered_response = client.get(f"/system/projects/?client_id={primary_client.id}")
+
+    assert filtered_response.status_code == 200
+    filtered_content = filtered_response.content.decode()
+    assert "Collection Project" in filtered_content
+    assert "Other Project" not in filtered_content
+    assert f"/system/projects/?client_id={primary_client.id}&amp;status=ACTIVE" in filtered_content
+    assert f'href="/system/projects/{project.id}/"' in filtered_content
+    assert f'href="/system/projects/{other_project.id}/"' not in filtered_content
 
 
 @pytest.mark.django_db

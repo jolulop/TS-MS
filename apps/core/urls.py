@@ -64,6 +64,11 @@ urlpatterns = [
         name="system-client-detail",
     ),
     path(
+        "system/clients/<int:client_id>/projects/<int:business_unit_id>/",
+        system_views.client_projects_redirect,
+        name="system-client-projects-redirect",
+    ),
+    path(
         "system/internal-categories/",
         system_views.internal_categories_collection,
         name="system-internal-categories",

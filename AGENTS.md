@@ -10,17 +10,17 @@ Treat this file as the repository-level implementation guide for the current Dja
 
 Use these documents first when implementing or updating behavior:
 
-1. `docs/specification-index-v5.9.3.md`
-2. `docs/functional-spec-v5.9.3.md`
-3. `docs/use-cases-acceptance-v5.9.3.md`
-4. `docs/data-model-erd-v5.9.3.md`
-5. `docs/authorization-matrix-v5.9.3.md`
-6. `docs/ui-screen-spec-v5.9.3.md`
-7. `docs/integration-api-spec-v5.9.3.md`
-8. `docs/business-rules-catalog-v5.9.3.md`
-9. `docs/non-functional-requirements-v5.9.3.md`
+1. `docs/specification-index-v5.9.5.md`
+2. `docs/functional-spec-v5.9.5.md`
+3. `docs/use-cases-acceptance-v5.9.5.md`
+4. `docs/data-model-erd-v5.9.5.md`
+5. `docs/authorization-matrix-v5.9.5.md`
+6. `docs/ui-screen-spec-v5.9.5.md`
+7. `docs/integration-api-spec-v5.9.5.md`
+8. `docs/business-rules-catalog-v5.9.5.md`
+9. `docs/non-functional-requirements-v5.9.5.md`
 
-Legacy `v5.2`, `v5.4`, `v5.5`, `v5.6`, `v5.7`, `v5.8`, `v5.9`, `v5.9.1`, and `v5.9.2` markdown notes in `docs/` are historical only and are not the current implementation source of truth.
+Legacy `v5.2`, `v5.4`, `v5.5`, `v5.6`, `v5.7`, `v5.8`, `v5.9`, `v5.9.1`, `v5.9.2`, and `v5.9.3` markdown notes in `docs/` are historical only and are not the current implementation source of truth.
 
 If code and docs conflict, do not silently guess. Prefer the newest approved spec doc, then align code to it.
 

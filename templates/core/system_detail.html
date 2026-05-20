@@ -81,7 +81,34 @@
               {% endif %}
               {% if section.read_only %}
                 <div class="form-stack">
-                  {% if section.detail_rows %}
+                  {% if section.table_rows %}
+                    <div class="table-wrap">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            {% for header in section.table_headers %}
+                              <th>{{ header }}</th>
+                            {% endfor %}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for row in section.table_rows %}
+                            <tr>
+                              {% for cell in row.cells %}
+                                <td>
+                                  {% if forloop.first and row.href %}
+                                    <a href="{{ row.href }}">{{ cell }}</a>
+                                  {% else %}
+                                    {{ cell }}
+                                  {% endif %}
+                                </td>
+                              {% endfor %}
+                            </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                  {% elif section.detail_rows %}
                     <dl class="meta-grid">
                       {% for label, value in section.detail_rows %}
                         <div class="meta-row">
@@ -156,7 +183,34 @@
             {% endif %}
             {% if section.read_only %}
               <div class="form-stack">
-                {% if section.detail_rows %}
+                {% if section.table_rows %}
+                  <div class="table-wrap">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          {% for header in section.table_headers %}
+                            <th>{{ header }}</th>
+                          {% endfor %}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in section.table_rows %}
+                          <tr>
+                            {% for cell in row.cells %}
+                              <td>
+                                {% if forloop.first and row.href %}
+                                  <a href="{{ row.href }}">{{ cell }}</a>
+                                {% else %}
+                                  {{ cell }}
+                                {% endif %}
+                              </td>
+                            {% endfor %}
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                {% elif section.detail_rows %}
                   <dl class="meta-grid">
                     {% for label, value in section.detail_rows %}
                       <div class="meta-row">
