@@ -1,4 +1,4 @@
-# Specification Index v5.9.2
+# Specification Index v5.9.3
 
 ## Purpose
 
@@ -11,21 +11,21 @@ It supersedes the incremental markdown delta notes in:
 
 It also provides a code-aligned working reference alongside the legacy `.docx` documents in this folder.
 
-## v5.9.2 Documents
+## v5.9.3 Documents
 
-- [functional-spec-v5.9.2.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.9.2.md)
-- [ui-screen-spec-v5.9.2.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.9.2.md)
-- [integration-api-spec-v5.9.2.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.9.2.md)
-- [authorization-matrix-v5.9.2.md](/home/jolulop/code/TS-MS/docs/authorization-matrix-v5.9.2.md)
-- [business-rules-catalog-v5.9.2.md](/home/jolulop/code/TS-MS/docs/business-rules-catalog-v5.9.2.md)
-- [use-cases-acceptance-v5.9.2.md](/home/jolulop/code/TS-MS/docs/use-cases-acceptance-v5.9.2.md)
-- [non-functional-requirements-v5.9.2.md](/home/jolulop/code/TS-MS/docs/non-functional-requirements-v5.9.2.md)
-- [data-model-erd-v5.9.2.md](/home/jolulop/code/TS-MS/docs/data-model-erd-v5.9.2.md)
+- [functional-spec-v5.9.3.md](/home/jolulop/code/TS-MS/docs/functional-spec-v5.9.3.md)
+- [ui-screen-spec-v5.9.3.md](/home/jolulop/code/TS-MS/docs/ui-screen-spec-v5.9.3.md)
+- [integration-api-spec-v5.9.3.md](/home/jolulop/code/TS-MS/docs/integration-api-spec-v5.9.3.md)
+- [authorization-matrix-v5.9.3.md](/home/jolulop/code/TS-MS/docs/authorization-matrix-v5.9.3.md)
+- [business-rules-catalog-v5.9.3.md](/home/jolulop/code/TS-MS/docs/business-rules-catalog-v5.9.3.md)
+- [use-cases-acceptance-v5.9.3.md](/home/jolulop/code/TS-MS/docs/use-cases-acceptance-v5.9.3.md)
+- [non-functional-requirements-v5.9.3.md](/home/jolulop/code/TS-MS/docs/non-functional-requirements-v5.9.3.md)
+- [data-model-erd-v5.9.3.md](/home/jolulop/code/TS-MS/docs/data-model-erd-v5.9.3.md)
 - [database-schema-diagram.md](/home/jolulop/code/TS-MS/docs/database-schema-diagram.md)
 
 ## Version Notes
 
-v5.9.2 captures these major implemented changes relative to the older baseline docs:
+v5.9.3 captures these major implemented changes relative to the older baseline docs:
 - Country was renamed to Office.
 - Office-level configuration replaced Business Unit-owned configuration.
 - Office creation now bootstraps an initial Business Unit and Office admin employee.
@@ -68,6 +68,9 @@ v5.9.2 captures these major implemented changes relative to the older baseline d
 - The existing `/api/v1/admin` master-data surface now exposes guarded
   `DELETE` parity for the current CRUD-supported entities that already have
   service-layer safe-delete rules.
+- Employee administration now has JSON API parity for collection list, detail,
+  guarded delete, create, update, role replacement, and Business Unit scope
+  replacement; employee transfer remains a UI-only workflow.
 - General Charge Code approval routing now exposes richer governance visibility,
   stronger ad-hoc role validation, and detail-screen routing/coverage sections.
 - System Management collections and detail screens now use a more consistent

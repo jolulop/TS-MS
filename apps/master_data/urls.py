@@ -119,8 +119,16 @@ urlpatterns = [
         views.calendar_period_rule_detail,
         name="admin-calendar-period-rule-detail",
     ),
-    path("admin/employees/", views.create_employee, name="admin-employee-create"),
-    path("admin/employees/<int:employee_id>/", views.update_employee, name="admin-employee-update"),
+    path(
+        "admin/employees/",
+        views.employees_collection,
+        name="admin-employee-collection",
+    ),
+    path(
+        "admin/employees/<int:employee_id>/",
+        views.employee_detail,
+        name="admin-employee-detail",
+    ),
     path(
         "admin/employees/<int:employee_id>/roles/",
         views.replace_employee_roles,

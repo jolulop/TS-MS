@@ -558,3 +558,236 @@ def test_ts_admin_employee_scope_cannot_be_narrowed_below_full_office() -> None:
         "BU-HIDDEN",
         "BU-OPS",
     ]
+
+
+@pytest.mark.django_db
+def test_ts_admin_can_list_scoped_employees_with_status_filter() -> None:
+    seed_reference_data()
+    admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    secondary_bu = create_business_unit(bu_code="BU-OPS", name="Operations BU")
+    foreign_office = create_office(office_name="Foreign Office")
+    foreign_bu = create_business_unit(
+        bu_code="BU-FOREIGN",
+        name="Foreign BU",
+        office=foreign_office,
+    )
+    admin_employee = create_employee(
+        employee_code="EMP-LIST-ADMIN",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=admin_bu,
+    )
+    active_target = create_employee(
+        employee_code="EMP-LIST-ACTIVE",
+        full_name="Active Target",
+        email="active.target@example.com",
+        primary_business_unit=secondary_bu,
+    )
+    inactive_target = create_employee(
+        employee_code="EMP-LIST-INACTIVE",
+        full_name="Inactive Target",
+        email="inactive.target@example.com",
+        primary_business_unit=admin_bu,
+        active=False,
+    )
+    foreign_target = create_employee(
+        employee_code="EMP-LIST-FOREIGN",
+        full_name="Foreign Target",
+        email="foreign.target@example.com",
+        primary_business_unit=foreign_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(employee=admin_employee, business_unit=secondary_bu)
+    assign_employee_to_business_unit(
+        employee=active_target,
+        business_unit=secondary_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=inactive_target,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=foreign_target,
+        business_unit=foreign_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=admin_bu)
+    assign_role(employee=admin_employee, role_code="USER")
+    assign_role(employee=active_target, role_code="USER")
+    assign_role(employee=inactive_target, role_code="USER")
+    assign_role(employee=foreign_target, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.get("/api/v1/admin/employees/")
+    inactive_response = client.get("/api/v1/admin/employees/?status=INACTIVE")
+
+    assert response.status_code == 200
+    assert [employee["employee_code"] for employee in response.json()["employees"]] == [
+        "EMP-LIST-ACTIVE",
+        "EMP-LIST-ADMIN",
+        "EMP-LIST-INACTIVE",
+    ]
+    assert inactive_response.status_code == 200
+    assert [
+        employee["employee_code"] for employee in inactive_response.json()["employees"]
+    ] == ["EMP-LIST-INACTIVE"]
+
+
+@pytest.mark.django_db
+def test_ts_admin_can_get_scoped_employee_detail() -> None:
+    seed_reference_data()
+    admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    secondary_bu = create_business_unit(bu_code="BU-OPS", name="Operations BU")
+    admin_employee = create_employee(
+        employee_code="EMP-DETAIL-ADMIN",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=admin_bu,
+    )
+    target_employee = create_employee(
+        employee_code="EMP-DETAIL-TARGET",
+        full_name="Detail Target",
+        email="detail.target@example.com",
+        primary_business_unit=secondary_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(employee=admin_employee, business_unit=secondary_bu)
+    assign_employee_to_business_unit(
+        employee=target_employee,
+        business_unit=secondary_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(employee=target_employee, business_unit=admin_bu)
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=admin_bu)
+    assign_role(employee=admin_employee, role_code="USER")
+    assign_role(employee=target_employee, role_code="PROJECT_MANAGER")
+    assign_role(employee=target_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.get(f"/api/v1/admin/employees/{target_employee.id}/")
+
+    assert response.status_code == 200
+    payload = response.json()["employee"]
+    assert payload["employee_code"] == "EMP-DETAIL-TARGET"
+    assert payload["primary_business_unit"]["bu_code"] == "BU-OPS"
+    assert payload["role_codes"] == ["PROJECT_MANAGER", "USER"]
+    assert [business_unit["bu_code"] for business_unit in payload["business_units"]] == [
+        "BU-ADMIN",
+        "BU-OPS",
+    ]
+
+
+@pytest.mark.django_db
+def test_ts_admin_can_delete_unreferenced_scoped_employee_via_api() -> None:
+    seed_reference_data()
+    admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    admin_employee = create_employee(
+        employee_code="EMP-DELETE-ADMIN",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=admin_bu,
+    )
+    target_employee = create_employee(
+        employee_code="EMP-DELETE-TARGET",
+        full_name="Delete Target",
+        email="delete.target@example.com",
+        primary_business_unit=admin_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=target_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=admin_bu)
+    assign_role(employee=admin_employee, role_code="USER")
+    assign_role(employee=target_employee, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.delete(f"/api/v1/admin/employees/{target_employee.id}/")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "deleted": True,
+        "entity": "employee",
+        "id": target_employee.id,
+    }
+    assert not Employee.objects.filter(id=target_employee.id).exists()
+
+
+@pytest.mark.django_db
+def test_ts_admin_employee_delete_returns_structured_blocked_error_and_audits() -> None:
+    seed_reference_data()
+    admin_bu = create_business_unit(bu_code="BU-ADMIN", name="Admin BU")
+    admin_employee = create_employee(
+        employee_code="EMP-BLOCK-ADMIN",
+        full_name="Admin User",
+        email="admin@example.com",
+        primary_business_unit=admin_bu,
+    )
+    target_employee = create_employee(
+        employee_code="EMP-BLOCK-TARGET",
+        full_name="Blocked Target",
+        email="blocked.target@example.com",
+        primary_business_unit=admin_bu,
+    )
+    direct_report = create_employee(
+        employee_code="EMP-BLOCK-REPORT",
+        full_name="Direct Report",
+        email="direct.report@example.com",
+        primary_business_unit=admin_bu,
+    )
+    direct_report.manager_employee = target_employee
+    direct_report.save(update_fields=["manager_employee"])
+    assign_employee_to_business_unit(
+        employee=admin_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=target_employee,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=direct_report,
+        business_unit=admin_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin_employee, role_code="TS_ADMIN", business_unit=admin_bu)
+    assign_role(employee=admin_employee, role_code="USER")
+    assign_role(employee=target_employee, role_code="USER")
+    assign_role(employee=direct_report, role_code="USER")
+
+    client = Client()
+    initialize_session(client, "admin@example.com")
+
+    response = client.delete(f"/api/v1/admin/employees/{target_employee.id}/")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "EMPLOYEE_DELETE_BLOCKED"
+    assert AuditLog.objects.filter(
+        entity_name="employee",
+        entity_id=target_employee.id,
+        action_type__value_code="DENY",
+    ).exists()

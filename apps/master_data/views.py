@@ -24,6 +24,30 @@ from apps.master_data.services import (
 )
 
 
+def _handle_guarded_delete(
+    request: HttpRequest,
+    *,
+    entity_name: str,
+    entity_id: int,
+    delete_callable,
+    blocked_codes: set[str],
+) -> JsonResponse:
+    try:
+        current_user = CurrentUserService.get_from_request(request)
+        delete_callable(current_user, entity_id)
+    except AuthError as exc:
+        if exc.code in blocked_codes:
+            _audit_blocked_delete_attempt(
+                request,
+                entity_name=entity_name,
+                entity_id=entity_id,
+                reason_text=exc.message,
+            )
+        return error_response(exc.code, exc.message, exc.status)
+
+    return JsonResponse({"deleted": True, "entity": entity_name, "id": entity_id})
+
+
 def _audit_blocked_delete_attempt(
     request: HttpRequest,
     *,
@@ -152,8 +176,16 @@ def business_units_collection(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"business_unit": business_unit}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def business_unit_detail(request: HttpRequest, business_unit_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="business_unit",
+            entity_id=business_unit_id,
+            delete_callable=BusinessUnitManagementService.delete_business_unit,
+            blocked_codes={"BUSINESS_UNIT_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -194,8 +226,16 @@ def clients_collection(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"client": client}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def client_detail(request: HttpRequest, client_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="client",
+            entity_id=client_id,
+            delete_callable=ClientManagementService.delete_client,
+            blocked_codes={"CLIENT_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -229,8 +269,16 @@ def internal_categories_collection(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"internal_category": category}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def internal_category_detail(request: HttpRequest, category_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="internal_category",
+            entity_id=category_id,
+            delete_callable=InternalCategoryManagementService.delete_category,
+            blocked_codes={"INTERNAL_CATEGORY_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -268,8 +316,16 @@ def cost_centers_collection(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"cost_center": cost_center}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def cost_center_detail(request: HttpRequest, cost_center_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="cost_center",
+            entity_id=cost_center_id,
+            delete_callable=CostCenterManagementService.delete_cost_center,
+            blocked_codes={"COST_CENTER_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -304,8 +360,16 @@ def pricing_models_collection(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"pricing_model": pricing_model}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def pricing_model_detail(request: HttpRequest, pricing_model_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="pricing_model",
+            entity_id=pricing_model_id,
+            delete_callable=PricingModelManagementService.delete_pricing_model,
+            blocked_codes={"PRICING_MODEL_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -371,11 +435,19 @@ def general_charge_code_approval_roles_collection(request: HttpRequest) -> JsonR
     return JsonResponse({"general_charge_code_approval_role": approval_role}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def general_charge_code_approval_role_detail(
     request: HttpRequest,
     approval_role_id: int,
 ) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="general_charge_code_approval_role",
+            entity_id=approval_role_id,
+            delete_callable=GeneralChargeCodeApprovalRoleManagementService.delete_approval_role,
+            blocked_codes={"GENERAL_CHARGE_CODE_APPROVAL_ROLE_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -397,11 +469,19 @@ def general_charge_code_approval_role_detail(
     return JsonResponse({"general_charge_code_approval_role": approval_role})
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def general_charge_code_detail(
     request: HttpRequest,
     general_charge_code_id: int,
 ) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="general_charge_code",
+            entity_id=general_charge_code_id,
+            delete_callable=GeneralChargeCodeManagementService.delete_general_charge_code,
+            blocked_codes={"GENERAL_CHARGE_CODE_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -445,8 +525,16 @@ def yearly_calendars_collection(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"yearly_calendar": yearly_calendar}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def yearly_calendar_detail(request: HttpRequest, yearly_calendar_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="yearly_calendar",
+            entity_id=yearly_calendar_id,
+            delete_callable=YearlyCalendarManagementService.delete_yearly_calendar,
+            blocked_codes={"YEARLY_CALENDAR_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -493,8 +581,16 @@ def calendar_special_days_collection(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"calendar_special_day": special_day}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def calendar_special_day_detail(request: HttpRequest, special_day_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="calendar_special_day",
+            entity_id=special_day_id,
+            delete_callable=CalendarSpecialDayManagementService.delete_special_day,
+            blocked_codes={"CALENDAR_SPECIAL_DAY_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -516,10 +612,17 @@ def calendar_special_day_detail(request: HttpRequest, special_day_id: int) -> Js
     return JsonResponse({"calendar_special_day": special_day})
 
 
-@require_http_methods(["POST"])
-def create_employee(request: HttpRequest) -> JsonResponse:
+@require_http_methods(["GET", "POST"])
+def employees_collection(request: HttpRequest) -> JsonResponse:
     try:
         current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            employees = EmployeeManagementService.list_employees(
+                current_user,
+                status_code=request.GET.get("status"),
+            )
+            return JsonResponse({"employees": employees})
+
         payload = parse_json_request(request)
         employee = EmployeeManagementService.create_employee(current_user, payload)
     except AuthError as exc:
@@ -547,8 +650,16 @@ def projects_collection(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"project": project}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def project_detail(request: HttpRequest, project_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="project",
+            entity_id=project_id,
+            delete_callable=ProjectManagementService.delete_project,
+            blocked_codes={"PROJECT_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -582,8 +693,16 @@ def project_assignments_collection(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"project_assignment": assignment}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def project_assignment_detail(request: HttpRequest, assignment_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="project_assignment",
+            entity_id=assignment_id,
+            delete_callable=ProjectAssignmentManagementService.delete_assignment,
+            blocked_codes={"PROJECT_ASSIGNMENT_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -624,8 +743,16 @@ def calendar_period_rules_collection(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"calendar_period_rule": period_rule}, status=201)
 
 
-@require_http_methods(["GET", "PATCH"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def calendar_period_rule_detail(request: HttpRequest, period_rule_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="calendar_period_rule",
+            entity_id=period_rule_id,
+            delete_callable=CalendarPeriodRuleManagementService.delete_period_rule,
+            blocked_codes={"CALENDAR_PERIOD_RULE_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
         if request.method == "GET":
@@ -647,10 +774,22 @@ def calendar_period_rule_detail(request: HttpRequest, period_rule_id: int) -> Js
     return JsonResponse({"calendar_period_rule": period_rule})
 
 
-@require_http_methods(["PATCH"])
-def update_employee(request: HttpRequest, employee_id: int) -> JsonResponse:
+@require_http_methods(["GET", "PATCH", "DELETE"])
+def employee_detail(request: HttpRequest, employee_id: int) -> JsonResponse:
+    if request.method == "DELETE":
+        return _handle_guarded_delete(
+            request,
+            entity_name="employee",
+            entity_id=employee_id,
+            delete_callable=EmployeeManagementService.delete_employee,
+            blocked_codes={"EMPLOYEE_DELETE_BLOCKED"},
+        )
     try:
         current_user = CurrentUserService.get_from_request(request)
+        if request.method == "GET":
+            employee = EmployeeManagementService.get_employee(current_user, employee_id)
+            return JsonResponse({"employee": employee})
+
         payload = parse_json_request(request)
         employee = EmployeeManagementService.update_employee(current_user, employee_id, payload)
     except AuthError as exc:

@@ -2,6 +2,15 @@
 
 ## Active Plans
 
+- `2026-05-20`: `docs/plans/2026-05-20-docs-v5.9.3-promotion.md`
+  - status: completed
+  - focus: publish the v5.9.3 markdown source-of-truth set and repoint repo guidance to it after the admin API parity waves
+- `2026-05-20`: `docs/plans/2026-05-20-employee-api-parity-wave.md`
+  - status: completed
+  - focus: complete the `/api/v1/admin/employees/` surface with list, detail, and guarded delete parity on top of the existing create/update/role/BU endpoints
+- `2026-05-20`: `docs/plans/2026-05-20-admin-api-delete-parity-wave.md`
+  - status: completed
+  - focus: add guarded `DELETE` parity to the existing `/api/v1/admin` master-data endpoints that already have service-layer delete support
 - `2026-05-19`: `docs/plans/2026-05-19-system-management-ui-consistency-cleanup.md`
   - status: completed
   - focus: finish the shared standalone-create, inline-filter, and bottom guarded-delete layout patterns across System Management
@@ -113,7 +122,7 @@
 
 Historical note:
 - completed plan files intentionally preserve the source-document references and milestone wording that existed when those plans were written
-- use `AGENTS.md`, this file, and the v5.9.2 markdown spec set for current implementation work
+- use `AGENTS.md`, this file, and the v5.9.3 markdown spec set for current implementation work
 
 ## Purpose
 

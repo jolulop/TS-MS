@@ -1,14 +1,16 @@
-# Integration API Specification v5.9.2
+# Integration API Specification v5.9.3
 
 ## 1. Purpose
 
 Describe the currently implemented JSON API surface under `/api/v1`.
 
-No JSON API versioning change was introduced in the v5.9.2 documentation promotion. The main implemented deltas in the current surface are:
+No JSON API versioning change was introduced in the v5.9.3 documentation promotion. The main implemented deltas in the current surface are:
 
 - the user-initiated `Copy Prev. Week` flow on the existing timesheet create surface
 - `TS_ADMIN_MASTER` JSON parity for Country administration
 - `TS_ADMIN_MASTER` JSON parity for Office administration
+- completed `TS_ADMIN` employee admin parity for list, detail, and guarded
+  delete on top of the existing create/update/role/BU endpoints
 - guarded `DELETE` support across the current Country, Office, and master-data
   admin endpoints where the service layer already supports safe deletion
 - richer General Charge Code and GCC approval-role admin payloads for routing
@@ -96,10 +98,23 @@ Request fields:
 
 ### Employees
 
+- `GET /api/v1/admin/employees/`
 - `POST /api/v1/admin/employees/`
+- `GET /api/v1/admin/employees/{employeeId}/`
 - `PATCH /api/v1/admin/employees/{employeeId}/`
+- `DELETE /api/v1/admin/employees/{employeeId}/`
 - `PUT /api/v1/admin/employees/{employeeId}/roles/`
 - `PUT /api/v1/admin/employees/{employeeId}/business-units/`
+
+Collection query params:
+- `status`
+
+Delete behavior:
+- guarded delete only
+- blocked deletes return a structured business error such as
+  `EMPLOYEE_DELETE_BLOCKED`
+- self-delete remains blocked with `EMPLOYEE_DELETE_SELF_BLOCKED`
+- blocked delete attempts are audited
 
 ### Clients
 
