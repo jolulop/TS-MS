@@ -39,17 +39,18 @@ Visible section:
 ### 3.2 `TS_ADMIN`
 
 Visible sections:
-- Business Units
 - Employees
-- Calendars
 - Clients
+- Projects
+- Project Assignments
 - Internal Categories
 - Cost Centers
 - Pricing Models
-- General Charge Codes
-- Projects
-- Project Assignments
+- Business Units
+- Calendars
 - Calendar Period Rules
+- GCC Approval Roles
+- General Charge Codes
 
 ### 3.3 `PROJECT_OWNER`
 
