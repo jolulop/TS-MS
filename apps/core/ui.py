@@ -70,21 +70,21 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                 current_path=current_path,
             )
         )
-    if not current_user.is_basic_user:
-        project_items.append(
-            _nav_item(
-                label="Reports",
-                href="/reports/",
-                summary="Role-aware report hub and scoped viewers.",
-                current_path=current_path,
-            )
-        )
     if AuthorizationPolicyService.can_access_approval_worklist(current_user):
         project_items.append(
             _nav_item(
                 label="Approval Worklist",
                 href="/approvals/",
                 summary="Pending approvals and approval actions.",
+                current_path=current_path,
+            )
+        )
+    if not current_user.is_basic_user:
+        project_items.append(
+            _nav_item(
+                label="Reports",
+                href="/reports/",
+                summary="Role-aware report hub and scoped viewers.",
                 current_path=current_path,
             )
         )

@@ -374,6 +374,24 @@ Management.
   projects
 - unmanaged project assignments remain blocked server-side
 
+## 11F. TS Project Management Summary
+
+### Use Case
+
+An authorized `TS_ADMIN`, `PROJECT_OWNER`, or `PROJECT_MANAGER` uses the
+`TS/Project Management > Project Management` summary screen to filter projects
+and drill into related approval and reporting work.
+
+### Acceptance
+
+- the summary grid shows `Client` between `Name` and `Status`
+- the top filter row includes an inline `Client` selector to the left of the
+  status-filter buttons
+- changing the Client filter preserves the selected status filter
+- nonzero `Pend. Appr.` values open the Approval Worklist prefiltered to the
+  selected project
+- zero `Pend. Appr.` values remain plain text
+
 ## 11B. Project Missing Timesheets Report
 
 ### Use Case
@@ -432,6 +450,8 @@ and scoped Business Units.
   - `Office / BU Time Summary`
   - `General Charge Code Usage`
   - `Approval Turnaround`
+- Reports Hub keeps `Archived Timesheets`, `Audit History`, and
+  `Integration Jobs` at the bottom of the admin card list
 - `PROJECT_OWNER` and `PROJECT_MANAGER` do not gain access to these four admin
   reports from this change
 - Employee Utilization supports filters for Business Unit, employee, and
@@ -445,6 +465,8 @@ and scoped Business Units.
   status, and submitted-date range
 - Approval Turnaround shows both completed and pending rows, including elapsed
   hours and stalled-age visibility
+- the shared report viewer stacks the `Filter Panel` above `Report Totals` for
+  the supported report screens
 - all four reports support CSV export from the shared report viewer
 - each export uses the same filters and scope as the visible grid
 - each export is audited

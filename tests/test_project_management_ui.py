@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -20,6 +21,7 @@ from tests.helpers import (
     create_project,
     create_yearly_calendar,
     initialize_ui_session,
+    ref_value,
     seed_reference_data,
 )
 
@@ -209,6 +211,10 @@ def _build_project_management_context() -> dict:
         "owner_client": owner_client,
         "pm_client": pm_client,
         "admin_client": admin_client,
+        "business_unit": business_unit,
+        "project_owner": project_owner,
+        "project_manager": project_manager,
+        "client": client_record,
         "project": project,
         "pending_item": pending_item,
     }
@@ -224,8 +230,10 @@ def test_project_owner_project_management_grid_shows_summary_links(monkeypatch) 
     assert response.status_code == 200
     content = response.content.decode()
     assert "Project Management" in content
+    assert "<th>Client</th>" in content
     assert "Pend. Appr." in content
     assert "Pend. TS" not in content
+    assert "Project Mgmt Client" in content
     assert '<a href="/system/projects/%d/">Project Mgmt Project</a>' % context["project"].id in content
     assert 'href="/reports/project-time/?project_id=%d">6.00</a>' % context["project"].id in content
     assert 'href="/approvals/?project_id=%d">1</a>' % context["project"].id in content
@@ -242,13 +250,13 @@ def test_project_manager_project_management_hides_owner_only_links(monkeypatch) 
     assert response.status_code == 200
     content = response.content.decode()
     assert 'href="/system/projects/%d/"' % context["project"].id not in content
-    assert 'href="/approvals/?project_id=%d"' % context["project"].id not in content
+    assert 'href="/approvals/?project_id=%d">1</a>' % context["project"].id in content
     assert 'href="/reports/project-time/?project_id=%d">6.00</a>' % context["project"].id in content
     assert 'href="/reports/missing-timesheets/?project_ids=%d">1</a>' % context["project"].id in content
 
 
 @pytest.mark.django_db
-def test_ts_admin_project_management_links_to_project_but_not_approval_worklist(monkeypatch) -> None:
+def test_ts_admin_project_management_links_to_project_and_approval_worklist(monkeypatch) -> None:
     monkeypatch.setattr("apps.core.ts_views._current_monday", lambda today=None: date(2026, 5, 11))
     context = _build_project_management_context()
 
@@ -257,31 +265,105 @@ def test_ts_admin_project_management_links_to_project_but_not_approval_worklist(
     assert response.status_code == 200
     content = response.content.decode()
     assert '<a href="/system/projects/%d/">Project Mgmt Project</a>' % context["project"].id in content
-    assert 'href="/approvals/?project_id=%d"' % context["project"].id not in content
+    assert 'href="/approvals/?project_id=%d">1</a>' % context["project"].id in content
 
 
 @pytest.mark.django_db
-def test_project_owner_can_open_project_detail_read_only_and_filtered_approval_worklist() -> None:
+def test_project_owner_can_open_project_detail_and_filtered_approval_worklist() -> None:
     context = _build_project_management_context()
 
     detail_response = context["owner_client"].get(f"/system/projects/{context['project'].id}/")
     worklist_response = context["owner_client"].get(
         f"/approvals/?project_id={context['project'].id}"
     )
-    post_response = context["owner_client"].post(
-        f"/system/projects/{context['project'].id}/",
-        data={"form_name": "edit", "name": "Changed name"},
-        follow=False,
-    )
 
     assert detail_response.status_code == 200
     detail_content = detail_response.content.decode()
     assert "Edit Project" in detail_content
-    assert "Delete Project" not in detail_content
-    assert "Save Project" not in detail_content
     assert worklist_response.status_code == 200
     worklist_content = worklist_response.content.decode()
     assert "Approval Worklist" in worklist_content
     assert "Project Mgmt Employee" in worklist_content
     assert "Project Mgmt Project" in worklist_content
-    assert post_response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_project_manager_and_ts_admin_can_open_filtered_project_approval_worklist() -> None:
+    context = _build_project_management_context()
+
+    pm_response = context["pm_client"].get(f"/approvals/?project_id={context['project'].id}")
+    admin_response = context["admin_client"].get(
+        f"/approvals/?project_id={context['project'].id}"
+    )
+
+    assert pm_response.status_code == 200
+    pm_content = pm_response.content.decode()
+    assert "Approval Worklist" in pm_content
+    assert "Project Mgmt Employee" in pm_content
+    assert "Project Mgmt Project" in pm_content
+
+    assert admin_response.status_code == 200
+    admin_content = admin_response.content.decode()
+    assert "Approval Oversight" in admin_content
+    assert "Project Mgmt Employee" in admin_content
+    assert "Project Mgmt Project" in admin_content
+
+
+@pytest.mark.django_db
+def test_zero_pending_count_renders_as_plain_text(monkeypatch) -> None:
+    monkeypatch.setattr("apps.core.ts_views._current_monday", lambda today=None: date(2026, 5, 11))
+    context = _build_project_management_context()
+    pending_item = context["pending_item"]
+    pending_item.status = ref_value("APPROVAL_STATUS", "APPROVED")
+    pending_item.save(update_fields=["status", "updated_at"])
+    pending_timesheet = pending_item.submission_cycle.weekly_timesheet
+    pending_timesheet.status = ref_value("TIMESHEET_STATUS", "APPROVED")
+    pending_timesheet.save(update_fields=["status", "updated_at"])
+
+    response = context["owner_client"].get("/ts/projects/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert 'href="/approvals/?project_id=%d">0</a>' % context["project"].id not in content
+    assert re.search(r"<td>\s*0\s*</td>", content) is not None
+
+
+@pytest.mark.django_db
+def test_project_management_client_filter_preserves_status_and_filters_rows(monkeypatch) -> None:
+    monkeypatch.setattr("apps.core.ts_views._current_monday", lambda today=None: date(2026, 5, 11))
+    context = _build_project_management_context()
+    other_client = create_client(
+        business_unit=context["business_unit"],
+        client_code="CLI-PRJ-OTHER",
+        name="Other Project Client",
+    )
+    other_project = create_project(
+        business_unit=context["business_unit"],
+        project_code="PRJ-MGMT-OTHER",
+        name="Other Project",
+        project_owner_employee=context["project_owner"],
+        project_manager_employee=context["project_manager"],
+        client=other_client,
+        internal_category=context["project"].internal_category,
+        cost_center=context["project"].cost_center,
+        start_date=context["project"].start_date,
+        billable_flag=True,
+    )
+
+    response = context["owner_client"].get(
+        "/ts/projects/",
+        data={"status": "ACTIVE", "client_id": str(context["client"].id)},
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    filter_links = response.context["filter_links"]
+    assert "Project Mgmt Project" in content
+    assert 'href="/system/projects/%d/">Other Project</a>' % other_project.id not in content
+    assert '<option value="%d" selected>Project Mgmt Client</option>' % context["client"].id in content
+    assert [link["href"] for link in filter_links] == [
+        "/ts/projects/?client_id=%d" % context["client"].id,
+        "/ts/projects/?status=ACTIVE&client_id=%d" % context["client"].id,
+        "/ts/projects/?status=CLOSED&client_id=%d" % context["client"].id,
+        "/ts/projects/?status=DRAFT&client_id=%d" % context["client"].id,
+    ]

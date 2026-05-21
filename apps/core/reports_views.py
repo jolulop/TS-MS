@@ -127,6 +127,19 @@ EXPORTABLE_REPORT_CODES = {
     "approval-turnaround",
 }
 
+REPORT_CARD_ORDER = (
+    "project-time",
+    "pending-approvals",
+    "missing-timesheets",
+    "employee-utilization",
+    "office-bu-time-summary",
+    "general-charge-code-usage",
+    "approval-turnaround",
+    "archived-timesheets",
+    "audit-history",
+    "integration-jobs",
+)
+
 
 def _reports_context(
     request: HttpRequest,
@@ -522,9 +535,8 @@ def _report_count(current_user: CurrentUser, report_code: str) -> int:
 
 def _report_cards(current_user: CurrentUser) -> list[dict]:
     cards = []
-    for report_code, definition in REPORT_DEFINITIONS.items():
-        if report_code == "my-timesheet-history":
-            continue
+    for report_code in REPORT_CARD_ORDER:
+        definition = REPORT_DEFINITIONS[report_code]
         if not AuthorizationPolicyService.can_run_report(current_user, report_code):
             continue
         cards.append(
@@ -754,6 +766,7 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
     )
     return {
         "definition": REPORT_DEFINITIONS["project-time"],
+        "split_grid_class": "report-panel-stack",
         "filters": [
             {
                 "label": "BU",
@@ -888,7 +901,7 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
     ]
     return {
         "definition": REPORT_DEFINITIONS["pending-approvals"],
-        "split_grid_class": "split-grid split-grid-primary-wide",
+        "split_grid_class": "report-panel-stack",
         "filters": [
             {
                 "label": "BU",
@@ -939,6 +952,7 @@ def _missing_timesheets_report(current_user: CurrentUser, request: HttpRequest) 
     )
     return {
         "definition": REPORT_DEFINITIONS["missing-timesheets"],
+        "split_grid_class": "report-panel-stack",
         "filters": [
             {
                 "label": "Projects",
@@ -961,7 +975,6 @@ def _missing_timesheets_report(current_user: CurrentUser, request: HttpRequest) 
         ],
         "empty_message": "No missing project timesheets match the current project scope.",
         "export_path": _report_export_url("missing-timesheets"),
-        "split_grid_class": "split-grid split-grid-primary-wide",
     }
 
 
@@ -1004,6 +1017,7 @@ def _archived_timesheets_report(current_user: CurrentUser, request: HttpRequest)
     ]
     return {
         "definition": REPORT_DEFINITIONS["archived-timesheets"],
+        "split_grid_class": "report-panel-stack",
         "filters": [
             {
                 "label": "BU",
@@ -1090,6 +1104,7 @@ def _audit_history_report(current_user: CurrentUser, request: HttpRequest) -> di
     ]
     return {
         "definition": REPORT_DEFINITIONS["audit-history"],
+        "split_grid_class": "report-panel-stack",
         "filter_grid_class": "report-filter-grid report-filter-grid-dense",
         "filters": [
             {
@@ -1178,7 +1193,7 @@ def _integration_jobs_report(current_user: CurrentUser, request: HttpRequest) ->
     ]
     return {
         "definition": REPORT_DEFINITIONS["integration-jobs"],
-        "split_grid_class": "split-grid split-grid-primary-wide",
+        "split_grid_class": "report-panel-stack",
         "filters": [
             {
                 "label": "BU",

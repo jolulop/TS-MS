@@ -21,13 +21,32 @@
     <section class="surface-card">
       <div class="section-header">
         <h2>Project Status Filters</h2>
-        <p>Switch between the currently accessible project lifecycle states.</p>
+        <p>Filter the currently accessible project scope by client while keeping the status shortcuts available.</p>
       </div>
-      <nav class="subnav" aria-label="Project Status Filters">
-        {% for link in filter_links %}
-          <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
-        {% endfor %}
-      </nav>
+      <div class="section-header-row">
+        <form class="toolbar-form" method="get" action="/ts/projects/">
+          {% if selected_status_code != "ALL" %}
+            <input type="hidden" name="status" value="{{ selected_status_code }}">
+          {% endif %}
+          <div class="field toolbar-field">
+            <label for="client_id">Client</label>
+            <select id="client_id" name="client_id">
+              {% for option in client_filter_options %}
+                <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="toolbar-actions">
+            <button class="button" type="submit">Apply Client</button>
+            <a class="button secondary" href="{{ client_filter_reset_href }}">Clear Client</a>
+          </div>
+        </form>
+        <nav class="subnav" aria-label="Project Status Filters">
+          {% for link in filter_links %}
+            <a href="{{ link.href }}"{% if link.active %} class="active"{% endif %}>{{ link.label }}</a>
+          {% endfor %}
+        </nav>
+      </div>
     </section>
 
     <section class="surface-card">
@@ -41,6 +60,7 @@
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Client</th>
                 <th>Status</th>
                 <th>Appr. Hours</th>
                 <th>Pend. Appr.</th>
@@ -57,6 +77,7 @@
                       {{ row.name }}
                     {% endif %}
                   </td>
+                  <td>{{ row.client }}</td>
                   <td>{{ row.status }}</td>
                   <td>
                     <a href="{{ row.approved_hours_href }}">{{ row.approved_hours }}</a>

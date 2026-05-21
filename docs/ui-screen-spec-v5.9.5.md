@@ -22,8 +22,8 @@ Role-aware visibility applies to sections, menus, and actions.
 
 `TS/Project Management` contains:
 - `Project Management` when authorized
-- `Reports`
 - `Approval Worklist` when authorized
+- `Reports`
 - `Project Time Inquiry` when authorized
 - the whole section is hidden for basic `USER`-only sessions
 
@@ -456,6 +456,10 @@ Important UI behavior:
 
 - Access: `TS_ADMIN`, `PROJECT_OWNER`, `PROJECT_MANAGER`
 - features:
+  - top filter row:
+    - inline `Client` selection filter positioned to the left of the existing
+      status-filter buttons
+    - selected client filter preserves the current status filter
   - status filters:
     - `All`
     - `Active`
@@ -463,6 +467,7 @@ Important UI behavior:
     - `Draft`
   - summary grid columns:
     - `Name`
+    - `Client`
     - `Status`
     - `Appr. Hours`
     - `Pend. Appr.`
@@ -472,7 +477,9 @@ Important UI behavior:
     - editable owned-project System Management detail for `PROJECT_OWNER`
     - no link for `PROJECT_MANAGER`
   - approved-hours value opens the project-time report preloaded to that project
-  - pending-timesheet value opens the approval worklist for owned projects only
+  - nonzero pending-timesheet values open the approval worklist prefiltered to
+    that project
+  - zero pending-timesheet values remain read-only text
   - missing-timesheet value opens the missing-timesheets report preloaded to that project
 
 ### SCR-220 Project Time Inquiry
@@ -534,6 +541,10 @@ Important UI behavior:
   - clickable bold title with `->` and the scoped count shown beside it
   - summary
   - audience
+- lower-priority administrative history cards render at the bottom of the hub:
+  - `Archived Timesheets`
+  - `Audit History`
+  - `Integration Jobs`
 - includes `Missing Timesheets by Project` for `PROJECT_OWNER`, `PROJECT_MANAGER`, and `TS_ADMIN`
 - includes `Employee Utilization`, `Office / BU Time Summary`,
   `General Charge Code Usage`, and `Approval Turnaround` for `TS_ADMIN`
@@ -542,6 +553,11 @@ Important UI behavior:
 
 - Access: enforced per report
 - supports report-specific filters and scoped result grids
+- uses a shared stacked top layout:
+  - `Filter Panel` renders first in a full-width section
+  - `Report Totals` render below the filters in a second full-width section
+  - filter fields and total cards try to fit into a single responsive row on
+    wider screens
 - when the report is exportable, shows an `Export CSV` action beside the normal
   report actions
 - CSV export downloads the currently filtered scoped rows as a browser

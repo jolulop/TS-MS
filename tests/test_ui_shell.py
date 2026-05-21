@@ -89,6 +89,11 @@ def test_project_owner_sees_project_management_and_approval_worklist() -> None:
 
     dashboard_content = dashboard_response.content.decode()
     system_content = system_response.content.decode()
+    project_group = next(
+        group
+        for group in dashboard_response.context["navigation_groups"]
+        if group.label == "TS/Project Management"
+    )
     assert dashboard_response.status_code == 200
     assert "System Management" in dashboard_content
     assert '/ts/projects/' in dashboard_content
@@ -101,6 +106,12 @@ def test_project_owner_sees_project_management_and_approval_worklist() -> None:
     assert "Project Summary" in project_management_response.content.decode()
     assert approval_response.status_code == 200
     assert "Approval Worklist" in approval_response.content.decode()
+    assert [item.label for item in project_group.items] == [
+        "Project Management",
+        "Approval Worklist",
+        "Reports",
+        "Project Time Inquiry",
+    ]
 
 
 @pytest.mark.django_db
@@ -134,6 +145,11 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     dashboard_content = dashboard_response.content.decode()
     system_content = system_response.content.decode()
     profile_content = profile_response.content.decode()
+    project_group = next(
+        group
+        for group in dashboard_response.context["navigation_groups"]
+        if group.label == "TS/Project Management"
+    )
 
     assert dashboard_response.status_code == 200
     assert "My info" in dashboard_content
@@ -161,6 +177,12 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     assert "Last actions" in approval_response.content.decode()
     assert inquiry_response.status_code == 200
     assert "Project Time Inquiry" in inquiry_response.content.decode()
+    assert [item.label for item in project_group.items] == [
+        "Project Management",
+        "Approval Worklist",
+        "Reports",
+        "Project Time Inquiry",
+    ]
 
 
 @pytest.mark.django_db
@@ -189,6 +211,11 @@ def test_ts_admin_can_open_system_management_and_reports() -> None:
     reports_response = client.get("/reports/")
 
     dashboard_content = dashboard_response.content.decode()
+    project_group = next(
+        group
+        for group in dashboard_response.context["navigation_groups"]
+        if group.label == "TS/Project Management"
+    )
     assert dashboard_response.status_code == 200
     assert "Office: Holding" in dashboard_content
     assert "fixed to Holding" in dashboard_content
@@ -202,6 +229,11 @@ def test_ts_admin_can_open_system_management_and_reports() -> None:
     assert "Employees" in system_response.content.decode()
     assert reports_response.status_code == 200
     assert "Available Reports" in reports_response.content.decode()
+    assert [item.label for item in project_group.items] == [
+        "Project Management",
+        "Approval Worklist",
+        "Reports",
+    ]
 
 
 @pytest.mark.django_db

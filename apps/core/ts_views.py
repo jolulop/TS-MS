@@ -130,6 +130,7 @@ def _can_open_project_management(current_user: CurrentUser) -> bool:
 def _scoped_project_queryset(current_user: CurrentUser):
     queryset = Project.objects.select_related(
         "business_unit",
+        "client",
         "project_owner_employee",
         "project_manager_employee",
         "status",
@@ -148,6 +149,7 @@ def _scoped_project_queryset(current_user: CurrentUser):
 def _project_management_status_links(request: HttpRequest) -> tuple[str, list[dict]]:
     allowed_codes = ("ALL", "ACTIVE", "CLOSED", "DRAFT")
     selected_code = str(request.GET.get("status", "ALL")).strip().upper() or "ALL"
+    selected_client_id = str(request.GET.get("client_id", "")).strip()
     if selected_code not in allowed_codes:
         selected_code = "ALL"
     links = []
@@ -157,7 +159,12 @@ def _project_management_status_links(request: HttpRequest) -> tuple[str, list[di
         ("CLOSED", "Closed"),
         ("DRAFT", "Draft"),
     ):
-        href = request.path if status_code == "ALL" else f"{request.path}?status={status_code}"
+        params: dict[str, str] = {}
+        if status_code != "ALL":
+            params["status"] = status_code
+        if selected_client_id:
+            params["client_id"] = selected_client_id
+        href = request.path if not params else f"{request.path}?{urlencode(params)}"
         links.append(
             {
                 "label": label,
@@ -172,6 +179,22 @@ def _format_hours(value: Decimal | None) -> str:
     if value is None:
         return "0.00"
     return f"{value:.2f}"
+
+
+def _project_management_client_options(projects_queryset, *, selected_client_id: str) -> list[dict]:
+    options = [{"value": "", "label": "All clients", "selected": selected_client_id == ""}]
+    options.extend(
+        {
+            "value": str(client["client_id"]),
+            "label": client["client__name"],
+            "selected": str(client["client_id"]) == selected_client_id,
+        }
+        for client in projects_queryset.filter(client_id__isnull=False)
+        .values("client_id", "client__name")
+        .order_by("client__name", "client_id")
+        .distinct()
+    )
+    return options
 
 
 def _project_missing_timesheet_counts(project_ids: list[int]) -> dict[int, int]:
@@ -287,24 +310,22 @@ def _project_management_rows(current_user: CurrentUser, projects: list[Project])
 
     rows = []
     for project in projects:
+        pending_count = pending_timesheets_by_project.get(project.id, 0)
         can_open_detail = current_user.is_ts_admin or (
-            current_user.has_role("PROJECT_OWNER")
-            and project.project_owner_employee_id == current_user.employee_id
-        )
-        can_open_pending = (
             current_user.has_role("PROJECT_OWNER")
             and project.project_owner_employee_id == current_user.employee_id
         )
         rows.append(
             {
                 "name": project.name,
+                "client": project.client.name if project.client_id else "",
                 "name_href": f"/system/projects/{project.id}/" if can_open_detail else "",
                 "status": project.status.value_code,
                 "approved_hours": _format_hours(approved_hours_by_project.get(project.id)),
                 "approved_hours_href": f"/reports/project-time/?project_id={project.id}",
-                "pending_timesheets": str(pending_timesheets_by_project.get(project.id, 0)),
+                "pending_timesheets": str(pending_count),
                 "pending_timesheets_href": (
-                    f"/approvals/?project_id={project.id}" if can_open_pending else ""
+                    f"/approvals/?project_id={project.id}" if pending_count > 0 else ""
                 ),
                 "missing_timesheets": str(missing_counts_by_project.get(project.id, 0)),
                 "missing_timesheets_href": f"/reports/missing-timesheets/?project_ids={project.id}",
@@ -670,12 +691,20 @@ def project_management(request: HttpRequest) -> HttpResponse:
         )
 
     selected_status_code, status_links = _project_management_status_links(request)
-    queryset = _scoped_project_queryset(current_user).order_by(
+    selected_client_id = str(request.GET.get("client_id", "")).strip()
+    scoped_queryset = _scoped_project_queryset(current_user)
+    client_filter_options = _project_management_client_options(
+        scoped_queryset,
+        selected_client_id=selected_client_id,
+    )
+    queryset = scoped_queryset.order_by(
         "business_unit__bu_code",
         "project_code",
     )
     if selected_status_code != "ALL":
         queryset = queryset.filter(status__value_code=selected_status_code)
+    if selected_client_id.isdigit():
+        queryset = queryset.filter(client_id=int(selected_client_id))
     projects = list(queryset)
 
     context = _ts_context(
@@ -691,6 +720,14 @@ def project_management(request: HttpRequest) -> HttpResponse:
     context.update(
         {
             "filter_links": status_links,
+            "selected_status_code": selected_status_code,
+            "client_filter_options": client_filter_options,
+            "selected_client_id": selected_client_id,
+            "client_filter_reset_href": (
+                f"{request.path}?{urlencode({'status': selected_status_code})}"
+                if selected_status_code != "ALL"
+                else request.path
+            ),
             "table_rows": _project_management_rows(current_user, projects),
         }
     )

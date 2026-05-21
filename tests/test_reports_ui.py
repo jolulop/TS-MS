@@ -316,6 +316,7 @@ def test_reports_hub_is_role_aware() -> None:
 
     pm_content = pm_response.content.decode()
     admin_content = admin_response.content.decode()
+    admin_card_titles = [card["title"] for card in admin_response.context["report_cards"]]
 
     assert user_response.status_code == 403
     assert "Access Denied" in user_response.content.decode()
@@ -337,6 +338,11 @@ def test_reports_hub_is_role_aware() -> None:
     assert "Office / BU Time Summary" in admin_content
     assert "General Charge Code (GCC) Usage" in admin_content
     assert "Approval Turnaround" in admin_content
+    assert admin_card_titles[-3:] == [
+        "Archived Timesheets",
+        "Audit History",
+        "Integration Jobs",
+    ]
 
 
 @pytest.mark.django_db
@@ -371,6 +377,7 @@ def test_project_owner_project_time_report_is_scoped() -> None:
     content = response.content.decode()
     assert response.status_code == 200
     assert "Project Time Report" in content
+    assert 'class="report-panel-stack"' in content
     assert '<label for="work_date_from">From</label>' in content
     assert '<label for="work_date_to">To</label>' in content
     assert "PRJ-RPT" in content
@@ -387,7 +394,7 @@ def test_project_manager_pending_approvals_report_is_available() -> None:
     content = response.content.decode()
     assert response.status_code == 200
     assert "Pending Approvals" in content
-    assert 'class="split-grid split-grid-primary-wide"' in content
+    assert 'class="report-panel-stack"' in content
     assert "PRJ-RPT" in content
     assert "EMP-RPT-USER" in content
 
@@ -482,6 +489,7 @@ def test_ts_admin_can_open_admin_reports() -> None:
     context = _setup_reports_context()
 
     missing_response = context["admin_client"].get("/reports/missing-timesheets/")
+    archived_response = context["admin_client"].get("/reports/archived-timesheets/")
     audit_response = context["admin_client"].get("/reports/audit-history/")
     integration_response = context["admin_client"].get("/reports/integration-jobs/")
     utilization_response = context["admin_client"].get(
@@ -497,11 +505,16 @@ def test_ts_admin_can_open_admin_reports() -> None:
 
     assert missing_response.status_code == 200
     missing_content = missing_response.content.decode()
-    assert 'class="split-grid split-grid-primary-wide"' in missing_content
+    assert 'class="report-panel-stack"' in missing_content
     assert context["missing_employee_name"] in missing_content
     assert context["missing_employee_email"] in missing_content
+    assert archived_response.status_code == 200
+    archived_content = archived_response.content.decode()
+    assert "Archived Timesheets" in archived_content
+    assert 'class="report-panel-stack"' in archived_content
     assert audit_response.status_code == 200
     audit_content = audit_response.content.decode()
+    assert 'class="report-panel-stack"' in audit_content
     assert "Nightly export validation" in audit_content
     assert '<label for="entity_name">Entity</label>' in audit_content
     assert '<label for="event_from">From</label>' in audit_content
@@ -509,7 +522,7 @@ def test_ts_admin_can_open_admin_reports() -> None:
     assert "<th>Business Unit</th>" in audit_content
     assert integration_response.status_code == 200
     integration_content = integration_response.content.decode()
-    assert 'class="split-grid split-grid-primary-wide"' in integration_content
+    assert 'class="report-panel-stack"' in integration_content
     assert "EMPLOYEE_IMPORT" in integration_content
     assert utilization_response.status_code == 200
     utilization_content = utilization_response.content.decode()

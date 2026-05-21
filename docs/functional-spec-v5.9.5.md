@@ -40,7 +40,7 @@ Role behavior is additive. A user may hold multiple roles at once.
   - `TS/Project Management`
   - `System Management`
 - `Profile` is part of `My info`.
-- `Project Management`, `Reports`, `Approval Worklist`, and `Project Time Inquiry`
+- `Project Management`, `Approval Worklist`, `Reports`, and `Project Time Inquiry`
   are grouped under `TS/Project Management` with role-aware visibility.
 - Employees holding only the basic `USER` role are redirected to `My Timesheets`
   instead of a dashboard and do not see the `Dashboard`, `Reports`, or
@@ -418,8 +418,11 @@ Delete behavior:
   - `Active`
   - `Closed`
   - `Draft`
+- Supports an inline `Client` filter that preserves the current selected
+  status.
 - Summary grid shows:
   - project name
+  - client
   - project status
   - approved hours
   - pending submitted timesheets
@@ -431,9 +434,10 @@ Delete behavior:
     screen for owned projects from the project name
   - `PROJECT_MANAGER` does not get the project-name detail link
   - approved hours open the project-time report preloaded to the project
-  - pending timesheets open the approval worklist for owned projects only
-  - missing timesheets open the project missing-timesheets report preloaded to
-    the project
+- nonzero pending timesheets open the Approval Worklist prefiltered to the
+  selected project
+- missing timesheets open the project missing-timesheets report preloaded to
+  the project
 
 ### 9.4 Project Time Inquiry
 

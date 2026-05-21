@@ -81,8 +81,13 @@ v5.9.5 captures these major implemented changes relative to the older baseline d
 - Project Assignment Management now shows Client and Project Name columns plus
   dependent Client and Project filters.
 - Project Management now shows BU names, Client, owner and manager full names,
-  employee assignment counts, and an inline Client filter that preserves status
-  selection.
+  employee assignment counts, an inline Client filter that preserves status
+  selection, and a pending-approval drill-down into the Approval Worklist.
+- TS/Project Management navigation now places `Approval Worklist` above
+  `Reports`.
+- Shared report-viewer screens now use the stacked top filter/totals layout,
+  and Reports Hub keeps `Archived Timesheets`, `Audit History`, and
+  `Integration Jobs` at the bottom of the admin card list.
 - Client Management now shows one row per Business Unit with active client
   projects and routes project-count clicks through Business Unit-aware
   authorization checks.
