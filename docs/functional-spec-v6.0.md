@@ -276,6 +276,14 @@ The following masters remain Business Unit scoped:
 - Yearly Calendars are Office-level and shared by all Business Units in the Office.
 - A Yearly Calendar can stay active even when the current date is outside the calendar year.
 - Only one Yearly Calendar can exist for a given year in an Office.
+- Employees should resolve an assigned Office calendar before time entry. When an
+  active employee in an active Office has no assigned calendar, employee
+  create/transfer/scope-management flows and compatibility backfill assign the
+  preferred active Office calendar automatically when one is available.
+- When an employee has an assigned Office calendar but their current primary
+  Business Unit has no matching Office-calendar period rules yet, the system may
+  clone the Office's single existing Business Unit rule pattern into the
+  employee's primary Business Unit to keep timesheet validation operable.
 - Calendar detail shows:
   - year summary totals
   - month view
@@ -453,6 +461,10 @@ Delete behavior:
   does not block charging by itself.
 - The timesheet detail UI shows submission and approval metadata using short
   dates while preserving the full stored timestamps in the data model.
+- Draft timesheets are deletable only while they remain pure drafts with no
+  submission-cycle history. A timesheet that was submitted and later withdrawn
+  may return to `CREATED`, but it remains non-deletable because submission
+  history must be preserved for auditability.
 
 ### 9.2 History
 

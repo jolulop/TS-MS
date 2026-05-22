@@ -159,6 +159,9 @@ Visible sections:
 Important UI behavior:
 - new employee creation does not preselect the current admin’s Business Unit in scope
 - selected primary Business Unit is included automatically in the employee scope
+- employee create, transfer, and Business Unit scope update flows ensure the
+  employee has an assigned Office calendar when an eligible Office calendar is
+  available
 - employee detail removes the current-state panel
 - employee detail places core data in one row and moves delete to the bottom
 - employee detail shows active scoped project assignments in a grid with columns
@@ -422,6 +425,10 @@ Important UI behavior:
 - Create:
   - select target Project
   - show target Office and target BU as derived read-only values
+  - when only one eligible target project exists in the current scope, prefill
+    that project so Target Office and Target BU render immediately
+  - when no target project is selected yet, Target Office still shows the
+    current active Office as create-context guidance
   - select Origin Office
   - select an eligible active Employee from that Origin Office
   - show Origin BU as read-only context
@@ -490,6 +497,8 @@ Important UI behavior:
   - submit
   - withdraw if allowed
   - delete draft timesheets only when deletion is allowed by backend rules
+  - a withdrawn timesheet that has submission history may return to `CREATED`
+    but delete remains blocked by the backend submission-history guard
   - timesheet detail shows `Submitted At` and `Approved At` using short-date
     formatting
 

@@ -2232,6 +2232,18 @@ def _cross_office_staffing_fields(
         if post_data is not None or entity is not None
         else ""
     )
+    if entity is None and not str(selected_project_id).strip():
+        default_project_options = _scoped_project_options(
+            current_user,
+            selected=selected_project_id,
+            include_blank=True,
+            active_only=True,
+        )
+        selectable_project_options = [
+            option for option in default_project_options if str(option["value"]).strip()
+        ]
+        if len(selectable_project_options) == 1:
+            selected_project_id = str(selectable_project_options[0]["value"])
     selected_origin_office_id = (
         submitted_data.get("origin_office_id", entity["origin_office"]["id"] if entity else "")
         if post_data is not None or entity is not None
@@ -2257,7 +2269,7 @@ def _cross_office_staffing_fields(
         if entity is not None
         else selected_project.office.office_name
         if selected_project is not None
-        else ""
+        else current_user.office_name
     )
     target_business_unit_label = (
         f"{entity['project']['business_unit']['bu_code']} - {entity['project']['business_unit']['name']}"
@@ -2302,6 +2314,11 @@ def _cross_office_staffing_fields(
             label="Target Office",
             kind="text",
             value=target_office_label,
+            help_text=(
+                "Uses your active Office scope on create and follows the selected target project."
+                if entity is None
+                else ""
+            ),
             readonly=True,
             disabled=True,
         ),
@@ -2310,6 +2327,11 @@ def _cross_office_staffing_fields(
             label="Target BU",
             kind="text",
             value=target_business_unit_label,
+            help_text=(
+                "Populates from the selected target project."
+                if entity is None and selected_project is None
+                else ""
+            ),
             readonly=True,
             disabled=True,
         ),

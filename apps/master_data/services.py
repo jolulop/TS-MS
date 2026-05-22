@@ -968,6 +968,102 @@ def _serialize_general_charge_code_approval_role(
     }
 
 
+def _preferred_assigned_calendar_for_office(office_id: int) -> YearlyCalendar | None:
+    current_year = date.today().year
+    calendars = list(
+        YearlyCalendar.objects.select_related("status")
+        .filter(office_id=office_id)
+        .order_by("-calendar_year", "id")
+    )
+    if not calendars:
+        return None
+    calendars.sort(
+        key=lambda calendar: (
+            calendar.status.value_code != "ACTIVE",
+            calendar.calendar_year != current_year,
+            abs(calendar.calendar_year - current_year),
+            -calendar.calendar_year,
+            calendar.id,
+        )
+    )
+    return calendars[0]
+
+
+def _clone_default_calendar_rules_to_business_unit(
+    yearly_calendar: YearlyCalendar,
+    business_unit: BusinessUnit,
+    *,
+    actor_email: str,
+) -> None:
+    if yearly_calendar.office_id != business_unit.office_id:
+        return
+    if CalendarPeriodRule.objects.filter(
+        yearly_calendar=yearly_calendar,
+        business_unit=business_unit,
+    ).exists():
+        return
+    if CalendarPeriodRule.objects.filter(
+        yearly_calendar=yearly_calendar,
+        business_unit__isnull=True,
+    ).exists():
+        return
+
+    donor_rules = list(
+        CalendarPeriodRule.objects.filter(
+            yearly_calendar=yearly_calendar,
+            business_unit_id__isnull=False,
+        )
+        .order_by("business_unit_id", "effective_from", "id")
+    )
+    donor_business_unit_ids = sorted({rule.business_unit_id for rule in donor_rules})
+    if len(donor_business_unit_ids) != 1:
+        return
+
+    for donor_rule in donor_rules:
+        if CalendarPeriodRule.objects.filter(
+            yearly_calendar=yearly_calendar,
+            business_unit=business_unit,
+            effective_from=donor_rule.effective_from,
+            effective_to=donor_rule.effective_to,
+        ).exists():
+            continue
+        CalendarPeriodRule.objects.create(
+            yearly_calendar=yearly_calendar,
+            business_unit=business_unit,
+            office=yearly_calendar.office,
+            effective_from=donor_rule.effective_from,
+            effective_to=donor_rule.effective_to,
+            monday_max_hours=donor_rule.monday_max_hours,
+            tuesday_max_hours=donor_rule.tuesday_max_hours,
+            wednesday_max_hours=donor_rule.wednesday_max_hours,
+            thursday_max_hours=donor_rule.thursday_max_hours,
+            friday_max_hours=donor_rule.friday_max_hours,
+            working_on_saturdays_flag=donor_rule.working_on_saturdays_flag,
+            working_on_sundays_flag=donor_rule.working_on_sundays_flag,
+            saturday_max_hours=donor_rule.saturday_max_hours,
+            sunday_max_hours=donor_rule.sunday_max_hours,
+            status=donor_rule.status,
+            created_by=actor_email,
+            updated_by=actor_email,
+        )
+
+
+def _ensure_employee_calendar_setup(employee: Employee, *, actor_email: str) -> None:
+    if employee.assigned_calendar_id is None:
+        preferred_calendar = _preferred_assigned_calendar_for_office(employee.office_id)
+        if preferred_calendar is not None:
+            employee.assigned_calendar = preferred_calendar
+            employee.updated_by = actor_email
+            employee.save(update_fields=["assigned_calendar", "updated_by", "updated_at"])
+    if employee.assigned_calendar_id is None:
+        return
+    _clone_default_calendar_rules_to_business_unit(
+        employee.assigned_calendar,
+        employee.primary_business_unit,
+        actor_email=actor_email,
+    )
+
+
 def _serialize_general_charge_code_approver_role(
     approver_role: GeneralChargeCodeApproverRole,
 ) -> dict:
@@ -2502,6 +2598,7 @@ class OfficeManagementService:
             role_codes=["TS_ADMIN", "USER"],
             reason="Initial Office administrator created with initial role assignments.",
         )
+        _ensure_employee_calendar_setup(employee, actor_email=current_user.email)
 
         write_audit_event(
             action_code="CREATE",
@@ -2801,6 +2898,7 @@ class EmployeeManagementService:
             role_codes=role_codes,
             reason="Employee roles created during Office transfer.",
         )
+        _ensure_employee_calendar_setup(target_employee, actor_email=current_user.email)
 
         write_audit_event(
             action_code="CREATE",
@@ -2917,6 +3015,7 @@ class EmployeeManagementService:
             role_codes=role_codes,
             reason="Employee created with initial role assignments.",
         )
+        _ensure_employee_calendar_setup(employee, actor_email=current_user.email)
 
         write_audit_event(
             action_code="CREATE",
@@ -3451,6 +3550,7 @@ class EmployeeManagementService:
                 new_value=employee.primary_business_unit.bu_code,
                 reason_text=reason,
             )
+        _ensure_employee_calendar_setup(employee, actor_email=current_user.email)
 
         new_scope_codes = sorted(
             business_unit.bu_code for business_unit in desired_business_units.values()

@@ -218,6 +218,8 @@ employee.
 - same-office attempts are rejected in the Cross-Office Staffing flow
 - employee is active
 - project is not closed
+- when only one eligible target project exists, the create screen preloads it
+  and shows Target Office and Target BU immediately
 - staffing window respects project dates
 - overlapping active staffing windows across normal Project Assignments and
   Cross-Office Staffing are rejected
@@ -346,6 +348,20 @@ Management summary.
 - pending-timesheet drill-down opens the approval worklist for owned projects
 - missing-timesheet drill-down opens the missing-timesheets report preloaded to
   the selected project
+
+## 12A. Personal Timesheet Delete Guard
+
+### Use Case
+
+An employee tries to delete a weekly timesheet after earlier submit/withdraw
+activity.
+
+### Acceptance
+
+- a pure draft timesheet with no submission history can be deleted
+- a submitted timesheet cannot be deleted
+- a withdrawn timesheet that returned to `CREATED` but still has submission
+  cycles remains non-deletable
 
 ## 11C. Project Owner System Management
 

@@ -84,8 +84,16 @@
 - Yearly Calendars are Office-level inside the active Office.
 - A Yearly Calendar can remain active outside its calendar year.
 - Only one Yearly Calendar can exist for a given year in an Office.
+- Employee time entry requires an assigned Office calendar.
+- If an active employee in an active Office has no assigned calendar and the
+  Office has an eligible active calendar, employee-management flows and
+  compatibility backfill assign that Office calendar automatically.
 - Calendar Period Rules are Business Unit-level inside the shared Office Yearly Calendar.
 - Calendar Period Rules may overlap across different Business Units, but not within the same Business Unit and Yearly Calendar.
+- If an employee's assigned Office calendar has rules for exactly one Business
+  Unit pattern and the employee's current primary Business Unit has no matching
+  rules yet, the system may clone that rule pattern into the employee's primary
+  Business Unit to keep timesheet validation operable.
 - Weekends are non-working by default.
 - `working_on_saturdays_flag` and `working_on_sundays_flag` make those weekend days chargeable for the matching Business Unit period.
 - `saturday_max_hours` and `sunday_max_hours` define the daily limit for enabled weekend working days.
@@ -164,6 +172,9 @@
   employee's home-office calendar marks the date as working.
 - Approved timesheets are locked.
 - Archived timesheets are not editable.
+- A draft timesheet can be deleted only when it has no submission-cycle
+  history. If the timesheet was ever submitted, later withdraw restores the
+  editable `CREATED` status but does not restore deletability.
 
 ## 9. Approval Rules
 

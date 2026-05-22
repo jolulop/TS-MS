@@ -835,6 +835,17 @@ def test_ts_admin_cannot_open_country_management_screen() -> None:
 @pytest.mark.django_db
 def test_employee_management_create_and_update_flows_render_through_html() -> None:
     client, _, business_units = _build_ts_admin_client()
+    yearly_calendar = create_yearly_calendar(
+        office=business_units[0].office,
+        calendar_year=2026,
+        calendar_name="Employee Setup 2026",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=yearly_calendar,
+        business_unit=business_units[1],
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
     managed_employee = create_employee(
         employee_code="EMP-MANAGED-1",
         full_name="Managed Employee",
@@ -865,6 +876,11 @@ def test_employee_management_create_and_update_flows_render_through_html() -> No
     assert create_response.status_code == 302
     created_employee = Employee.objects.get(employee_code="EMP-NEW-1")
     assert created_employee.primary_business_unit_id == business_units[0].id
+    assert created_employee.assigned_calendar_id == yearly_calendar.id
+    assert CalendarPeriodRule.objects.filter(
+        yearly_calendar=yearly_calendar,
+        business_unit=business_units[0],
+    ).exists()
 
     core_response = client.post(
         f"/system/employees/{managed_employee.id}/",
@@ -3734,6 +3750,11 @@ def test_cross_office_staffing_admin_can_create_update_and_delete_assignments() 
     assert "current target-project scope" in create_content
     assert "PRJ-CO-1" in create_content
     assert "EMP-CO-ASSIGN-1" in create_content
+    assert f'value="{project.office.office_name}"' in create_content
+    assert (
+        f'value="{project.business_unit.bu_code} - {project.business_unit.name}"'
+        in create_content
+    )
 
     create_response = client.post(
         "/system/cross-office-staffing/new/",

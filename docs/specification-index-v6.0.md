@@ -98,12 +98,18 @@ v6.0 captures these major baseline changes relative to the older docs:
   normal `Project Assignments`.
 - Cross-office staffed employees keep home-office calendar, calendar period
   rule, and General Charge Code semantics.
+- Employee-management flows and compatibility backfill now ensure an assigned
+  Office calendar exists when one is available, and may clone a single Office
+  calendar rule pattern into the employee's primary Business Unit to keep time
+  entry operable.
 - Project approval and project-time visibility follow the target project even
   when the charged employee belongs to another Office.
 - Approved Phase 3 scope moves project approval oversight for `TS_ADMIN` to
   the target project Office and scoped target Business Unit side while keeping
   Office / BU summary analytics on the weekly-timesheet home-BU side unless
   later changed.
+- Personal timesheet deletion remains audit-guarded: `CREATED` status alone is
+  not enough when prior submission history exists.
 
 ## Reading Order
 
