@@ -16,6 +16,7 @@ from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
     CalendarSpecialDay,
+    CrossOfficeProjectAssignment,
     Country,
     Employee,
     EmployeeBusinessUnit,
@@ -630,6 +631,18 @@ def _employee_transfer_blockers(employee: Employee) -> list[dict]:
         "Close or reassign active project staffing before transfer.",
     )
     add_blocker(
+        "CROSS_OFFICE_PROJECT_ASSIGNMENTS",
+        "Active Cross-Office Staffing",
+        CrossOfficeProjectAssignment.objects.filter(
+            employee_id=employee.id,
+            status__value_code="ACTIVE",
+            assignment_start_date__lte=today,
+        )
+        .filter(Q(assignment_end_date__isnull=True) | Q(assignment_end_date__gte=today))
+        .count(),
+        "Close or reassign active cross-office staffing before transfer.",
+    )
+    add_blocker(
         "GCC_APPROVAL_ROLE_ASSIGNMENTS",
         "Active GCC Approval Memberships",
         GeneralChargeCodeApprovalRoleAssignment.objects.filter(
@@ -1185,6 +1198,66 @@ def _serialize_project_assignment(assignment: ProjectAssignment) -> dict:
                 "bu_code": assignment.employee.primary_business_unit.bu_code,
                 "name": assignment.employee.primary_business_unit.name,
             },
+        },
+    }
+
+
+def _serialize_cross_office_project_assignment(
+    assignment: CrossOfficeProjectAssignment,
+) -> dict:
+    return {
+        "id": assignment.id,
+        "name": (
+            f"{assignment.project.project_code} -> "
+            f"{assignment.employee.employee_code} ({assignment.assignment_start_date.isoformat()})"
+        ),
+        "assignment_start_date": assignment.assignment_start_date.isoformat(),
+        "assignment_end_date": assignment.assignment_end_date.isoformat()
+        if assignment.assignment_end_date
+        else None,
+        "justification_text": assignment.justification_text,
+        "status": assignment.status.value_code,
+        "project": {
+            "id": assignment.project_id,
+            "project_code": assignment.project.project_code,
+            "name": assignment.project.name,
+            "client": {
+                "id": assignment.project.client_id,
+                "client_code": assignment.project.client.client_code,
+                "name": assignment.project.client.name,
+            },
+            "office": {
+                "id": assignment.project.office_id,
+                "office_name": assignment.project.office.office_name,
+            },
+            "business_unit": {
+                "id": assignment.project.business_unit_id,
+                "bu_code": assignment.project.business_unit.bu_code,
+                "name": assignment.project.business_unit.name,
+            },
+        },
+        "employee": {
+            "id": assignment.employee_id,
+            "employee_code": assignment.employee.employee_code,
+            "full_name": assignment.employee.full_name,
+            "office": {
+                "id": assignment.employee.office_id,
+                "office_name": assignment.employee.office.office_name,
+            },
+            "primary_business_unit": {
+                "id": assignment.employee.primary_business_unit_id,
+                "bu_code": assignment.employee.primary_business_unit.bu_code,
+                "name": assignment.employee.primary_business_unit.name,
+            },
+        },
+        "origin_office": {
+            "id": assignment.origin_office_id,
+            "office_name": assignment.origin_office.office_name,
+        },
+        "origin_business_unit": {
+            "id": assignment.origin_business_unit_id,
+            "bu_code": assignment.origin_business_unit.bu_code,
+            "name": assignment.origin_business_unit.name,
         },
     }
 
@@ -7347,6 +7420,66 @@ class ProjectManagementService:
         ).get(id=project_id)
 
 
+def _active_staffing_overlap_queryset(
+    queryset,
+    *,
+    assignment_start_date: date,
+    assignment_end_date: date | None,
+    exclude_id: int | None = None,
+):
+    queryset = queryset.filter(
+        status__domain__domain_code="PROJECT_ASSIGNMENT_STATUS",
+        status__value_code="ACTIVE",
+    )
+    if exclude_id is not None:
+        queryset = queryset.exclude(id=exclude_id)
+    if assignment_end_date is not None:
+        queryset = queryset.filter(assignment_start_date__lte=assignment_end_date)
+    return queryset.filter(
+        Q(assignment_end_date__isnull=True) | Q(assignment_end_date__gte=assignment_start_date)
+    )
+
+
+def _validate_cross_office_staffing_overlap(
+    *,
+    project: Project,
+    employee: Employee,
+    assignment_start_date: date,
+    assignment_end_date: date | None,
+    exclude_cross_office_assignment_id: int | None = None,
+) -> None:
+    overlapping_project_assignment_exists = _active_staffing_overlap_queryset(
+        ProjectAssignment.objects.filter(
+            project_id=project.id,
+            employee_id=employee.id,
+        ),
+        assignment_start_date=assignment_start_date,
+        assignment_end_date=assignment_end_date,
+    ).exists()
+    if overlapping_project_assignment_exists:
+        raise AuthError(
+            "CROSS_OFFICE_PROJECT_ASSIGNMENT_OVERLAP",
+            "Cross-office staffing overlaps an active staffing window for this employee and project.",
+            400,
+        )
+
+    overlapping_cross_office_exists = _active_staffing_overlap_queryset(
+        CrossOfficeProjectAssignment.objects.filter(
+            project_id=project.id,
+            employee_id=employee.id,
+        ),
+        assignment_start_date=assignment_start_date,
+        assignment_end_date=assignment_end_date,
+        exclude_id=exclude_cross_office_assignment_id,
+    ).exists()
+    if overlapping_cross_office_exists:
+        raise AuthError(
+            "CROSS_OFFICE_PROJECT_ASSIGNMENT_OVERLAP",
+            "Cross-office staffing overlaps an active staffing window for this employee and project.",
+            400,
+        )
+
+
 class ProjectAssignmentManagementService:
     @staticmethod
     def list_assignments(
@@ -7781,5 +7914,470 @@ class ProjectAssignmentManagementService:
             "project__client",
             "employee",
             "employee__primary_business_unit",
+            "status",
+        ).get(id=assignment_id)
+
+
+class CrossOfficeProjectAssignmentManagementService:
+    @staticmethod
+    def list_assignments(
+        current_user: CurrentUser,
+        *,
+        status_code: str | None = None,
+        target_office_id: object = None,
+        client_id: object = None,
+        project_id: object = None,
+        origin_office_id: object = None,
+        employee_id: object = None,
+    ) -> list[dict]:
+        _ensure_ts_admin_or_project_assignment_manager(current_user)
+        assignments = CrossOfficeProjectAssignment.objects.select_related(
+            "project",
+            "project__office",
+            "project__business_unit",
+            "project__client",
+            "employee",
+            "employee__office",
+            "employee__primary_business_unit",
+            "origin_office",
+            "origin_business_unit",
+            "status",
+        ).filter(
+            project__business_unit_id__in=current_user.scoped_business_unit_ids,
+            project__office_id=current_user.office_id,
+        )
+        if target_office_id not in (None, ""):
+            assignments = assignments.filter(
+                project__office_id=_parse_required_int(
+                    target_office_id,
+                    code="CROSS_OFFICE_PROJECT_ASSIGNMENT_FILTER_TARGET_OFFICE_INVALID",
+                    message="Target Office filter must be a valid Office identifier.",
+                )
+            )
+        if client_id not in (None, ""):
+            assignments = assignments.filter(
+                project__client_id=_parse_required_int(
+                    client_id,
+                    code="CROSS_OFFICE_PROJECT_ASSIGNMENT_FILTER_CLIENT_INVALID",
+                    message="Client filter must be a valid Client identifier.",
+                )
+            )
+        if project_id not in (None, ""):
+            assignments = assignments.filter(
+                project_id=_parse_required_int(
+                    project_id,
+                    code="CROSS_OFFICE_PROJECT_ASSIGNMENT_FILTER_PROJECT_INVALID",
+                    message="Project filter must be a valid Project identifier.",
+                )
+            )
+        if origin_office_id not in (None, ""):
+            assignments = assignments.filter(
+                origin_office_id=_parse_required_int(
+                    origin_office_id,
+                    code="CROSS_OFFICE_PROJECT_ASSIGNMENT_FILTER_ORIGIN_OFFICE_INVALID",
+                    message="Origin Office filter must be a valid Office identifier.",
+                )
+            )
+        if employee_id not in (None, ""):
+            assignments = assignments.filter(
+                employee_id=_parse_required_int(
+                    employee_id,
+                    code="CROSS_OFFICE_PROJECT_ASSIGNMENT_FILTER_EMPLOYEE_INVALID",
+                    message="Employee filter must be a valid Employee identifier.",
+                )
+            )
+        if not current_user.is_ts_admin:
+            assignments = assignments.filter(
+                Q(project__project_owner_employee_id=current_user.employee_id)
+                | Q(project__project_manager_employee_id=current_user.employee_id)
+            )
+        assignments = _apply_status_filter(
+            assignments.order_by(
+                "project__business_unit__bu_code",
+                "project__project_code",
+                "origin_office__office_name",
+                "employee__employee_code",
+                "assignment_start_date",
+            ),
+            _parse_status_filter(status_code, domain_code="PROJECT_ASSIGNMENT_STATUS"),
+        )
+        return [
+            _serialize_cross_office_project_assignment(assignment) for assignment in assignments
+        ]
+
+    @staticmethod
+    def get_assignment(current_user: CurrentUser, assignment_id: int) -> dict:
+        _ensure_ts_admin_or_project_assignment_manager(current_user)
+        assignment = CrossOfficeProjectAssignmentManagementService._get_scoped_assignment(
+            current_user,
+            assignment_id,
+        )
+        return _serialize_cross_office_project_assignment(assignment)
+
+    @staticmethod
+    @transaction.atomic
+    def create_assignment(current_user: CurrentUser, payload: dict) -> dict:
+        _ensure_ts_admin_or_project_assignment_manager(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        project = ProjectAssignmentManagementService._get_scoped_project_for_assignment_management(
+            current_user,
+            _parse_required_int(
+                payload.get("project_id"),
+                code="CROSS_OFFICE_PROJECT_ASSIGNMENT_PROJECT_REQUIRED",
+                message="project_id is required.",
+            ),
+        )
+        if project.status.value_code == "CLOSED":
+            raise AuthError(
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_PROJECT_CLOSED",
+                "Closed projects cannot receive new assignments.",
+                400,
+            )
+        employee = _get_employee_for_project_assignment(
+            _parse_required_int(
+                payload.get("employee_id"),
+                code="CROSS_OFFICE_PROJECT_ASSIGNMENT_EMPLOYEE_REQUIRED",
+                message="employee_id is required.",
+            ),
+        )
+        if employee.status.value_code != "ACTIVE":
+            raise AuthError(
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_EMPLOYEE_INACTIVE",
+                "Cross-office staffing employee must be active.",
+                400,
+            )
+        submitted_origin_office_id = _parse_required_int(
+            payload.get("origin_office_id"),
+            code="CROSS_OFFICE_PROJECT_ASSIGNMENT_ORIGIN_OFFICE_REQUIRED",
+            message="origin_office_id is required.",
+        )
+        if employee.office_id != submitted_origin_office_id:
+            raise AuthError(
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_ORIGIN_OFFICE_MISMATCH",
+                "Selected employee must belong to the selected origin Office.",
+                400,
+            )
+        if employee.office_id == project.office_id:
+            raise AuthError(
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_SAME_OFFICE_INVALID",
+                "Cross-office staffing requires the employee Office to differ from the target project Office.",
+                400,
+            )
+        assignment_start_date = _parse_iso_date(
+            payload.get("assignment_start_date"),
+            code="CROSS_OFFICE_PROJECT_ASSIGNMENT_START_REQUIRED",
+            message="assignment_start_date must be a valid ISO date.",
+        )
+        assignment_end_date = _parse_optional_iso_date(
+            payload.get("assignment_end_date"),
+            code="CROSS_OFFICE_PROJECT_ASSIGNMENT_END_INVALID",
+            message="assignment_end_date must be a valid ISO date.",
+        )
+        status = _ref_value(
+            "PROJECT_ASSIGNMENT_STATUS",
+            str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE",
+        )
+        ProjectAssignmentManagementService._validate_assignment_dates(
+            project=project,
+            assignment_start_date=assignment_start_date,
+            assignment_end_date=assignment_end_date,
+        )
+        if status.value_code == "ACTIVE":
+            _validate_cross_office_staffing_overlap(
+                project=project,
+                employee=employee,
+                assignment_start_date=assignment_start_date,
+                assignment_end_date=assignment_end_date,
+            )
+        try:
+            assignment = CrossOfficeProjectAssignment.objects.create(
+                project=project,
+                employee=employee,
+                origin_office=employee.office,
+                origin_business_unit=employee.primary_business_unit,
+                assignment_start_date=assignment_start_date,
+                assignment_end_date=assignment_end_date,
+                justification_text=str(payload.get("justification_text", "")).strip(),
+                status=status,
+                created_by=current_user.email,
+                updated_by=current_user.email,
+            )
+        except IntegrityError as exc:
+            raise AuthError(
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_NOT_UNIQUE",
+                (
+                    "Cross-office staffing start date must be unique for the "
+                    "employee within the project."
+                ),
+                400,
+            ) from exc
+        write_audit_event(
+            action_code="CREATE",
+            entity_name="cross_office_project_assignment",
+            entity_id=assignment.id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=project.business_unit,
+            reason_text="Cross-office staffing created by authorized project administration.",
+        )
+        return _serialize_cross_office_project_assignment(
+            CrossOfficeProjectAssignmentManagementService._refresh_assignment(assignment.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def update_assignment(current_user: CurrentUser, assignment_id: int, payload: dict) -> dict:
+        _ensure_ts_admin_or_project_assignment_manager(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        assignment = CrossOfficeProjectAssignmentManagementService._get_scoped_assignment(
+            current_user,
+            assignment_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            assignment.project.office,
+            out_of_scope_message="Cross-office staffing is outside your active office.",
+        )
+        immutable_checks = [
+            (
+                "project_id",
+                assignment.project_id,
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_PROJECT_IMMUTABLE",
+                "Cross-office staffing project cannot be changed.",
+                "project_id must be a valid project identifier.",
+            ),
+            (
+                "employee_id",
+                assignment.employee_id,
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_EMPLOYEE_IMMUTABLE",
+                "Cross-office staffing employee cannot be changed.",
+                "employee_id must be a valid employee identifier.",
+            ),
+            (
+                "origin_office_id",
+                assignment.origin_office_id,
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_ORIGIN_OFFICE_IMMUTABLE",
+                "Cross-office staffing origin Office cannot be changed.",
+                "origin_office_id must be a valid Office identifier.",
+            ),
+            (
+                "origin_business_unit_id",
+                assignment.origin_business_unit_id,
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_ORIGIN_BU_IMMUTABLE",
+                "Cross-office staffing origin Business Unit cannot be changed.",
+                "origin_business_unit_id must be a valid Business Unit identifier.",
+            ),
+        ]
+        for field_name, expected_id, error_code, message, parse_message in immutable_checks:
+            if (
+                field_name in payload
+                and _parse_required_int(
+                    payload.get(field_name),
+                    code=error_code,
+                    message=parse_message,
+                )
+                != expected_id
+            ):
+                raise AuthError(error_code, message, 400)
+        proposed_start_date = assignment.assignment_start_date
+        proposed_end_date = assignment.assignment_end_date
+        if "assignment_start_date" in payload:
+            proposed_start_date = _parse_iso_date(
+                payload.get("assignment_start_date"),
+                code="CROSS_OFFICE_PROJECT_ASSIGNMENT_START_REQUIRED",
+                message="assignment_start_date must be a valid ISO date.",
+            )
+        if "assignment_end_date" in payload:
+            proposed_end_date = _parse_optional_iso_date(
+                payload.get("assignment_end_date"),
+                code="CROSS_OFFICE_PROJECT_ASSIGNMENT_END_INVALID",
+                message="assignment_end_date must be a valid ISO date.",
+            )
+        proposed_status = assignment.status
+        if "status_code" in payload:
+            proposed_status = _ref_value(
+                "PROJECT_ASSIGNMENT_STATUS",
+                str(payload.get("status_code", "")).strip(),
+            )
+        ProjectAssignmentManagementService._validate_assignment_dates(
+            project=assignment.project,
+            assignment_start_date=proposed_start_date,
+            assignment_end_date=proposed_end_date,
+        )
+        if proposed_status.value_code == "ACTIVE":
+            _validate_cross_office_staffing_overlap(
+                project=assignment.project,
+                employee=assignment.employee,
+                assignment_start_date=proposed_start_date,
+                assignment_end_date=proposed_end_date,
+                exclude_cross_office_assignment_id=assignment.id,
+            )
+        changed_fields: list[tuple[str, str, str]] = []
+        if proposed_start_date != assignment.assignment_start_date:
+            changed_fields.append(
+                (
+                    "assignment_start_date",
+                    assignment.assignment_start_date.isoformat(),
+                    proposed_start_date.isoformat(),
+                )
+            )
+            assignment.assignment_start_date = proposed_start_date
+        if proposed_end_date != assignment.assignment_end_date:
+            changed_fields.append(
+                (
+                    "assignment_end_date",
+                    assignment.assignment_end_date.isoformat()
+                    if assignment.assignment_end_date
+                    else "",
+                    proposed_end_date.isoformat() if proposed_end_date else "",
+                )
+            )
+            assignment.assignment_end_date = proposed_end_date
+        if "justification_text" in payload:
+            proposed_justification = str(payload.get("justification_text", "")).strip()
+            if proposed_justification != assignment.justification_text:
+                changed_fields.append(
+                    (
+                        "justification_text",
+                        assignment.justification_text,
+                        proposed_justification,
+                    )
+                )
+                assignment.justification_text = proposed_justification
+        if proposed_status.id != assignment.status_id:
+            changed_fields.append(("status", assignment.status.value_code, proposed_status.value_code))
+            assignment.status = proposed_status
+        if changed_fields:
+            try:
+                assignment.updated_by = current_user.email
+                assignment.save()
+            except IntegrityError as exc:
+                raise AuthError(
+                    "CROSS_OFFICE_PROJECT_ASSIGNMENT_NOT_UNIQUE",
+                    (
+                        "Cross-office staffing start date must be unique for the "
+                        "employee within the project."
+                    ),
+                    400,
+                ) from exc
+        for field_name, old_value, new_value in changed_fields:
+            write_audit_event(
+                action_code="UPDATE",
+                entity_name="cross_office_project_assignment",
+                entity_id=assignment.id,
+                actor_employee=actor_employee,
+                actor_email=current_user.email,
+                business_unit=assignment.project.business_unit,
+                field_name=field_name,
+                old_value=old_value,
+                new_value=new_value,
+                reason_text="Cross-office staffing updated by authorized project administration.",
+            )
+        return _serialize_cross_office_project_assignment(
+            CrossOfficeProjectAssignmentManagementService._refresh_assignment(assignment.id)
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def delete_assignment(current_user: CurrentUser, assignment_id: int) -> None:
+        _ensure_ts_admin_or_project_assignment_manager(current_user)
+        _ensure_current_office_active_for_write(current_user)
+        actor_employee = _actor_employee(current_user)
+        assignment = CrossOfficeProjectAssignmentManagementService._get_scoped_assignment(
+            current_user,
+            assignment_id,
+        )
+        _ensure_scoped_active_office_for_write(
+            current_user,
+            assignment.project.office,
+            out_of_scope_message="Cross-office staffing is outside your active office.",
+        )
+        try:
+            assignment_record_id = assignment.id
+            assignment_label = (
+                f"{assignment.project.project_code}:{assignment.employee.employee_code}:"
+                f"{assignment.assignment_start_date.isoformat()}"
+            )
+            business_unit = assignment.project.business_unit
+            assignment.delete()
+        except ProtectedError as exc:
+            raise AuthError(
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_DELETE_BLOCKED",
+                "Cross-office staffing cannot be deleted because it is still referenced by other records.",
+                400,
+            ) from exc
+        write_audit_event(
+            action_code="DELETE",
+            entity_name="cross_office_project_assignment",
+            entity_id=assignment_record_id,
+            actor_employee=actor_employee,
+            actor_email=current_user.email,
+            business_unit=business_unit,
+            old_value=assignment_label,
+            reason_text="Cross-office staffing deleted by authorized project administration.",
+        )
+
+    @staticmethod
+    def _get_scoped_assignment(
+        current_user: CurrentUser,
+        assignment_id: int,
+    ) -> CrossOfficeProjectAssignment:
+        try:
+            assignment = CrossOfficeProjectAssignment.objects.select_related(
+                "project",
+                "project__office",
+                "project__business_unit",
+                "project__client",
+                "employee",
+                "employee__office",
+                "employee__primary_business_unit",
+                "origin_office",
+                "origin_business_unit",
+                "status",
+            ).get(id=assignment_id)
+        except CrossOfficeProjectAssignment.DoesNotExist as exc:
+            raise AuthError(
+                "CROSS_OFFICE_PROJECT_ASSIGNMENT_NOT_FOUND",
+                "Cross-office staffing not found.",
+                404,
+            ) from exc
+        _ensure_business_units_in_scope(current_user, {assignment.project.business_unit_id})
+        _ensure_office_in_scope(
+            current_user,
+            assignment.project.office_id,
+            message="Cross-office staffing is outside your active office.",
+        )
+        if current_user.is_ts_admin:
+            return assignment
+        if (
+            current_user.has_role("PROJECT_OWNER")
+            and assignment.project.project_owner_employee_id == current_user.employee_id
+        ):
+            return assignment
+        if (
+            current_user.has_role("PROJECT_MANAGER")
+            and assignment.project.project_manager_employee_id == current_user.employee_id
+        ):
+            return assignment
+        raise AuthError(
+            "AUTH_ACCESS_DENIED",
+            "Cross-office staffing is outside your owned or managed project scope.",
+            403,
+        )
+
+    @staticmethod
+    def _refresh_assignment(assignment_id: int) -> CrossOfficeProjectAssignment:
+        return CrossOfficeProjectAssignment.objects.select_related(
+            "project",
+            "project__office",
+            "project__business_unit",
+            "project__client",
+            "employee",
+            "employee__office",
+            "employee__primary_business_unit",
+            "origin_office",
+            "origin_business_unit",
             "status",
         ).get(id=assignment_id)

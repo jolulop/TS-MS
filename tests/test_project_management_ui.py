@@ -8,6 +8,7 @@ from apps.master_data.models import Employee
 from apps.timesheets.models import ApprovalItem, WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
+    assign_cross_office_project,
     assign_employee_to_business_unit,
     assign_project,
     assign_role,
@@ -18,6 +19,7 @@ from tests.helpers import (
     create_cost_center,
     create_employee,
     create_internal_category,
+    create_office,
     create_project,
     create_yearly_calendar,
     initialize_ui_session,
@@ -266,6 +268,45 @@ def test_ts_admin_project_management_links_to_project_and_approval_worklist(monk
     content = response.content.decode()
     assert '<a href="/system/projects/%d/">Project Mgmt Project</a>' % context["project"].id in content
     assert 'href="/approvals/?project_id=%d">1</a>' % context["project"].id in content
+
+
+@pytest.mark.django_db
+def test_project_management_missing_timesheets_include_cross_office_staffing(monkeypatch) -> None:
+    monkeypatch.setattr("apps.core.ts_views._current_monday", lambda today=None: date(2026, 5, 11))
+    context = _build_project_management_context()
+    foreign_office = create_office(office_name="Project Mgmt Foreign Office")
+    foreign_business_unit = create_business_unit(
+        bu_code="BU-PRJ-MGMT-FGN",
+        name="Project Mgmt Foreign BU",
+        office=foreign_office,
+    )
+    foreign_employee = create_employee(
+        employee_code="EMP-PRJ-MGMT-FGN",
+        full_name="Project Mgmt Foreign Employee",
+        email="project-mgmt-foreign@example.com",
+        primary_business_unit=foreign_business_unit,
+    )
+    assign_calendar(employee=foreign_employee, yearly_calendar=context["project_owner"].assigned_calendar)
+    assign_employee_to_business_unit(
+        employee=foreign_employee,
+        business_unit=foreign_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=foreign_employee, role_code="USER")
+    Employee.objects.filter(id=foreign_employee.id).update(
+        created_at=datetime(2026, 5, 11, tzinfo=UTC)
+    )
+    assign_cross_office_project(
+        project=context["project"],
+        employee=foreign_employee,
+        assignment_start_date=date(2026, 5, 11),
+    )
+
+    response = context["owner_client"].get("/ts/projects/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert 'href="/reports/missing-timesheets/?project_ids=%d">2</a>' % context["project"].id in content
 
 
 @pytest.mark.django_db

@@ -2,6 +2,21 @@
 
 ## Active Plans
 
+- `2026-05-22`: `docs/plans/2026-05-22-cross-office-staffing-phase-3-implementation.md`
+  - status: completed
+  - focus: move project approval oversight for `TS_ADMIN` to the target project Office and scoped target Business Unit side while keeping GCC approval oversight on the home-BU side
+- `2026-05-22`: `docs/plans/2026-05-22-cross-office-staffing-phase-2-implementation.md`
+  - status: completed
+  - focus: treat cross-office staffing as valid project staffing for timesheet eligibility, Project Management summaries, and project-facing report behavior
+- `2026-05-22`: `docs/plans/2026-05-22-cross-office-staffing-phase-0-spec-update-list.md`
+  - status: completed
+  - focus: convert the cross-office staffing blueprint into concrete v6.0 source-of-truth doc updates before implementation
+- `2026-05-22`: `docs/plans/2026-05-22-docs-v6.0-promotion.md`
+  - status: completed
+  - focus: publish the v6.0 markdown source-of-truth set and repoint repo guidance away from the v5.9.x baseline
+- `2026-05-21`: `docs/plans/2026-05-21-cross-office-project-assignment-options.md`
+  - status: completed
+  - focus: compare design options for enabling cross-office project staffing and choose the dedicated model path
 - `2026-05-21`: `docs/plans/2026-05-21-docs-v5.9.5-promotion.md`
   - status: completed
   - focus: publish the v5.9.5 markdown source-of-truth set and capture the latest employee, client, project, and project-assignment UI refinements
@@ -122,7 +137,7 @@
 
 Historical note:
 - completed plan files intentionally preserve the source-document references and milestone wording that existed when those plans were written
-- use `AGENTS.md`, this file, and the v5.9.5 markdown spec set for current implementation work
+- use `AGENTS.md`, this file, and the v6.0 markdown spec set for current implementation work
 
 ## Purpose
 

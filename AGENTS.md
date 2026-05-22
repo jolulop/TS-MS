@@ -10,17 +10,17 @@ Treat this file as the repository-level implementation guide for the current Dja
 
 Use these documents first when implementing or updating behavior:
 
-1. `docs/specification-index-v5.9.5.md`
-2. `docs/functional-spec-v5.9.5.md`
-3. `docs/use-cases-acceptance-v5.9.5.md`
-4. `docs/data-model-erd-v5.9.5.md`
-5. `docs/authorization-matrix-v5.9.5.md`
-6. `docs/ui-screen-spec-v5.9.5.md`
-7. `docs/integration-api-spec-v5.9.5.md`
-8. `docs/business-rules-catalog-v5.9.5.md`
-9. `docs/non-functional-requirements-v5.9.5.md`
+1. `docs/specification-index-v6.0.md`
+2. `docs/functional-spec-v6.0.md`
+3. `docs/use-cases-acceptance-v6.0.md`
+4. `docs/data-model-erd-v6.0.md`
+5. `docs/authorization-matrix-v6.0.md`
+6. `docs/ui-screen-spec-v6.0.md`
+7. `docs/integration-api-spec-v6.0.md`
+8. `docs/business-rules-catalog-v6.0.md`
+9. `docs/non-functional-requirements-v6.0.md`
 
-Legacy `v5.2`, `v5.4`, `v5.5`, `v5.6`, `v5.7`, `v5.8`, `v5.9`, `v5.9.1`, `v5.9.2`, and `v5.9.3` markdown notes in `docs/` are historical only and are not the current implementation source of truth.
+Legacy `v5.2`, `v5.4`, `v5.5`, `v5.6`, `v5.7`, `v5.8`, `v5.9`, `v5.9.1`, `v5.9.2`, `v5.9.3`, and `v5.9.5` markdown notes in `docs/` are historical only and are not the current implementation source of truth.
 
 If code and docs conflict, do not silently guess. Prefer the newest approved spec doc, then align code to it.
 
@@ -36,6 +36,7 @@ Core business themes:
 - weekly Monday-starting timesheets
 - optional configured weekend chargeability by Business Unit calendar period rule
 - employee, project, and general charge-code time charging
+- cross-office project staffing with employee home-office calendar and GCC behavior
 - internal role-based authorization after external email validation
 - Office context plus Business Unit scoped administration
 - approval workflows
@@ -66,7 +67,7 @@ Core business themes:
 - Weekend entry is blocked by default.
 - Weekend entry is allowed only when the effective Business Unit calendar period rule enables Saturday and/or Sunday and no active Special Day overrides that date.
 - Employees can charge only to:
-  - active assigned projects for the work date, or
+  - active assigned projects for the work date, including valid cross-office staffing, or
   - valid general charge codes for the work date.
 - Daily hour limits come from the effective calendar period rule.
 - Approved timesheets are locked.

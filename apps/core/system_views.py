@@ -28,6 +28,7 @@ from apps.master_data.services import (
     CalendarPeriodRuleManagementService,
     CalendarSpecialDayManagementService,
     ClientManagementService,
+    CrossOfficeProjectAssignmentManagementService,
     CostCenterManagementService,
     CountryManagementService,
     EmployeeManagementService,
@@ -137,6 +138,11 @@ def _system_section_links(current_user: CurrentUser, current_path: str) -> list[
                 ("clients", "Clients", "/system/clients/"),
                 ("projects", "Projects", "/system/projects/"),
                 ("project-assignments", "Project Assignments", "/system/project-assignments/"),
+                (
+                    "cross-office-staffing",
+                    "Cross-Office Staffing",
+                    "/system/cross-office-staffing/",
+                ),
                 ("internal-categories", "Internal Categories", "/system/internal-categories/"),
                 ("cost-centers", "Cost Centers", "/system/cost-centers/"),
                 ("pricing-models", "Pricing Models", "/system/pricing-models/"),
@@ -164,11 +170,23 @@ def _system_section_links(current_user: CurrentUser, current_path: str) -> list[
             [
                 ("projects", "Projects", "/system/projects/"),
                 ("project-assignments", "Project Assignments", "/system/project-assignments/"),
+                (
+                    "cross-office-staffing",
+                    "Cross-Office Staffing",
+                    "/system/cross-office-staffing/",
+                ),
             ]
         )
     elif current_user.has_role("PROJECT_MANAGER"):
         sections.extend(
-            [("project-assignments", "Project Assignments", "/system/project-assignments/")]
+            [
+                ("project-assignments", "Project Assignments", "/system/project-assignments/"),
+                (
+                    "cross-office-staffing",
+                    "Cross-Office Staffing",
+                    "/system/cross-office-staffing/",
+                ),
+            ]
         )
     links = []
     for key, label, href in sections:
@@ -2138,6 +2156,248 @@ def _project_assignment_fields(
     ]
 
 
+def _cross_office_employee_options(
+    current_user: CurrentUser,
+    *,
+    selected: object = None,
+    include_blank: bool = False,
+    origin_office_id: int | None = None,
+) -> list[dict]:
+    selected_values = _selected_values(selected)
+    options = []
+    if include_blank:
+        options.append(_option("", "Select an Employee", selected_values=selected_values))
+    employees = Employee.objects.select_related("office", "primary_business_unit").filter(
+        status__value_code="ACTIVE"
+    )
+    employees = employees.exclude(office_id=current_user.office_id)
+    if origin_office_id is not None:
+        employees = employees.filter(office_id=origin_office_id)
+    employees = employees.order_by("office__office_name", "primary_business_unit__bu_code", "employee_code")
+    options.extend(
+        _option(
+            employee.id,
+            (
+                f"{employee.office.office_name} / {employee.primary_business_unit.bu_code} - "
+                f"{employee.employee_code} - {employee.full_name}"
+            ),
+            selected_values=selected_values,
+        )
+        for employee in employees
+    )
+    return options
+
+
+def _selected_cross_office_staffing_project(
+    current_user: CurrentUser,
+    project_id: object,
+) -> Project | None:
+    if not str(project_id).isdigit():
+        return None
+    try:
+        return ProjectAssignmentManagementService._get_scoped_project_for_assignment_management(
+            current_user,
+            int(str(project_id)),
+        )
+    except AuthError:
+        return None
+
+
+def _selected_cross_office_staffing_employee(
+    current_user: CurrentUser,
+    employee_id: object,
+) -> Employee | None:
+    if not str(employee_id).isdigit():
+        return None
+    try:
+        employee = Employee.objects.select_related("office", "primary_business_unit", "status").get(
+            id=int(str(employee_id))
+        )
+    except Employee.DoesNotExist:
+        return None
+    if employee.office_id == current_user.office_id:
+        return None
+    return employee
+
+
+def _cross_office_staffing_fields(
+    current_user: CurrentUser,
+    *,
+    post_data: QueryDict | None = None,
+    entity: dict | None = None,
+) -> list[dict]:
+    submitted_data = post_data or QueryDict("")
+    selected_project_id = (
+        submitted_data.get("project_id", entity["project"]["id"] if entity else "")
+        if post_data is not None or entity is not None
+        else ""
+    )
+    selected_origin_office_id = (
+        submitted_data.get("origin_office_id", entity["origin_office"]["id"] if entity else "")
+        if post_data is not None or entity is not None
+        else ""
+    )
+    selected_employee_id = (
+        submitted_data.get("employee_id", entity["employee"]["id"] if entity else "")
+        if post_data is not None or entity is not None
+        else ""
+    )
+    selected_project = (
+        _selected_cross_office_staffing_project(current_user, selected_project_id)
+        if entity is None
+        else None
+    )
+    selected_employee = (
+        _selected_cross_office_staffing_employee(current_user, selected_employee_id)
+        if entity is None
+        else None
+    )
+    target_office_label = (
+        entity["project"]["office"]["office_name"]
+        if entity is not None
+        else selected_project.office.office_name
+        if selected_project is not None
+        else ""
+    )
+    target_business_unit_label = (
+        f"{entity['project']['business_unit']['bu_code']} - {entity['project']['business_unit']['name']}"
+        if entity is not None
+        else f"{selected_project.business_unit.bu_code} - {selected_project.business_unit.name}"
+        if selected_project is not None
+        else ""
+    )
+    origin_business_unit_label = (
+        (
+            f"{entity['origin_business_unit']['bu_code']} - "
+            f"{entity['origin_business_unit']['name']}"
+        )
+        if entity is not None
+        else (
+            f"{selected_employee.primary_business_unit.bu_code} - "
+            f"{selected_employee.primary_business_unit.name}"
+        )
+        if selected_employee is not None
+        else ""
+    )
+    normalized_origin_office_id = (
+        int(selected_origin_office_id) if str(selected_origin_office_id).isdigit() else None
+    )
+    immutable = entity is not None
+    return [
+        _field(
+            name="project_id",
+            label="Project",
+            kind="select",
+            options=_scoped_project_options(
+                current_user,
+                selected=selected_project_id,
+                include_blank=entity is None,
+                active_only=True,
+            ),
+            required=True,
+            disabled=immutable,
+        ),
+        _field(
+            name="target_office_name",
+            label="Target Office",
+            kind="text",
+            value=target_office_label,
+            readonly=True,
+            disabled=True,
+        ),
+        _field(
+            name="target_business_unit_name",
+            label="Target BU",
+            kind="text",
+            value=target_business_unit_label,
+            readonly=True,
+            disabled=True,
+        ),
+        _field(
+            name="origin_office_id",
+            label="Origin Office",
+            kind="select",
+            options=_active_office_options(
+                selected=selected_origin_office_id,
+                include_blank=entity is None,
+                exclude_office_id=current_user.office_id,
+            ),
+            required=True,
+            disabled=immutable,
+        ),
+        _field(
+            name="employee_id",
+            label="Employee",
+            kind="select",
+            options=_cross_office_employee_options(
+                current_user,
+                selected=selected_employee_id,
+                include_blank=entity is None,
+                origin_office_id=normalized_origin_office_id,
+            ),
+            required=True,
+            disabled=immutable,
+        ),
+        _field(
+            name="origin_business_unit_name",
+            label="Origin BU",
+            kind="text",
+            value=origin_business_unit_label,
+            readonly=True,
+            disabled=True,
+        ),
+        _field(
+            name="assignment_start_date",
+            label="Assignment Start Date",
+            kind="date",
+            value=submitted_data.get(
+                "assignment_start_date",
+                entity["assignment_start_date"] if entity else "",
+            )
+            if post_data is not None or entity is not None
+            else "",
+            required=True,
+        ),
+        _field(
+            name="assignment_end_date",
+            label="Assignment End Date",
+            kind="date",
+            value=submitted_data.get(
+                "assignment_end_date",
+                entity["assignment_end_date"] if entity and entity["assignment_end_date"] else "",
+            )
+            if post_data is not None or entity is not None
+            else "",
+        ),
+        _field(
+            name="justification_text",
+            label="Justification",
+            kind="textarea",
+            value=submitted_data.get(
+                "justification_text",
+                entity["justification_text"] if entity else "",
+            )
+            if post_data is not None or entity is not None
+            else "",
+        ),
+        _field(
+            name="status_code",
+            label="Status",
+            kind="select",
+            options=_ref_options(
+                "PROJECT_ASSIGNMENT_STATUS",
+                selected=submitted_data.get(
+                    "status_code",
+                    entity["status"] if entity else "ACTIVE",
+                )
+                if post_data is not None or entity is not None
+                else "ACTIVE",
+            ),
+            required=True,
+        ),
+    ]
+
+
 def _project_assignment_filter_fields(
     current_user: CurrentUser,
     *,
@@ -2171,6 +2431,74 @@ def _project_assignment_filter_fields(
                 include_blank=True,
                 client_id=normalized_client_id,
                 active_only=True,
+            ),
+        ),
+    ]
+
+
+def _cross_office_staffing_filter_fields(
+    current_user: CurrentUser,
+    *,
+    selected_status_code: str,
+    selected_target_office_id: object = "",
+    selected_client_id: object = "",
+    selected_project_id: object = "",
+    selected_origin_office_id: object = "",
+    selected_employee_id: object = "",
+) -> list[dict]:
+    normalized_client_id = (
+        int(str(selected_client_id)) if str(selected_client_id).isdigit() else None
+    )
+    normalized_origin_office_id = (
+        int(str(selected_origin_office_id))
+        if str(selected_origin_office_id).isdigit()
+        else None
+    )
+    return [
+        _field(name="status", label="", kind="hidden", value=selected_status_code),
+        _field(name="target_office_id", label="", kind="hidden", value=selected_target_office_id),
+        _field(
+            name="client_id",
+            label="Client",
+            kind="select",
+            options=_scoped_client_options(
+                current_user,
+                selected=selected_client_id,
+                include_blank=True,
+                active_only=True,
+            ),
+        ),
+        _field(
+            name="project_id",
+            label="Project",
+            kind="select",
+            options=_scoped_project_options(
+                current_user,
+                selected=selected_project_id,
+                include_blank=True,
+                client_id=normalized_client_id,
+                active_only=True,
+            ),
+        ),
+        _field(
+            name="origin_office_id",
+            label="Origin Office",
+            kind="select",
+            options=_active_office_options(
+                selected=selected_origin_office_id,
+                include_blank=True,
+                exclude_office_id=current_user.office_id,
+            ),
+        ),
+        _field(
+            name="employee_id",
+            label="Employee",
+            kind="select",
+            options=_cross_office_employee_options(
+                current_user,
+                selected=selected_employee_id,
+                include_blank=True,
+                origin_office_id=normalized_origin_office_id,
             ),
         ),
     ]
@@ -3250,6 +3578,61 @@ def _project_assignment_detail_rows(assignment: dict) -> list[tuple[str, str]]:
     ]
 
 
+def _cross_office_staffing_rows(assignments: list[dict]) -> list[dict]:
+    return [
+        {
+            "href": f"/system/cross-office-staffing/{assignment['id']}/",
+            "cells": [
+                assignment["project"]["office"]["office_name"],
+                assignment["project"]["business_unit"]["bu_code"],
+                assignment["project"]["client"]["name"],
+                assignment["project"]["project_code"],
+                assignment["origin_office"]["office_name"],
+                assignment["origin_business_unit"]["bu_code"],
+                (
+                    f"{assignment['employee']['employee_code']} - "
+                    f"{assignment['employee']['full_name']}"
+                ),
+                assignment["assignment_start_date"],
+                assignment["assignment_end_date"] or "Open-ended",
+                assignment["status"],
+            ],
+        }
+        for assignment in assignments
+    ]
+
+
+def _cross_office_staffing_detail_rows(assignment: dict) -> list[tuple[str, str]]:
+    return [
+        ("Target Office", assignment["project"]["office"]["office_name"]),
+        (
+            "Target Business Unit",
+            (
+                f"{assignment['project']['business_unit']['bu_code']} - "
+                f"{assignment['project']['business_unit']['name']}"
+            ),
+        ),
+        ("Client", assignment["project"]["client"]["client_code"]),
+        ("Project", assignment["project"]["project_code"]),
+        ("Origin Office", assignment["origin_office"]["office_name"]),
+        (
+            "Origin Business Unit",
+            (
+                f"{assignment['origin_business_unit']['bu_code']} - "
+                f"{assignment['origin_business_unit']['name']}"
+            ),
+        ),
+        (
+            "Employee",
+            f"{assignment['employee']['employee_code']} - {assignment['employee']['full_name']}",
+        ),
+        ("Assignment Start Date", assignment["assignment_start_date"]),
+        ("Assignment End Date", assignment["assignment_end_date"] or "Open-ended"),
+        ("Justification", assignment["justification_text"] or "None"),
+        ("Status", assignment["status"]),
+    ]
+
+
 def _calendar_period_rule_rows(period_rules: list[dict]) -> list[dict]:
     return [
         {
@@ -3997,7 +4380,7 @@ PROJECT_ASSIGNMENT_CONFIG = MasterUiConfig(
     list_eyebrow="SCR-190",
     list_intro="Scoped project assignment list with lifecycle-aware create and update flows.",
     detail_title="Project Assignment Detail",
-    detail_eyebrow="SCR-191",
+    detail_eyebrow="SCR-190",
     detail_intro="Update assignment window and active/inactive lifecycle fields.",
     singular_label="Project Assignment",
     plural_label="Project Assignments",
@@ -4005,6 +4388,33 @@ PROJECT_ASSIGNMENT_CONFIG = MasterUiConfig(
     detail_path_prefix="/system/project-assignments/",
     table_headers=("Client", "Project", "Project Name", "Employee", "Start", "End", "Status"),
     empty_message="No project assignments are available in your assigned Business Units yet.",
+)
+
+CROSS_OFFICE_STAFFING_CONFIG = MasterUiConfig(
+    section_key="cross-office-staffing",
+    list_title="Cross-Office Staffing Management",
+    list_eyebrow="SCR-191",
+    list_intro="Scoped cross-office staffing list with lifecycle-aware create and update flows.",
+    detail_title="Cross-Office Staffing Detail",
+    detail_eyebrow="SCR-191",
+    detail_intro="Update staffing window, justification, and active/inactive lifecycle fields.",
+    singular_label="Cross-Office Staffing",
+    plural_label="Cross-Office Staffing",
+    collection_path="/system/cross-office-staffing/",
+    detail_path_prefix="/system/cross-office-staffing/",
+    table_headers=(
+        "Target Office",
+        "Target BU",
+        "Client",
+        "Project",
+        "Origin Office",
+        "Origin BU",
+        "Employee",
+        "Start",
+        "End",
+        "Status",
+    ),
+    empty_message="No cross-office staffing records are available in your current project scope.",
 )
 
 YEARLY_CALENDAR_CONFIG = MasterUiConfig(
@@ -6675,6 +7085,230 @@ def project_assignment_detail(request: HttpRequest, assignment_id: int) -> HttpR
         extra_form_sections=[
             _delete_action_section(
                 submit_label="Delete Project Assignment",
+                form_error=form_error if active_form == "delete" else "",
+            )
+        ],
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def cross_office_staffing_collection(request: HttpRequest) -> HttpResponse:
+    current_user = _require_project_assignment_system_manager(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            assignment = CrossOfficeProjectAssignmentManagementService.create_assignment(
+                current_user,
+                {
+                    "project_id": request.POST.get("project_id", ""),
+                    "origin_office_id": request.POST.get("origin_office_id", ""),
+                    "employee_id": request.POST.get("employee_id", ""),
+                    "assignment_start_date": request.POST.get("assignment_start_date", ""),
+                    "assignment_end_date": request.POST.get("assignment_end_date", ""),
+                    "justification_text": request.POST.get("justification_text", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/cross-office-staffing/{assignment['id']}/")
+
+    selected_status_code, filter_links = _status_filter_links(
+        request,
+        domain_code="PROJECT_ASSIGNMENT_STATUS",
+        default_code="ACTIVE",
+    )
+    selected_target_office_id = str(current_user.office_id)
+    selected_client_id = request.GET.get("client_id", "").strip()
+    selected_origin_office_id = request.GET.get("origin_office_id", "").strip()
+    valid_origin_office_values = {
+        str(option["value"])
+        for option in _active_office_options(
+            include_blank=True,
+            exclude_office_id=current_user.office_id,
+        )
+        if option["value"] != ""
+    }
+    if selected_origin_office_id and selected_origin_office_id not in valid_origin_office_values:
+        selected_origin_office_id = ""
+    normalized_client_id = int(selected_client_id) if selected_client_id.isdigit() else None
+    selected_project_id = request.GET.get("project_id", "").strip()
+    project_options = _scoped_project_options(
+        current_user,
+        selected=selected_project_id,
+        include_blank=True,
+        client_id=normalized_client_id,
+        active_only=True,
+    )
+    valid_project_values = {
+        str(option["value"]) for option in project_options if option["value"] != ""
+    }
+    if selected_project_id and selected_project_id not in valid_project_values:
+        selected_project_id = ""
+    normalized_origin_office_id = (
+        int(selected_origin_office_id) if selected_origin_office_id.isdigit() else None
+    )
+    selected_employee_id = request.GET.get("employee_id", "").strip()
+    employee_options = _cross_office_employee_options(
+        current_user,
+        selected=selected_employee_id,
+        include_blank=True,
+        origin_office_id=normalized_origin_office_id,
+    )
+    valid_employee_values = {
+        str(option["value"]) for option in employee_options if option["value"] != ""
+    }
+    if selected_employee_id and selected_employee_id not in valid_employee_values:
+        selected_employee_id = ""
+
+    assignments = CrossOfficeProjectAssignmentManagementService.list_assignments(
+        current_user,
+        status_code=_service_status_code(selected_status_code),
+        target_office_id=selected_target_office_id,
+        client_id=selected_client_id or None,
+        project_id=selected_project_id or None,
+        origin_office_id=selected_origin_office_id or None,
+        employee_id=selected_employee_id or None,
+    )
+    return _render_master_collection(
+        request,
+        current_user,
+        config=CROSS_OFFICE_STAFFING_CONFIG,
+        entities=assignments,
+        form_fields=_cross_office_staffing_fields(current_user, post_data=post_data),
+        table_rows=_cross_office_staffing_rows(assignments),
+        form_error=form_error,
+        filter_links=filter_links,
+        filter_form_fields=_cross_office_staffing_filter_fields(
+            current_user,
+            selected_status_code=selected_status_code,
+            selected_target_office_id=selected_target_office_id,
+            selected_client_id=selected_client_id,
+            selected_project_id=selected_project_id,
+            selected_origin_office_id=selected_origin_office_id,
+            selected_employee_id=selected_employee_id,
+        ),
+        filter_form_reset_pairs=[
+            {"source_id": "client_id", "target_id": "project_id"},
+            {"source_id": "origin_office_id", "target_id": "employee_id"},
+        ],
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def cross_office_staffing_create(request: HttpRequest) -> HttpResponse:
+    current_user = _require_project_assignment_system_manager(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        try:
+            assignment = CrossOfficeProjectAssignmentManagementService.create_assignment(
+                current_user,
+                {
+                    "project_id": request.POST.get("project_id", ""),
+                    "origin_office_id": request.POST.get("origin_office_id", ""),
+                    "employee_id": request.POST.get("employee_id", ""),
+                    "assignment_start_date": request.POST.get("assignment_start_date", ""),
+                    "assignment_end_date": request.POST.get("assignment_end_date", ""),
+                    "justification_text": request.POST.get("justification_text", ""),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
+            )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            return redirect(f"/system/cross-office-staffing/{assignment['id']}/")
+
+    return _render_master_create(
+        request,
+        current_user,
+        config=CROSS_OFFICE_STAFFING_CONFIG,
+        form_fields=_cross_office_staffing_fields(current_user, post_data=post_data),
+        form_error=form_error,
+        form_intro="Create a new Cross-Office Staffing record in your current target-project scope.",
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def cross_office_staffing_detail(request: HttpRequest, assignment_id: int) -> HttpResponse:
+    current_user = _require_project_assignment_system_manager(request)
+    if not isinstance(current_user, CurrentUser):
+        return current_user
+
+    active_form = "edit"
+    form_error = ""
+    post_data = request.POST if request.method == "POST" else None
+    if request.method == "POST":
+        active_form = request.POST.get("form_name", "edit")
+        try:
+            if active_form == "delete":
+                CrossOfficeProjectAssignmentManagementService.delete_assignment(
+                    current_user,
+                    assignment_id,
+                )
+            elif active_form == "edit":
+                CrossOfficeProjectAssignmentManagementService.update_assignment(
+                    current_user,
+                    assignment_id,
+                    {
+                        "assignment_start_date": request.POST.get("assignment_start_date", ""),
+                        "assignment_end_date": request.POST.get("assignment_end_date", ""),
+                        "justification_text": request.POST.get("justification_text", ""),
+                        "status_code": request.POST.get("status_code", ""),
+                    },
+                )
+            else:
+                raise AuthError(
+                    "UI_FORM_UNKNOWN",
+                    "Unknown cross-office staffing form submission.",
+                    400,
+                )
+        except AuthError as error:
+            form_error = error.message
+        else:
+            if active_form == "delete":
+                return redirect(CROSS_OFFICE_STAFFING_CONFIG.collection_path)
+            return redirect(f"/system/cross-office-staffing/{assignment_id}/")
+
+    try:
+        assignment = CrossOfficeProjectAssignmentManagementService.get_assignment(
+            current_user,
+            assignment_id,
+        )
+    except AuthError as error:
+        return _render_auth_error(
+            request,
+            current_user,
+            title=CROSS_OFFICE_STAFFING_CONFIG.detail_title,
+            eyebrow=CROSS_OFFICE_STAFFING_CONFIG.detail_eyebrow,
+            intro=CROSS_OFFICE_STAFFING_CONFIG.detail_intro,
+            error=error,
+        )
+
+    return _render_master_detail(
+        request,
+        current_user,
+        config=CROSS_OFFICE_STAFFING_CONFIG,
+        entity=assignment,
+        detail_rows=_cross_office_staffing_detail_rows(assignment),
+        form_fields=_cross_office_staffing_fields(
+            current_user,
+            post_data=post_data if active_form == "edit" else None,
+            entity=assignment,
+        ),
+        form_error=form_error,
+        active_form=active_form,
+        extra_form_sections=[
+            _delete_action_section(
+                submit_label="Delete Cross-Office Staffing",
                 form_error=form_error if active_form == "delete" else "",
             )
         ],

@@ -12,7 +12,8 @@ from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
 from apps.core.reports_views import render_report_view
 from apps.core.views import _page_context, _render_access_denied, _require_user
-from apps.master_data.models import Project, ProjectAssignment
+from apps.master_data.models import Project
+from apps.master_data.staffing import project_staffing_windows
 from apps.timesheets.models import TimesheetLine, WeeklyTimesheet
 from apps.timesheets.services import TimesheetService
 
@@ -201,20 +202,8 @@ def _project_missing_timesheet_counts(project_ids: list[int]) -> dict[int, int]:
     if not project_ids:
         return {}
 
-    assignments = list(
-        ProjectAssignment.objects.select_related("employee", "project")
-        .filter(
-            project_id__in=project_ids,
-            employee__status__value_code="ACTIVE",
-            status__value_code="ACTIVE",
-        )
-        .order_by(
-            "project__project_code",
-            "employee__employee_code",
-            "assignment_start_date",
-        )
-    )
-    if not assignments:
+    staffing_windows = project_staffing_windows(project_ids)
+    if not staffing_windows:
         return {}
 
     current_week_start = _current_monday()
@@ -223,21 +212,21 @@ def _project_missing_timesheet_counts(project_ids: list[int]) -> dict[int, int]:
     global_start: date | None = None
     global_end: date | None = None
 
-    for assignment in assignments:
+    for staffing_window in staffing_windows:
         effective_start = max(
-            assignment.employee.created_at.date(),
-            assignment.assignment_start_date,
-            assignment.project.start_date,
+            staffing_window.employee_created_at.date(),
+            staffing_window.staffing_start_date,
+            staffing_window.project_start_date,
         )
         end_candidates = [current_week_start]
-        if assignment.assignment_end_date is not None:
-            end_candidates.append(assignment.assignment_end_date)
-        if assignment.project.end_date is not None:
-            end_candidates.append(assignment.project.end_date)
-        if assignment.project.close_date is not None:
-            end_candidates.append(assignment.project.close_date)
-        if assignment.employee.employment_end_date is not None:
-            end_candidates.append(assignment.employee.employment_end_date)
+        if staffing_window.staffing_end_date is not None:
+            end_candidates.append(staffing_window.staffing_end_date)
+        if staffing_window.project_end_date is not None:
+            end_candidates.append(staffing_window.project_end_date)
+        if staffing_window.project_close_date is not None:
+            end_candidates.append(staffing_window.project_close_date)
+        if staffing_window.employee_employment_end_date is not None:
+            end_candidates.append(staffing_window.employee_employment_end_date)
         effective_end = min(end_candidates)
 
         first_week_start = _first_monday_on_or_after(effective_start)
@@ -247,13 +236,13 @@ def _project_missing_timesheet_counts(project_ids: list[int]) -> dict[int, int]:
 
         assignment_windows.append(
             (
-                assignment.project_id,
-                assignment.employee_id,
+                staffing_window.project_id,
+                staffing_window.employee_id,
                 first_week_start,
                 last_week_start,
             )
         )
-        employee_ids.add(assignment.employee_id)
+        employee_ids.add(staffing_window.employee_id)
         global_start = (
             first_week_start if global_start is None else min(global_start, first_week_start)
         )

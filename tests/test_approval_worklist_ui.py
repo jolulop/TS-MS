@@ -7,6 +7,7 @@ from django.utils import timezone
 from apps.timesheets.models import ApprovalAction, ApprovalItem, WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
+    assign_cross_office_project,
     assign_employee_to_business_unit,
     assign_project,
     assign_role,
@@ -18,6 +19,7 @@ from tests.helpers import (
     create_employee,
     create_general_charge_code,
     create_internal_category,
+    create_office,
     create_project,
     create_yearly_calendar,
     initialize_ui_session,
@@ -322,6 +324,189 @@ def _build_general_charge_code_approval_ui_clients() -> dict:
     }
 
 
+def _build_cross_office_approval_ui_context() -> dict:
+    seed_reference_data()
+    week_start = date(2026, 5, 4)
+    target_office = create_office(office_name="Approval Target Office")
+    origin_office = create_office(office_name="Approval Origin Office")
+    target_business_unit = create_business_unit(
+        bu_code="BU-APR-TGT",
+        name="Approval Target BU",
+        office=target_office,
+    )
+    origin_business_unit = create_business_unit(
+        bu_code="BU-APR-ORG",
+        name="Approval Origin BU",
+        office=origin_office,
+    )
+    create_business_unit_configuration(
+        business_unit=origin_business_unit,
+        approval_mode_code="PROJECT",
+    )
+    origin_calendar = create_yearly_calendar(
+        business_unit=origin_business_unit,
+        calendar_year=2026,
+        calendar_name="Approval Origin Calendar",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=origin_calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+
+    worker = create_employee(
+        employee_code="EMP-APR-CO-WORKER",
+        full_name="Approval Cross Office Worker",
+        email="approval-cross-office-worker@example.com",
+        primary_business_unit=origin_business_unit,
+    )
+    assign_calendar(employee=worker, yearly_calendar=origin_calendar)
+    assign_employee_to_business_unit(
+        employee=worker,
+        business_unit=origin_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=worker, role_code="USER")
+
+    project_owner = create_employee(
+        employee_code="EMP-APR-CO-OWNER",
+        full_name="Approval Cross Office Owner",
+        email="approval-cross-office-owner@example.com",
+        primary_business_unit=target_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=project_owner,
+        business_unit=target_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_owner, role_code="USER")
+    assign_role(employee=project_owner, role_code="PROJECT_OWNER")
+
+    project_manager = create_employee(
+        employee_code="EMP-APR-CO-PM",
+        full_name="Approval Cross Office PM",
+        email="approval-cross-office-pm@example.com",
+        primary_business_unit=target_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=project_manager,
+        business_unit=target_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_manager, role_code="USER")
+    assign_role(employee=project_manager, role_code="PROJECT_MANAGER")
+
+    target_admin = create_employee(
+        employee_code="EMP-APR-CO-TADM",
+        full_name="Approval Target Admin",
+        email="approval-target-admin@example.com",
+        primary_business_unit=target_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=target_admin,
+        business_unit=target_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=target_admin, role_code="USER")
+    assign_role(employee=target_admin, role_code="TS_ADMIN")
+
+    origin_admin = create_employee(
+        employee_code="EMP-APR-CO-OADM",
+        full_name="Approval Origin Admin",
+        email="approval-origin-admin@example.com",
+        primary_business_unit=origin_business_unit,
+    )
+    assign_calendar(employee=origin_admin, yearly_calendar=origin_calendar)
+    assign_employee_to_business_unit(
+        employee=origin_admin,
+        business_unit=origin_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=origin_admin, role_code="USER")
+    assign_role(employee=origin_admin, role_code="TS_ADMIN")
+
+    client_record = create_client(
+        business_unit=target_business_unit,
+        client_code="CLI-APR-CO",
+        name="Approval Cross Office Client",
+    )
+    internal_category = create_internal_category(
+        business_unit=target_business_unit,
+        category_code="IC-APR-CO",
+        name="Approval Cross Office Category",
+    )
+    cost_center = create_cost_center(
+        business_unit=target_business_unit,
+        cost_center_code="CC-APR-CO",
+        name="Approval Cross Office Cost Center",
+    )
+    project = create_project(
+        business_unit=target_business_unit,
+        project_code="PRJ-APR-CO",
+        name="Approval Cross Office Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=client_record,
+        internal_category=internal_category,
+        cost_center=cost_center,
+        start_date=week_start - timedelta(days=7),
+        billable_flag=True,
+    )
+    assign_cross_office_project(
+        project=project,
+        employee=worker,
+        assignment_start_date=week_start - timedelta(days=7),
+    )
+
+    worker_client = Client()
+    target_admin_client = Client()
+    origin_admin_client = Client()
+    initialize_ui_session(worker_client, worker.email)
+    initialize_ui_session(target_admin_client, target_admin.email)
+    initialize_ui_session(origin_admin_client, origin_admin.email)
+
+    create_response = worker_client.post(
+        "/ts/",
+        data={"week_start_date": week_start.isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+    timesheet = WeeklyTimesheet.objects.get(employee=worker, week_start_date=week_start)
+    lines_response = worker_client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "lines",
+            "row_count": "8",
+            "line_0_work_date": week_start.isoformat(),
+            "line_0_hours": "6.00",
+            "line_0_project_id": str(project.id),
+            "line_0_general_charge_code_id": "",
+            "line_0_comment_text": "Cross-office approval delivery work",
+        },
+        follow=False,
+    )
+    assert lines_response.status_code == 302
+    submit_response = worker_client.post(
+        f"/ts/timesheets/{timesheet.id}/",
+        data={
+            "form_name": "submit",
+            "comment_text": "Please review the cross-office project line",
+        },
+        follow=False,
+    )
+    assert submit_response.status_code == 302
+
+    approval_item = ApprovalItem.objects.get(
+        approver_employee_id=project_manager.id,
+        submission_cycle__weekly_timesheet=timesheet,
+    )
+    return {
+        "target_admin_client": target_admin_client,
+        "origin_admin_client": origin_admin_client,
+        "approval_item": approval_item,
+    }
+
+
 @pytest.mark.django_db
 def test_project_manager_worklist_shows_pending_approval_item() -> None:
     context = _build_approval_ui_clients()
@@ -395,6 +580,43 @@ def test_ts_admin_can_open_approval_detail_in_read_only_oversight_mode() -> None
     assert "read-only for admin oversight" in content
     assert "Approve Item" not in content
     assert "Reject Item" not in content
+
+
+@pytest.mark.django_db
+def test_target_office_ts_admin_oversight_sees_cross_office_project_item() -> None:
+    context = _build_cross_office_approval_ui_context()
+
+    worklist_response = context["target_admin_client"].get("/approvals/")
+    detail_response = context["target_admin_client"].get(
+        f"/approvals/{context['approval_item'].id}/"
+    )
+
+    assert worklist_response.status_code == 200
+    worklist_content = worklist_response.content.decode()
+    assert "Approval Oversight" in worklist_content
+    assert "EMP-APR-CO-WORKER" in worklist_content
+    assert "PRJ-APR-CO" in worklist_content
+
+    assert detail_response.status_code == 200
+    detail_content = detail_response.content.decode()
+    assert "Approval Cross Office Project" in detail_content
+    assert "Cross-office approval delivery work" in detail_content
+
+
+@pytest.mark.django_db
+def test_origin_office_ts_admin_oversight_does_not_see_cross_office_project_item() -> None:
+    context = _build_cross_office_approval_ui_context()
+
+    worklist_response = context["origin_admin_client"].get("/approvals/")
+    detail_response = context["origin_admin_client"].get(
+        f"/approvals/{context['approval_item'].id}/"
+    )
+
+    assert worklist_response.status_code == 200
+    worklist_content = worklist_response.content.decode()
+    assert "EMP-APR-CO-WORKER" not in worklist_content
+    assert "PRJ-APR-CO" not in worklist_content
+    assert detail_response.status_code == 403
 
 
 @pytest.mark.django_db

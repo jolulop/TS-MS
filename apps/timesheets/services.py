@@ -20,9 +20,16 @@ from apps.master_data.models import (
     GeneralChargeCodeApprovalRoleAssignment,
     OfficeConfiguration,
     Project,
-    ProjectAssignment,
+)
+from apps.master_data.staffing import (
+    employee_has_project_staffing_on_date,
+    staffed_project_ids_for_employee_window,
 )
 from apps.reference_data.models import RefValue
+from apps.timesheets.approval_scope import (
+    approval_item_effective_business_unit,
+    ts_admin_visible_approval_items_q,
+)
 from apps.timesheets.models import (
     ApprovalAction,
     ApprovalItem,
@@ -327,26 +334,11 @@ def _get_project_for_line(employee: Employee, work_date: date, project_id: int) 
     if project.close_date is not None and work_date > project.close_date:
         raise AuthError("TIMESHEET_PROJECT_CLOSED", "Closed projects cannot receive new time.", 400)
 
-    assignment_exists = (
-        ProjectAssignment.objects.filter(
-            employee=employee,
-            project=project,
-            status__domain__domain_code="PROJECT_ASSIGNMENT_STATUS",
-            status__value_code="ACTIVE",
-            assignment_start_date__lte=work_date,
-        )
-        .filter(assignment_end_date__isnull=True)
-        .exists()
-        or ProjectAssignment.objects.filter(
-            employee=employee,
-            project=project,
-            status__domain__domain_code="PROJECT_ASSIGNMENT_STATUS",
-            status__value_code="ACTIVE",
-            assignment_start_date__lte=work_date,
-            assignment_end_date__gte=work_date,
-        ).exists()
-    )
-    if not assignment_exists:
+    if not employee_has_project_staffing_on_date(
+        employee_id=employee.id,
+        project_id=project.id,
+        work_date=work_date,
+    ):
         raise AuthError(
             "TIMESHEET_PROJECT_NOT_ASSIGNED",
             "Employee is not assigned to this project for the work date.",
@@ -629,11 +621,7 @@ def _serialize_approval_item(approval_item: ApprovalItem, *, include_lines: bool
             "employee_code": timesheet.employee.employee_code,
             "full_name": timesheet.employee.full_name,
         },
-        "business_unit": {
-            "id": timesheet.business_unit_id,
-            "bu_code": timesheet.business_unit.bu_code,
-            "name": timesheet.business_unit.name,
-        },
+        "business_unit": approval_item_effective_business_unit(approval_item),
         "scope_type": approval_item.scope_type.value_code,
         "status": approval_item.status.value_code,
         "rejection_reason": approval_item.rejection_reason,
@@ -748,6 +736,8 @@ def _get_approval_item_for_view(current_user: CurrentUser, approval_item_id: int
                 "status",
                 "approver_employee",
                 "project",
+                "project__business_unit",
+                "project__office",
                 "general_charge_code",
                 "submission_cycle",
                 "submission_cycle__weekly_timesheet",
@@ -775,25 +765,18 @@ def _get_approval_item_for_view(current_user: CurrentUser, approval_item_id: int
 
 
 def _available_projects_for_week(timesheet: WeeklyTimesheet) -> list[dict]:
+    staffed_project_ids = staffed_project_ids_for_employee_window(
+        employee_id=timesheet.employee_id,
+        week_start_date=timesheet.week_start_date,
+        week_end_date=timesheet.week_end_date,
+    )
+    if not staffed_project_ids:
+        return []
+
     projects = (
         Project.objects.filter(
-            status__domain__domain_code="PROJECT_STATUS",
-            status__value_code="ACTIVE",
-            start_date__lte=timesheet.week_end_date,
+            id__in=staffed_project_ids,
         )
-        .filter(
-            Q(end_date__isnull=True) | Q(end_date__gte=timesheet.week_start_date),
-            Q(close_date__isnull=True) | Q(close_date__gte=timesheet.week_start_date),
-            assignments__employee_id=timesheet.employee_id,
-            assignments__status__domain__domain_code="PROJECT_ASSIGNMENT_STATUS",
-            assignments__status__value_code="ACTIVE",
-            assignments__assignment_start_date__lte=timesheet.week_end_date,
-        )
-        .filter(
-            Q(assignments__assignment_end_date__isnull=True)
-            | Q(assignments__assignment_end_date__gte=timesheet.week_start_date)
-        )
-        .distinct()
         .order_by("project_code")
     )
     return [
@@ -1527,6 +1510,8 @@ class TimesheetService:
             "scope_type",
             "status",
             "project",
+            "project__business_unit",
+            "project__office",
             "approver_employee",
             "general_charge_code",
             "submission_cycle",
@@ -1538,9 +1523,7 @@ class TimesheetService:
             "approver_roles__approval_role",
         )
         if current_user.is_ts_admin:
-            approval_items = approval_items.filter(
-                submission_cycle__weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids
-            )
+            approval_items = approval_items.filter(ts_admin_visible_approval_items_q(current_user))
         else:
             active_ad_hoc_role_ids = _active_general_charge_code_approval_role_ids_for_employee(
                 current_user.employee_id

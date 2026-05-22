@@ -10,6 +10,7 @@ from apps.master_data.models import Employee, Project
 from apps.timesheets.models import ApprovalItem, WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
+    assign_cross_office_project,
     assign_employee_to_business_unit,
     assign_project,
     assign_role,
@@ -400,7 +401,7 @@ def test_project_manager_pending_approvals_report_is_available() -> None:
 
 
 @pytest.mark.django_db
-def test_cross_country_project_reports_include_foreign_employee_time() -> None:
+def test_cross_office_staffing_reports_include_foreign_employee_time() -> None:
     context = _setup_reports_context()
     project = Project.objects.get(project_code="PRJ-RPT")
 
@@ -437,14 +438,30 @@ def test_cross_country_project_reports_include_foreign_employee_time() -> None:
         is_primary_flag=True,
     )
     assign_role(employee=foreign_employee, role_code="USER")
-    assign_project(
+    assign_cross_office_project(
         project=project,
         employee=foreign_employee,
         assignment_start_date=context["week_start"] - timedelta(days=7),
     )
+    home_admin = create_employee(
+        employee_code="EMP-RPT-FGN-ADM",
+        full_name="Reports Foreign Admin",
+        email="reports-foreign-admin@example.com",
+        primary_business_unit=foreign_business_unit,
+    )
+    assign_calendar(employee=home_admin, yearly_calendar=foreign_calendar)
+    assign_employee_to_business_unit(
+        employee=home_admin,
+        business_unit=foreign_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=home_admin, role_code="USER")
+    assign_role(employee=home_admin, role_code="TS_ADMIN")
 
     foreign_client = Client()
+    foreign_admin_client = Client()
     initialize_ui_session(foreign_client, foreign_employee.email)
+    initialize_ui_session(foreign_admin_client, home_admin.email)
     create_response = foreign_client.post(
         "/ts/",
         data={"week_start_date": context["week_start"].isoformat()},
@@ -472,6 +489,9 @@ def test_cross_country_project_reports_include_foreign_employee_time() -> None:
 
     owner_response = context["owner_client"].get("/reports/project-time/")
     pm_response = context["pm_client"].get("/reports/pending-approvals/")
+    admin_pending_response = context["admin_client"].get("/reports/pending-approvals/")
+    admin_turnaround_response = context["admin_client"].get("/reports/approval-turnaround/")
+    foreign_admin_pending_response = foreign_admin_client.get("/reports/pending-approvals/")
 
     assert owner_response.status_code == 200
     owner_content = owner_response.content.decode()
@@ -482,6 +502,83 @@ def test_cross_country_project_reports_include_foreign_employee_time() -> None:
     pm_content = pm_response.content.decode()
     assert "EMP-RPT-FGN" in pm_content
     assert "PRJ-RPT" in pm_content
+
+    assert admin_pending_response.status_code == 200
+    admin_pending_content = admin_pending_response.content.decode()
+    assert "EMP-RPT-FGN" in admin_pending_content
+    assert "PRJ-RPT" in admin_pending_content
+    assert "BU-RPT" in admin_pending_content
+    assert "BU-RPT-FGN" not in admin_pending_content
+
+    assert admin_turnaround_response.status_code == 200
+    admin_turnaround_content = admin_turnaround_response.content.decode()
+    assert "EMP-RPT-FGN" in admin_turnaround_content
+    assert "PRJ-RPT" in admin_turnaround_content
+    assert "BU-RPT" in admin_turnaround_content
+    assert "BU-RPT-FGN" not in admin_turnaround_content
+
+    assert foreign_admin_pending_response.status_code == 200
+    foreign_admin_pending_content = foreign_admin_pending_response.content.decode()
+    assert "EMP-RPT-FGN" not in foreign_admin_pending_content
+    assert "PRJ-RPT" not in foreign_admin_pending_content
+
+
+@pytest.mark.django_db
+def test_missing_timesheets_report_includes_cross_office_staffed_employee() -> None:
+    context = _setup_reports_context()
+    project = Project.objects.get(project_code="PRJ-RPT")
+    foreign_office = create_office(office_name="Reports Missing Foreign Office")
+    foreign_business_unit = create_business_unit(
+        bu_code="BU-RPT-MISS-FGN",
+        name="Reports Missing Foreign BU",
+        office=foreign_office,
+    )
+    create_business_unit_configuration(
+        business_unit=foreign_business_unit,
+        approval_mode_code="PROJECT",
+    )
+    foreign_calendar = create_yearly_calendar(
+        business_unit=foreign_business_unit,
+        calendar_year=2026,
+        calendar_name="Reports Missing Foreign Calendar",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=foreign_calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+    foreign_employee = create_employee(
+        employee_code="EMP-RPT-MISS-FGN",
+        full_name="Reports Missing Foreign Employee",
+        email="reports-missing-foreign@example.com",
+        primary_business_unit=foreign_business_unit,
+    )
+    assign_calendar(employee=foreign_employee, yearly_calendar=foreign_calendar)
+    assign_employee_to_business_unit(
+        employee=foreign_employee,
+        business_unit=foreign_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=foreign_employee, role_code="USER")
+    Employee.objects.filter(id=foreign_employee.id).update(
+        created_at=datetime(2026, 5, 4, tzinfo=UTC)
+    )
+    assign_cross_office_project(
+        project=project,
+        employee=foreign_employee,
+        assignment_start_date=context["week_start"],
+    )
+
+    response = context["owner_client"].get(
+        "/reports/missing-timesheets/",
+        data={"project_ids": [str(project.id)]},
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Reports Missing Foreign Employee" in content
+    assert "reports-missing-foreign@example.com" in content
+    assert context["week_start"].isoformat() in content
 
 
 @pytest.mark.django_db

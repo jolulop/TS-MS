@@ -17,6 +17,7 @@ from apps.timesheets.models import (
 )
 from tests.helpers import (
     assign_calendar,
+    assign_cross_office_project,
     assign_employee_to_business_unit,
     assign_project,
     assign_role,
@@ -285,7 +286,11 @@ def setup_cross_country_project_approval_context() -> dict:
         start_date=date(2026, 1, 1),
         billable_flag=True,
     )
-    assign_project(project=project, employee=worker, assignment_start_date=date(2026, 1, 1))
+    assign_cross_office_project(
+        project=project,
+        employee=worker,
+        assignment_start_date=date(2026, 1, 1),
+    )
 
     return {
         "project_business_unit": project_business_unit,
@@ -1180,13 +1185,25 @@ def test_submit_creates_project_approval_items_and_pm_worklist() -> None:
 
 
 @pytest.mark.django_db
-def test_cross_country_project_assignment_supports_timesheet_submit_and_pm_review() -> None:
+def test_cross_office_staffing_supports_timesheet_submit_and_pm_review() -> None:
     seed_reference_data()
     context = setup_cross_country_project_approval_context()
 
     employee_client = Client()
     initialize_session(employee_client, context["worker"].email)
     timesheet = create_timesheet(employee_client, "2026-05-04")
+    editor_context = TimesheetService.get_timesheet_editor_context(
+        CurrentUserService.build_for_employee(context["worker"]),
+        timesheet["id"],
+    )
+
+    assert editor_context["available_projects"] == [
+        {
+            "id": context["project"].id,
+            "project_code": context["project"].project_code,
+            "name": context["project"].name,
+        }
+    ]
 
     save_response = employee_client.put(
         f"/api/v1/timesheets/{timesheet['id']}/lines/",

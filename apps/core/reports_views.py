@@ -20,7 +20,12 @@ from apps.master_data.models import (
     Employee,
     GeneralChargeCode,
     Project,
-    ProjectAssignment,
+)
+from apps.master_data.staffing import project_staffing_windows
+from apps.timesheets.approval_scope import (
+    approval_item_effective_business_unit,
+    ts_admin_approval_business_unit_filter_q,
+    ts_admin_visible_approval_items_q,
 )
 from apps.timesheets.models import ApprovalAction, ApprovalItem, TimesheetLine, WeeklyTimesheet
 from apps.timesheets.services import TimesheetService
@@ -309,43 +314,31 @@ def _project_missing_timesheet_rows(
     if not effective_project_ids:
         return [], project_options, []
 
-    assignments = list(
-        ProjectAssignment.objects.select_related("employee", "project")
-        .filter(
-            project_id__in=effective_project_ids,
-            employee__status__value_code="ACTIVE",
-            status__value_code="ACTIVE",
-        )
-        .order_by(
-            "employee__full_name",
-            "assignment_start_date",
-            "project__project_code",
-        )
-    )
-    if not assignments:
+    staffing_windows = project_staffing_windows(effective_project_ids)
+    if not staffing_windows:
         return [], project_options, selected_project_ids
 
     current_week_start = _current_monday()
-    assignment_windows: list[tuple[ProjectAssignment, date, date]] = []
+    assignment_windows: list[tuple[object, date, date]] = []
     employee_ids: set[int] = set()
     global_start: date | None = None
     global_end: date | None = None
 
-    for assignment in assignments:
+    for staffing_window in staffing_windows:
         effective_start = max(
-            assignment.employee.created_at.date(),
-            assignment.assignment_start_date,
-            assignment.project.start_date,
+            staffing_window.employee_created_at.date(),
+            staffing_window.staffing_start_date,
+            staffing_window.project_start_date,
         )
         end_candidates = [current_week_start]
-        if assignment.assignment_end_date is not None:
-            end_candidates.append(assignment.assignment_end_date)
-        if assignment.project.end_date is not None:
-            end_candidates.append(assignment.project.end_date)
-        if assignment.project.close_date is not None:
-            end_candidates.append(assignment.project.close_date)
-        if assignment.employee.employment_end_date is not None:
-            end_candidates.append(assignment.employee.employment_end_date)
+        if staffing_window.staffing_end_date is not None:
+            end_candidates.append(staffing_window.staffing_end_date)
+        if staffing_window.project_end_date is not None:
+            end_candidates.append(staffing_window.project_end_date)
+        if staffing_window.project_close_date is not None:
+            end_candidates.append(staffing_window.project_close_date)
+        if staffing_window.employee_employment_end_date is not None:
+            end_candidates.append(staffing_window.employee_employment_end_date)
         effective_end = min(end_candidates)
 
         first_week_start = _first_monday_on_or_after(effective_start)
@@ -353,8 +346,8 @@ def _project_missing_timesheet_rows(
         if first_week_start > last_week_start:
             continue
 
-        assignment_windows.append((assignment, first_week_start, last_week_start))
-        employee_ids.add(assignment.employee_id)
+        assignment_windows.append((staffing_window, first_week_start, last_week_start))
+        employee_ids.add(staffing_window.employee_id)
         global_start = (
             first_week_start if global_start is None else min(global_start, first_week_start)
         )
@@ -372,18 +365,18 @@ def _project_missing_timesheet_rows(
         existing_timesheets_by_employee.setdefault(employee_id, set()).add(week_start_date)
 
     missing_rows_by_employee_week: dict[tuple[int, date], list[str]] = {}
-    for assignment, first_week_start, last_week_start in assignment_windows:
-        existing_week_starts = existing_timesheets_by_employee.get(assignment.employee_id, set())
+    for staffing_window, first_week_start, last_week_start in assignment_windows:
+        existing_week_starts = existing_timesheets_by_employee.get(staffing_window.employee_id, set())
         week_start = first_week_start
         while week_start <= last_week_start:
             if week_start not in existing_week_starts:
-                key = (assignment.employee_id, week_start)
+                key = (staffing_window.employee_id, week_start)
                 missing_rows_by_employee_week.setdefault(
                     key,
                     [
-                        assignment.project.name,
-                        assignment.employee.full_name,
-                        assignment.employee.email,
+                        staffing_window.project_name,
+                        staffing_window.employee_full_name,
+                        staffing_window.employee_email,
                         week_start.isoformat(),
                     ],
                 )
@@ -478,7 +471,7 @@ def _report_count(current_user: CurrentUser, report_code: str) -> int:
     if report_code == "pending-approvals":
         if current_user.is_ts_admin:
             return ApprovalItem.objects.filter(
-                submission_cycle__weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids,
+                ts_admin_visible_approval_items_q(current_user),
                 status__value_code="PENDING",
             ).count()
         return ApprovalItem.objects.filter(
@@ -527,9 +520,7 @@ def _report_count(current_user: CurrentUser, report_code: str) -> int:
             .count()
         )
     if report_code == "approval-turnaround":
-        return ApprovalItem.objects.filter(
-            submission_cycle__weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids
-        ).count()
+        return ApprovalItem.objects.filter(ts_admin_visible_approval_items_q(current_user)).count()
     return 0
 
 
@@ -597,7 +588,7 @@ def _general_charge_code_filter_options(current_user: CurrentUser) -> list[dict]
 def _approval_approver_filter_options(current_user: CurrentUser) -> list[dict]:
     approver_ids = list(
         ApprovalItem.objects.filter(
-            submission_cycle__weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids,
+            ts_admin_visible_approval_items_q(current_user),
             approver_employee_id__isnull=False,
         )
         .values_list("approver_employee_id", flat=True)
@@ -840,6 +831,8 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
     queryset = ApprovalItem.objects.select_related(
         "status",
         "project",
+        "project__business_unit",
+        "project__office",
         "general_charge_code",
         "approver_employee",
         "submission_cycle",
@@ -851,9 +844,7 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
         "approver_roles__approval_role",
     ).filter(status__value_code="PENDING")
     if current_user.is_ts_admin:
-        queryset = queryset.filter(
-            submission_cycle__weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids
-        )
+        queryset = queryset.filter(ts_admin_visible_approval_items_q(current_user))
     else:
         queryset = queryset.filter(
             Q(approver_employee_id=current_user.employee_id)
@@ -871,9 +862,12 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
     project_id = _selected_value(request, "project_id")
     employee_id = _selected_value(request, "employee_id")
 
-    if business_unit_id and current_user.is_ts_admin:
+    if business_unit_id.isdigit() and current_user.is_ts_admin:
         queryset = queryset.filter(
-            submission_cycle__weekly_timesheet__business_unit_id=business_unit_id
+            ts_admin_approval_business_unit_filter_q(
+                current_user,
+                int(business_unit_id),
+            )
         )
     if project_id:
         queryset = queryset.filter(project_id=project_id)
@@ -893,7 +887,7 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
                 if item.general_charge_code
                 else ""
             ),
-            item.submission_cycle.weekly_timesheet.business_unit.bu_code,
+            approval_item_effective_business_unit(item)["bu_code"],
             str(item.submission_cycle.submission_no),
             item.status.value_code,
         ]
@@ -1725,15 +1719,18 @@ def _approval_turnaround_report(current_user: CurrentUser, request: HttpRequest)
         "submission_cycle__weekly_timesheet",
         "submission_cycle__weekly_timesheet__employee",
         "submission_cycle__weekly_timesheet__business_unit",
+        "project__business_unit",
+        "project__office",
     ).prefetch_related(
         "approver_roles__existing_role",
         "approver_roles__approval_role",
-    ).filter(
-        submission_cycle__weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids
-    )
-    if business_unit_id:
+    ).filter(ts_admin_visible_approval_items_q(current_user))
+    if business_unit_id.isdigit():
         queryset = queryset.filter(
-            submission_cycle__weekly_timesheet__business_unit_id=business_unit_id
+            ts_admin_approval_business_unit_filter_q(
+                current_user,
+                int(business_unit_id),
+            )
         )
     if project_id:
         queryset = queryset.filter(project_id=project_id)
@@ -1799,7 +1796,7 @@ def _approval_turnaround_report(current_user: CurrentUser, request: HttpRequest)
         rows.append(
             [
                 str(item.id),
-                item.submission_cycle.weekly_timesheet.business_unit.bu_code,
+                approval_item_effective_business_unit(item)["bu_code"],
                 item.submission_cycle.weekly_timesheet.employee.employee_code,
                 item.submission_cycle.weekly_timesheet.employee.full_name,
                 _approval_target_code(item),

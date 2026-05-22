@@ -169,6 +169,21 @@ urlpatterns = [
         system_views.project_assignment_detail,
         name="system-project-assignment-detail",
     ),
+    path(
+        "system/cross-office-staffing/",
+        system_views.cross_office_staffing_collection,
+        name="system-cross-office-staffing",
+    ),
+    path(
+        "system/cross-office-staffing/new/",
+        system_views.cross_office_staffing_create,
+        name="system-cross-office-staffing-create",
+    ),
+    path(
+        "system/cross-office-staffing/<int:assignment_id>/",
+        system_views.cross_office_staffing_detail,
+        name="system-cross-office-staffing-detail",
+    ),
     path("system/calendars/", system_views.yearly_calendars_collection, name="system-calendars"),
     path(
         "system/calendars/new/",

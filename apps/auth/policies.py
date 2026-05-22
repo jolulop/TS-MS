@@ -7,6 +7,7 @@ from apps.master_data.models import (
     GeneralChargeCodeApprovalRoleAssignment,
     GeneralChargeCodeApproverRole,
 )
+from apps.timesheets.approval_scope import can_ts_admin_view_approval_item
 
 
 class AuthorizationPolicyService:
@@ -161,9 +162,9 @@ class AuthorizationPolicyService:
 
     @staticmethod
     def can_view_approval_item(current_user: CurrentUser, approval_item) -> bool:
-        if current_user.is_ts_admin and (
-            approval_item.submission_cycle.weekly_timesheet.business_unit_id
-            in current_user.scoped_business_unit_ids
+        if current_user.is_ts_admin and can_ts_admin_view_approval_item(
+            current_user,
+            approval_item,
         ):
             return True
         if approval_item.approver_employee_id == current_user.employee_id:

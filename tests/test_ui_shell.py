@@ -99,9 +99,11 @@ def test_project_owner_sees_project_management_and_approval_worklist() -> None:
     assert '/ts/projects/' in dashboard_content
     assert "/system/projects/" in dashboard_content
     assert "/system/project-assignments/" in dashboard_content
+    assert "/system/cross-office-staffing/" in dashboard_content
     assert system_response.status_code == 200
     assert "Projects" in system_content
     assert "Project Assignments" in system_content
+    assert "Cross-Office Staffing" in system_content
     assert project_management_response.status_code == 200
     assert "Project Summary" in project_management_response.content.decode()
     assert approval_response.status_code == 200
@@ -159,9 +161,11 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     assert "Project Time Inquiry" in dashboard_content
     assert "System Management" in dashboard_content
     assert "/system/project-assignments/" in dashboard_content
+    assert "/system/cross-office-staffing/" in dashboard_content
     assert "/system/projects/" not in dashboard_content
     assert system_response.status_code == 200
     assert "Project Assignments" in system_content
+    assert "Cross-Office Staffing" in system_content
     assert "Projects" not in system_content
     assert assignments_response.status_code == 200
     assert "Project Assignment Management" in assignments_response.content.decode()
@@ -333,6 +337,7 @@ def test_ts_admin_navigation_includes_pricing_models_link() -> None:
         "Clients",
         "Projects",
         "Project Assignments",
+        "Cross-Office Staffing",
         "Internal Categories",
         "Cost Centers",
         "Pricing Models",

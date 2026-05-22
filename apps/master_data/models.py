@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 
 from apps.common.models import AuditFieldsModel
 
@@ -667,6 +667,52 @@ class ProjectAssignment(AuditFieldsModel):
                 fields=["project", "employee", "assignment_start_date"],
                 name="project_assignment_window_uniq",
             )
+        ]
+
+
+class CrossOfficeProjectAssignment(AuditFieldsModel):
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.PROTECT,
+        related_name="cross_office_assignments",
+    )
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.PROTECT,
+        related_name="cross_office_project_assignments",
+    )
+    origin_office = models.ForeignKey(
+        Office,
+        on_delete=models.PROTECT,
+        related_name="originating_cross_office_assignments",
+    )
+    origin_business_unit = models.ForeignKey(
+        BusinessUnit,
+        on_delete=models.PROTECT,
+        related_name="originating_cross_office_assignments",
+    )
+    assignment_start_date = models.DateField()
+    assignment_end_date = models.DateField(null=True, blank=True)
+    justification_text = models.TextField(blank=True)
+    status = models.ForeignKey(
+        "reference_data.RefValue",
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "cross_office_project_assignment"
+        ordering = ["project__project_code", "employee__employee_code", "assignment_start_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "employee", "assignment_start_date"],
+                name="cross_office_project_assignment_window_uniq",
+            ),
+            models.CheckConstraint(
+                condition=Q(assignment_end_date__isnull=True)
+                | Q(assignment_end_date__gte=F("assignment_start_date")),
+                name="cross_office_project_assignment_date_order_chk",
+            ),
         ]
 
 

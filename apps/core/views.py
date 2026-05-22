@@ -193,6 +193,15 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         "href": "/system/project-assignments/",
                     },
                     {
+                        "title": "Cross-Office Staffing",
+                        "summary": (
+                            "Manage explicit cross-office staffing for projects in the "
+                            "active Office."
+                        ),
+                        "status": "Ready now",
+                        "href": "/system/cross-office-staffing/",
+                    },
+                    {
                         "title": "Internal Categories",
                         "summary": (
                             "Maintain internal category masters used by downstream project setup."
@@ -286,20 +295,40 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                             "status": "Ready now",
                             "href": "/system/project-assignments/",
                         },
+                        {
+                            "title": "Cross-Office Staffing",
+                            "summary": (
+                                "Create, edit, and delete cross-office staffing for the "
+                                "projects you own."
+                            ),
+                            "status": "Ready now",
+                            "href": "/system/cross-office-staffing/",
+                        },
                     ]
                 )
         if current_user.has_role("PROJECT_MANAGER"):
             if not current_user.is_ts_admin and not current_user.has_role("PROJECT_OWNER"):
-                cards.append(
-                    {
-                        "title": "Project Assignments",
-                        "summary": (
-                            "Create, edit, and delete assignments for the projects "
-                            "you manage."
-                        ),
-                        "status": "Ready now",
-                        "href": "/system/project-assignments/",
-                    }
+                cards.extend(
+                    [
+                        {
+                            "title": "Project Assignments",
+                            "summary": (
+                                "Create, edit, and delete assignments for the projects "
+                                "you manage."
+                            ),
+                            "status": "Ready now",
+                            "href": "/system/project-assignments/",
+                        },
+                        {
+                            "title": "Cross-Office Staffing",
+                            "summary": (
+                                "Create, edit, and delete cross-office staffing for the "
+                                "projects you manage."
+                            ),
+                            "status": "Ready now",
+                            "href": "/system/cross-office-staffing/",
+                        },
+                    ]
                 )
         return cards
 

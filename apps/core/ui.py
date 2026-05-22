@@ -170,6 +170,12 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         current_path=current_path,
                     ),
                     _nav_item(
+                        label="Cross-Office Staffing",
+                        href="/system/cross-office-staffing/",
+                        summary="Scoped explicit cross-office staffing management screens.",
+                        current_path=current_path,
+                    ),
+                    _nav_item(
                         label="Internal Categories",
                         href="/system/internal-categories/",
                         summary="Scoped internal category management screens.",
@@ -243,6 +249,12 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         ),
                         current_path=current_path,
                     ),
+                    _nav_item(
+                        label="Cross-Office Staffing",
+                        href="/system/cross-office-staffing/",
+                        summary="Owned target-project cross-office staffing management screens.",
+                        current_path=current_path,
+                    ),
                 ]
             )
         elif current_user.has_role("PROJECT_MANAGER"):
@@ -255,6 +267,12 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                             "Managed project staffing and assignment lifecycle management "
                             "screens."
                         ),
+                        current_path=current_path,
+                    ),
+                    _nav_item(
+                        label="Cross-Office Staffing",
+                        href="/system/cross-office-staffing/",
+                        summary="Managed target-project cross-office staffing management screens.",
                         current_path=current_path,
                     ),
                 ]

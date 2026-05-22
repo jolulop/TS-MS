@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from apps.master_data.models import (
     BusinessUnit,
+    CrossOfficeProjectAssignment,
     Country,
     Employee,
     EmployeeBusinessUnit,
@@ -86,3 +87,24 @@ class PricingModelAdmin(admin.ModelAdmin):
     list_filter = ("office",)
     search_fields = ("name", "office__office_name")
     ordering = ("office__office_name", "name")
+
+
+@admin.register(CrossOfficeProjectAssignment)
+class CrossOfficeProjectAssignmentAdmin(admin.ModelAdmin):
+    list_display = (
+        "project",
+        "employee",
+        "origin_office",
+        "origin_business_unit",
+        "assignment_start_date",
+        "assignment_end_date",
+        "status",
+    )
+    list_filter = ("origin_office", "origin_business_unit", "status")
+    search_fields = (
+        "project__project_code",
+        "employee__employee_code",
+        "employee__full_name",
+        "origin_office__office_name",
+    )
+    ordering = ("project__project_code", "employee__employee_code", "assignment_start_date")

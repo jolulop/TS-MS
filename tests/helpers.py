@@ -8,6 +8,7 @@ from apps.master_data.models import (
     CalendarPeriodRule,
     CalendarSpecialDay,
     Country,
+    CrossOfficeProjectAssignment,
     Employee,
     EmployeeBusinessUnit,
     GeneralChargeCodeApprovalRole,
@@ -545,6 +546,32 @@ def assign_project(
         assignment_start_date=assignment_start_date,
         assignment_end_date=assignment_end_date,
         status=ref_value("PROJECT_ASSIGNMENT_STATUS", "ACTIVE" if active else "INACTIVE"),
+        created_by=SYSTEM_ACTOR,
+        updated_by=SYSTEM_ACTOR,
+    )
+
+
+def assign_cross_office_project(
+    *,
+    project: Project,
+    employee: Employee,
+    assignment_start_date: date,
+    assignment_end_date: date | None = None,
+    justification_text: str = "",
+    active: bool = True,
+) -> CrossOfficeProjectAssignment:
+    return CrossOfficeProjectAssignment.objects.create(
+        project=project,
+        employee=employee,
+        origin_office=employee.office,
+        origin_business_unit=employee.primary_business_unit,
+        assignment_start_date=assignment_start_date,
+        assignment_end_date=assignment_end_date,
+        justification_text=justification_text,
+        status=ref_value(
+            "PROJECT_ASSIGNMENT_STATUS",
+            "ACTIVE" if active else "INACTIVE",
+        ),
         created_by=SYSTEM_ACTOR,
         updated_by=SYSTEM_ACTOR,
     )

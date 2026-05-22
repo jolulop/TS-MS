@@ -9,6 +9,7 @@ from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
     Country,
+    CrossOfficeProjectAssignment,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -37,6 +38,7 @@ from apps.master_data.models import (
 from apps.timesheets.models import TimesheetLine, WeeklyTimesheet
 from tests.helpers import (
     assign_calendar,
+    assign_cross_office_project,
     assign_employee_to_business_unit,
     assign_general_charge_code_approval_role,
     assign_project,
@@ -564,6 +566,7 @@ def test_system_management_hub_shows_real_admin_screen_links() -> None:
     assert "/system/general-charge-codes/" in content
     assert "/system/projects/" in content
     assert "/system/project-assignments/" in content
+    assert "/system/cross-office-staffing/" in content
     assert "/system/calendar-period-rules/" in content
     card_hrefs = {card["href"] for card in response.context["section_cards"]}
     assert "/system/pricing-models/" in card_hrefs
@@ -573,6 +576,7 @@ def test_system_management_hub_shows_real_admin_screen_links() -> None:
         "Clients",
         "Projects",
         "Project Assignments",
+        "Cross-Office Staffing",
         "Internal Categories",
         "Cost Centers",
         "Pricing Models",
@@ -597,6 +601,7 @@ def test_system_management_section_links_follow_requested_order() -> None:
         "Clients",
         "Projects",
         "Project Assignments",
+        "Cross-Office Staffing",
         "Internal Categories",
         "Cost Centers",
         "Pricing Models",
@@ -3677,6 +3682,549 @@ def test_project_assignment_management_can_delete_assignment_via_html() -> None:
         ).count()
         == 1
     )
+
+
+@pytest.mark.django_db
+def test_cross_office_staffing_admin_can_create_update_and_delete_assignments() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    (
+        project_owner,
+        project_manager,
+        project_client,
+        category,
+        cost_center,
+        pricing_model,
+    ) = _build_project_management_context(business_units[0])
+    origin_office = create_office(office_name="Origin Staffing Office")
+    origin_business_unit = create_business_unit(
+        bu_code="BU-CO-ORIGIN",
+        name="Origin Staffing BU",
+        office=origin_office,
+    )
+    assigned_employee = create_employee(
+        employee_code="EMP-CO-ASSIGN-1",
+        full_name="Cross Office Employee",
+        email="cross-office-employee@example.com",
+        primary_business_unit=origin_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=assigned_employee,
+        business_unit=origin_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=assigned_employee, role_code="USER")
+    project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-CO-1",
+        name="Cross Office Target Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+
+    create_page = client.get("/system/cross-office-staffing/new/")
+
+    assert create_page.status_code == 200
+    create_content = create_page.content.decode()
+    assert "Create Cross-Office Staffing" in create_content
+    assert "current target-project scope" in create_content
+    assert "PRJ-CO-1" in create_content
+    assert "EMP-CO-ASSIGN-1" in create_content
+
+    create_response = client.post(
+        "/system/cross-office-staffing/new/",
+        data={
+            "project_id": str(project.id),
+            "origin_office_id": str(origin_office.id),
+            "employee_id": str(assigned_employee.id),
+            "assignment_start_date": date(2026, 4, 7).isoformat(),
+            "assignment_end_date": date(2026, 9, 30).isoformat(),
+            "justification_text": "Temporary staffing support for the target office.",
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    assignment = CrossOfficeProjectAssignment.objects.get(
+        project=project,
+        employee=assigned_employee,
+    )
+    assert assignment.origin_office_id == origin_office.id
+    assert assignment.origin_business_unit_id == origin_business_unit.id
+
+    detail_response = client.get(f"/system/cross-office-staffing/{assignment.id}/")
+
+    assert detail_response.status_code == 200
+    detail_content = detail_response.content.decode()
+    assert "Edit Cross-Office Staffing" in detail_content
+    assert "Cross Office Target Project" in detail_content
+    assert "Origin Staffing Office" in detail_content
+    assert "Origin Staffing BU" in detail_content
+
+    update_response = client.post(
+        f"/system/cross-office-staffing/{assignment.id}/",
+        data={
+            "assignment_start_date": date(2026, 4, 14).isoformat(),
+            "assignment_end_date": date(2026, 10, 31).isoformat(),
+            "justification_text": "Extended coverage during delivery ramp-up.",
+            "status_code": "INACTIVE",
+        },
+        follow=False,
+    )
+
+    assert update_response.status_code == 302
+    assignment.refresh_from_db()
+    assert assignment.assignment_start_date == date(2026, 4, 14)
+    assert assignment.assignment_end_date == date(2026, 10, 31)
+    assert assignment.justification_text == "Extended coverage during delivery ramp-up."
+    assert assignment.status.value_code == "INACTIVE"
+
+    delete_response = client.post(
+        f"/system/cross-office-staffing/{assignment.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert delete_response.status_code == 302
+    assert delete_response.headers["Location"] == "/system/cross-office-staffing/"
+    assert not CrossOfficeProjectAssignment.objects.filter(id=assignment.id).exists()
+    assert (
+        AuditLog.objects.filter(
+            entity_name="cross_office_project_assignment",
+            entity_id=assignment.id,
+        ).count()
+        == 6
+    )
+
+
+@pytest.mark.django_db
+def test_cross_office_staffing_rejects_same_office_employee() -> None:
+    client, _, business_units = _build_ts_admin_client()
+    (
+        project_owner,
+        project_manager,
+        project_client,
+        category,
+        cost_center,
+        pricing_model,
+    ) = _build_project_management_context(business_units[0])
+    local_employee = create_employee(
+        employee_code="EMP-CO-LOCAL",
+        full_name="Local Employee",
+        email="local-cross-office@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=local_employee,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=local_employee, role_code="USER")
+    project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-CO-LOCAL",
+        name="Same Office Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+
+    response = client.post(
+        "/system/cross-office-staffing/new/",
+        data={
+            "project_id": str(project.id),
+            "origin_office_id": str(local_employee.office_id),
+            "employee_id": str(local_employee.id),
+            "assignment_start_date": date(2026, 4, 7).isoformat(),
+            "status_code": "ACTIVE",
+        },
+    )
+
+    assert response.status_code == 200
+    assert (
+        "Cross-office staffing requires the employee Office to differ from the target "
+        "project Office." in response.content.decode()
+    )
+    assert not CrossOfficeProjectAssignment.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_project_owner_can_manage_cross_office_staffing_for_owned_projects_only() -> None:
+    client, project_owner, business_units = _build_project_owner_client()
+    _, project_manager, project_client, category, cost_center, pricing_model = (
+        _build_project_management_context(business_units[0])
+    )
+    other_project_owner = create_employee(
+        employee_code="EMP-CO-OTHER-OWNER",
+        full_name="Other Cross Office Owner",
+        email="other-cross-office-owner@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=other_project_owner,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=other_project_owner, role_code="USER")
+    assign_role(employee=other_project_owner, role_code="PROJECT_OWNER")
+    origin_office = create_office(office_name="Owner Origin Office")
+    origin_business_unit = create_business_unit(
+        bu_code="BU-CO-OWNER",
+        name="Owner Origin BU",
+        office=origin_office,
+    )
+    assigned_employee = create_employee(
+        employee_code="EMP-CO-OWNER-ASN",
+        full_name="Owned Cross Office Employee",
+        email="owned-cross-office@example.com",
+        primary_business_unit=origin_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=assigned_employee,
+        business_unit=origin_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=assigned_employee, role_code="USER")
+    owned_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-CO-OWNED",
+        name="Owned Cross Office Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+    foreign_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-CO-FOREIGN",
+        name="Foreign Cross Office Project",
+        project_owner_employee=other_project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+
+    create_page = client.get("/system/cross-office-staffing/new/")
+    create_content = create_page.content.decode()
+    assert create_page.status_code == 200
+    assert "PRJ-CO-OWNED" in create_content
+    assert "PRJ-CO-FOREIGN" not in create_content
+
+    create_response = client.post(
+        "/system/cross-office-staffing/new/",
+        data={
+            "project_id": str(owned_project.id),
+            "origin_office_id": str(origin_office.id),
+            "employee_id": str(assigned_employee.id),
+            "assignment_start_date": date(2026, 4, 7).isoformat(),
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    assignment = CrossOfficeProjectAssignment.objects.get(
+        project=owned_project,
+        employee=assigned_employee,
+    )
+
+    delete_response = client.post(
+        f"/system/cross-office-staffing/{assignment.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert delete_response.status_code == 302
+    assert not CrossOfficeProjectAssignment.objects.filter(id=assignment.id).exists()
+
+    foreign_assignment = assign_cross_office_project(
+        project=foreign_project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 4, 7),
+    )
+
+    forbidden_response = client.get(f"/system/cross-office-staffing/{foreign_assignment.id}/")
+    assert forbidden_response.status_code == 403
+    assert "owned or managed project scope" in forbidden_response.content.decode()
+
+
+@pytest.mark.django_db
+def test_project_manager_can_manage_cross_office_staffing_for_managed_projects_only() -> None:
+    client, project_manager, business_units = _build_project_manager_client()
+    project_owner = create_employee(
+        employee_code="EMP-CO-MGR-OWNER",
+        full_name="Cross Office Manager Test Owner",
+        email="cross-office-manager-owner@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=project_owner,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_owner, role_code="USER")
+    assign_role(employee=project_owner, role_code="PROJECT_OWNER")
+    other_project_manager = create_employee(
+        employee_code="EMP-CO-OTHER-MGR",
+        full_name="Other Cross Office Manager",
+        email="other-cross-office-manager@example.com",
+        primary_business_unit=business_units[0],
+    )
+    assign_employee_to_business_unit(
+        employee=other_project_manager,
+        business_unit=business_units[0],
+        is_primary_flag=True,
+    )
+    assign_role(employee=other_project_manager, role_code="USER")
+    assign_role(employee=other_project_manager, role_code="PROJECT_MANAGER")
+    project_client = create_client(
+        business_unit=business_units[0],
+        client_code="CLI-CO-MGR",
+        name="Cross Office Manager Client",
+    )
+    category = create_internal_category(
+        business_unit=business_units[0],
+        category_code="CAT-CO-MGR",
+        name="Cross Office Manager Category",
+    )
+    cost_center = create_cost_center(
+        business_unit=business_units[0],
+        cost_center_code="CC-CO-MGR",
+        name="Cross Office Manager Cost Center",
+    )
+    pricing_model = create_pricing_model(
+        business_unit=business_units[0],
+        name="Cross Office Manager Pricing",
+    )
+    origin_office = create_office(office_name="Manager Origin Office")
+    origin_business_unit = create_business_unit(
+        bu_code="BU-CO-MGR",
+        name="Manager Origin BU",
+        office=origin_office,
+    )
+    assigned_employee = create_employee(
+        employee_code="EMP-CO-MGR-ASN",
+        full_name="Managed Cross Office Employee",
+        email="managed-cross-office@example.com",
+        primary_business_unit=origin_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=assigned_employee,
+        business_unit=origin_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=assigned_employee, role_code="USER")
+    managed_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-CO-MANAGED",
+        name="Managed Cross Office Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+    foreign_project = create_project(
+        business_unit=business_units[0],
+        project_code="PRJ-CO-FOREIGN-MGR",
+        name="Foreign Managed Cross Office Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=other_project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+
+    collection_response = client.get("/system/cross-office-staffing/")
+    create_page = client.get("/system/cross-office-staffing/new/")
+
+    assert collection_response.status_code == 200
+    assert create_page.status_code == 200
+    create_content = create_page.content.decode()
+    assert "PRJ-CO-MANAGED" in create_content
+    assert "PRJ-CO-FOREIGN-MGR" not in create_content
+
+    create_response = client.post(
+        "/system/cross-office-staffing/new/",
+        data={
+            "project_id": str(managed_project.id),
+            "origin_office_id": str(origin_office.id),
+            "employee_id": str(assigned_employee.id),
+            "assignment_start_date": date(2026, 4, 21).isoformat(),
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert create_response.status_code == 302
+    assignment = CrossOfficeProjectAssignment.objects.get(
+        project=managed_project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 4, 21),
+    )
+    assert "PRJ-CO-MANAGED" in collection_response.content.decode()
+    assert "PRJ-CO-FOREIGN-MGR" not in collection_response.content.decode()
+
+    foreign_assignment = assign_cross_office_project(
+        project=foreign_project,
+        employee=assigned_employee,
+        assignment_start_date=date(2026, 4, 7),
+    )
+
+    forbidden_response = client.get(f"/system/cross-office-staffing/{foreign_assignment.id}/")
+    assert forbidden_response.status_code == 403
+    assert "owned or managed project scope" in forbidden_response.content.decode()
+
+    delete_response = client.post(
+        f"/system/cross-office-staffing/{assignment.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+    assert delete_response.status_code == 302
+    assert not CrossOfficeProjectAssignment.objects.filter(id=assignment.id).exists()
+
+
+@pytest.mark.django_db
+def test_employee_transfer_ui_blocks_source_employee_with_active_cross_office_staffing() -> None:
+    client, _, _ = _build_ts_admin_master_client()
+    source_office = create_office(office_name="Cross Office Source")
+    target_office = create_office(office_name="Cross Office Target")
+    source_bu = create_business_unit(
+        bu_code="SRC-CO-BLOCK",
+        name="Cross Office Source BU",
+        office=source_office,
+    )
+    target_bu = create_business_unit(
+        bu_code="TGT-CO-BLOCK",
+        name="Cross Office Target BU",
+        office=target_office,
+    )
+    source_employee = create_employee(
+        employee_code="EMP-CO-BLOCK-1",
+        full_name="Blocked Cross Office Source Employee",
+        email="blocked-cross-office-source@example.com",
+        primary_business_unit=source_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=source_employee,
+        business_unit=source_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=source_employee, role_code="USER")
+    project_owner = create_employee(
+        employee_code="EMP-CO-BLOCK-OWNER",
+        full_name="Cross Office Block Owner",
+        email="cross-office-block-owner@example.com",
+        primary_business_unit=target_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=project_owner,
+        business_unit=target_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_owner, role_code="USER")
+    assign_role(employee=project_owner, role_code="PROJECT_OWNER")
+    project_manager = create_employee(
+        employee_code="EMP-CO-BLOCK-MGR",
+        full_name="Cross Office Block Manager",
+        email="cross-office-block-manager@example.com",
+        primary_business_unit=target_bu,
+    )
+    assign_employee_to_business_unit(
+        employee=project_manager,
+        business_unit=target_bu,
+        is_primary_flag=True,
+    )
+    assign_role(employee=project_manager, role_code="USER")
+    assign_role(employee=project_manager, role_code="PROJECT_MANAGER")
+    target_client = create_client(
+        business_unit=target_bu,
+        client_code="CLI-CO-BLOCK",
+        name="Cross Office Block Client",
+    )
+    target_category = create_internal_category(
+        business_unit=target_bu,
+        category_code="CAT-CO-BLOCK",
+        name="Cross Office Block Category",
+    )
+    target_cost_center = create_cost_center(
+        business_unit=target_bu,
+        cost_center_code="CC-CO-BLOCK",
+        name="Cross Office Block Cost Center",
+    )
+    target_pricing_model = create_pricing_model(
+        business_unit=target_bu,
+        name="Cross Office Block Pricing",
+    )
+    target_project = create_project(
+        business_unit=target_bu,
+        project_code="PRJ-CO-BLOCK",
+        name="Cross Office Block Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=target_client,
+        internal_category=target_category,
+        cost_center=target_cost_center,
+        pricing_model=target_pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+    assign_cross_office_project(
+        project=target_project,
+        employee=source_employee,
+        assignment_start_date=date(2026, 4, 7),
+    )
+
+    load_response = client.post(
+        "/system/employee-transfers/new/",
+        data={
+            "form_name": "select_source",
+            "source_employee_id": str(source_employee.id),
+        },
+    )
+
+    assert load_response.status_code == 200
+    content = load_response.content.decode()
+    assert "Transfer Readiness" in content
+    assert "BLOCKED" in content
+    assert "Active Cross-Office Staffing" in content
+    assert "Target Setup" not in content
+
+    transfer_response = client.post(
+        "/system/employee-transfers/new/",
+        data={
+            "form_name": "transfer",
+            "source_employee_id": str(source_employee.id),
+            "new_employee_code": "EMP-CO-BLOCK-TARGET",
+            "target_office_id": str(target_office.id),
+            "target_primary_business_unit_id": str(target_bu.id),
+            "target_role_codes": ["USER"],
+        },
+    )
+
+    assert transfer_response.status_code == 200
+    assert "Employee transfer is blocked" in transfer_response.content.decode()
+    source_employee.refresh_from_db()
+    assert source_employee.status.value_code == "ACTIVE"
+    assert not Employee.objects.filter(employee_code="EMP-CO-BLOCK-TARGET").exists()
 
 
 @pytest.mark.django_db
