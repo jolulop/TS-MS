@@ -175,6 +175,15 @@ Acceptance criteria:
   logic through the domain.
 - Roles continue to come only from TS data.
 
+Implementation note:
+
+- Implemented in Phase 2 on `Codex-5.5` with a provider boundary supporting:
+  - `development-email` for local-only `validated_email` entry
+  - `trusted-header` for Google SSO / Azure ingress email claims
+- `TSMS_ENVIRONMENT=production` disables the development email adapter.
+- Session initialization still resolves roles, Office, and Business Unit scope
+  exclusively from internal TS data.
+
 ## Phase 3 - Azure And Production Settings Readiness
 
 Goal: make deployment safety explicit and environment driven.

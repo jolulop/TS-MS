@@ -133,6 +133,10 @@ v6.1 captures these major baseline changes relative to the older docs:
   later changed.
 - Personal timesheet deletion remains audit-guarded: `CREATED` status alone is
   not enough when prior submission history exists.
+- Authentication now has an explicit provider boundary: local
+  `development-email` access is disabled in production mode, while the
+  `trusted-header` contract supports Google SSO / Azure ingress by accepting a
+  trusted email claim before internal TS role and scope resolution.
 
 ## Reading Order
 

@@ -3,6 +3,9 @@
 ## 1. Identity And Access
 
 - External validation is used only to validate the email at access time.
+- Production external validation supplies a trusted email claim through the
+  configured provider adapter; development email entry is not valid in
+  production mode.
 - Internal authorization uses employee record, roles, Office, and Business Unit scope.
 - Deny by default.
 - Row-level scope must be enforced in the database query path where possible.

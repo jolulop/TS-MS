@@ -4,7 +4,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
-from apps.auth.services import SessionInitializationService
+from apps.auth.services import ExternalIdentityAdapterService, SessionInitializationService
 from apps.core.ui import build_navigation
 from apps.master_data.models import Employee, Project
 from apps.timesheets.models import ApprovalItem, WeeklyTimesheet
@@ -400,14 +400,11 @@ def home(request: HttpRequest) -> HttpResponse:
     current_user = getattr(request, "ts_user", None)
     if request.method == "POST":
         validated_email = str(request.POST.get("validated_email", "")).strip()
-        if not validated_email:
-            context = {
-                "validated_email": "",
-                "entry_error": "Validated email is required to initialize a local session.",
-            }
-            return render(request, "core/access_entry.html", context, status=400)
         try:
-            SessionInitializationService.initialize(request, validated_email)
+            ExternalIdentityAdapterService.initialize_session(
+                request,
+                {"validated_email": validated_email},
+            )
         except AuthError as exc:
             context = {
                 "validated_email": validated_email,

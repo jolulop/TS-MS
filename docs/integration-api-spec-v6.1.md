@@ -33,8 +33,21 @@ No JSON API versioning change was introduced in the v6.1 documentation promotion
 - `POST /api/v1/auth/logout`
 
 Behavior:
-- initialize resolves the validated email into an internal session
+- initialize resolves a trusted external email claim into an internal session
 - session payload exposes current employee, roles, Office, and Business Unit scope
+
+Authentication provider behavior:
+- `development-email` is the local-only adapter. It accepts JSON
+  `validated_email` or the HTML access-entry field only when development auth
+  is enabled and `TSMS_ENVIRONMENT` is not `production`.
+- `trusted-header` is the production adapter contract for Google SSO / Azure
+  ingress. The ingress layer authenticates the user and forwards the trusted
+  email claim in the configured server-side header, defaulting to
+  `HTTP_X_MS_CLIENT_PRINCIPAL_NAME`.
+- Production deployments must not accept arbitrary browser-posted
+  `validated_email` values.
+- After the email claim is accepted, TS resolves roles, Office, and Business
+  Unit scope from internal TS data only.
 
 ## 4. Reference And Identity Endpoints
 

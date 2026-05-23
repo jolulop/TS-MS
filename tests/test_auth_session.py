@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from django.test import Client
+from django.test import Client, override_settings
 
 from apps.audit.models import AuditLog
 from tests.helpers import (
@@ -53,6 +53,125 @@ def test_initialize_session_creates_internal_session_from_validated_email() -> N
     assert session_response.status_code == 200
     assert session_response.json()["session"]["employee"]["email"] == "alice@example.com"
     assert session_response.json()["session"]["employee"]["office"]["office_name"] == "Holding"
+
+
+@pytest.mark.django_db
+@override_settings(
+    DEBUG=False,
+    TSMS_ENVIRONMENT="production",
+    TSMS_AUTH_PROVIDER="development-email",
+    TSMS_ENABLE_DEV_AUTH=False,
+)
+def test_development_email_session_initialization_is_disabled_in_production() -> None:
+    seed_reference_data()
+    client = Client()
+
+    response = client.post(
+        "/api/v1/auth/session/initialize",
+        data=json.dumps({"validated_email": "alice@example.com"}),
+        content_type="application/json",
+    )
+    session_response = client.get("/api/v1/auth/session")
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "AUTH_DEV_LOGIN_DISABLED"
+    assert session_response.status_code == 401
+    assert AuditLog.objects.filter(
+        entity_name="internal_session",
+        action_type__value_code="DENY",
+        actor_email="alice@example.com",
+    ).exists()
+
+
+@pytest.mark.django_db
+@override_settings(
+    DEBUG=False,
+    TSMS_ENVIRONMENT="production",
+    TSMS_AUTH_PROVIDER="development-email",
+    TSMS_ENABLE_DEV_AUTH=False,
+)
+def test_html_development_email_login_is_disabled_in_production() -> None:
+    seed_reference_data()
+    client = Client()
+
+    response = client.post("/", data={"validated_email": "alice@example.com"})
+    session_response = client.get("/api/v1/auth/session")
+
+    assert response.status_code == 403
+    assert "Development email login is disabled outside local development." in (
+        response.content.decode()
+    )
+    assert session_response.status_code == 401
+
+
+@pytest.mark.django_db
+@override_settings(
+    DEBUG=False,
+    TSMS_ENVIRONMENT="production",
+    TSMS_AUTH_PROVIDER="trusted-header",
+    TSMS_TRUSTED_EMAIL_HEADER="HTTP_X_AUTH_EMAIL",
+)
+def test_trusted_header_session_initialization_requires_email_claim() -> None:
+    seed_reference_data()
+    client = Client()
+
+    response = client.post(
+        "/api/v1/auth/session/initialize",
+        data=json.dumps({"validated_email": "attacker@example.com"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "AUTH_EXTERNAL_IDENTITY_MISSING"
+    assert AuditLog.objects.filter(
+        entity_name="internal_session",
+        action_type__value_code="DENY",
+        reason_text__contains="AUTH_EXTERNAL_IDENTITY_MISSING",
+    ).exists()
+
+
+@pytest.mark.django_db
+@override_settings(
+    DEBUG=False,
+    TSMS_ENVIRONMENT="production",
+    TSMS_AUTH_PROVIDER="trusted-header",
+    TSMS_TRUSTED_EMAIL_HEADER="HTTP_X_AUTH_EMAIL",
+)
+def test_trusted_header_session_initialization_uses_external_email_claim() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-SSO", name="SSO BU")
+    employee = create_employee(
+        employee_code="EMP-SSO",
+        full_name="SSO User",
+        email="sso-user@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    client = Client()
+    response = client.post(
+        "/api/v1/auth/session/initialize",
+        data=json.dumps({"validated_email": "attacker@example.com"}),
+        content_type="application/json",
+        HTTP_X_AUTH_EMAIL="SSO-User@example.com",
+    )
+    session_response = client.get("/api/v1/auth/session")
+
+    assert response.status_code == 201
+    assert response.json()["session"]["employee"]["employee_code"] == "EMP-SSO"
+    assert session_response.status_code == 200
+    assert session_response.json()["session"]["employee"]["email"] == "sso-user@example.com"
+    assert AuditLog.objects.filter(
+        entity_name="internal_session",
+        action_type__value_code="LOGIN_IDENTIFICATION",
+        actor_email="sso-user@example.com",
+        reason_text__contains="trusted-header external identity",
+    ).exists()
 
 
 @pytest.mark.django_db

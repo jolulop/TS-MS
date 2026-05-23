@@ -1,7 +1,9 @@
 import json
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Q
 from django.http import HttpRequest, JsonResponse
 
@@ -40,6 +42,12 @@ def error_response(code: str, message: str, status: int) -> JsonResponse:
 
 def canonicalize_email(value: str) -> str:
     return value.strip().lower()
+
+
+@dataclass(frozen=True)
+class ExternalIdentityClaims:
+    email: str
+    provider: str
 
 
 class CurrentUserService:
@@ -136,8 +144,11 @@ class CurrentUserService:
 
 class SessionInitializationService:
     @staticmethod
-    def initialize(request: HttpRequest, validated_email: str) -> CurrentUser:
-        normalized_email = canonicalize_email(validated_email)
+    def initialize_from_external_identity(
+        request: HttpRequest,
+        identity_claims: ExternalIdentityClaims,
+    ) -> CurrentUser:
+        normalized_email = canonicalize_email(identity_claims.email)
         employee = SessionInitializationService._find_employee_for_validated_email(normalized_email)
         try:
             current_user = CurrentUserService.build_for_employee(employee)
@@ -161,9 +172,22 @@ class SessionInitializationService:
             actor_employee=employee,
             actor_email=normalized_email,
             business_unit=employee.primary_business_unit,
-            reason_text="Internal session initialized from validated email.",
+            reason_text=(
+                "Internal session initialized from "
+                f"{identity_claims.provider} external identity."
+            ),
         )
         return current_user
+
+    @staticmethod
+    def initialize(request: HttpRequest, validated_email: str) -> CurrentUser:
+        identity_claims = ExternalIdentityAdapterService._resolve_development_email_claims(
+            {"validated_email": validated_email}
+        )
+        return SessionInitializationService.initialize_from_external_identity(
+            request,
+            identity_claims,
+        )
 
     @staticmethod
     def logout(request: HttpRequest) -> None:
@@ -245,4 +269,92 @@ class SessionInitializationService:
             actor_email=validated_email,
             business_unit=employee.primary_business_unit if employee else None,
             reason_text=f"{code}: {message}",
+        )
+
+
+class ExternalIdentityAdapterService:
+    DEVELOPMENT_EMAIL_PROVIDER = "development-email"
+    TRUSTED_HEADER_PROVIDER = "trusted-header"
+
+    @staticmethod
+    def initialize_session(
+        request: HttpRequest,
+        payload: dict[str, Any] | None = None,
+    ) -> CurrentUser:
+        identity_claims = ExternalIdentityAdapterService.resolve_identity_claims(
+            request,
+            payload or {},
+        )
+        return SessionInitializationService.initialize_from_external_identity(
+            request,
+            identity_claims,
+        )
+
+    @staticmethod
+    def resolve_identity_claims(
+        request: HttpRequest,
+        payload: dict[str, Any],
+    ) -> ExternalIdentityClaims:
+        provider = getattr(
+            settings,
+            "TSMS_AUTH_PROVIDER",
+            ExternalIdentityAdapterService.DEVELOPMENT_EMAIL_PROVIDER,
+        )
+        if provider == ExternalIdentityAdapterService.DEVELOPMENT_EMAIL_PROVIDER:
+            return ExternalIdentityAdapterService._resolve_development_email_claims(payload)
+        if provider == ExternalIdentityAdapterService.TRUSTED_HEADER_PROVIDER:
+            return ExternalIdentityAdapterService._resolve_trusted_header_claims(request)
+        raise AuthError(
+            "AUTH_PROVIDER_UNSUPPORTED",
+            "The configured authentication provider is not supported.",
+            500,
+        )
+
+    @staticmethod
+    def _resolve_development_email_claims(payload: dict[str, Any]) -> ExternalIdentityClaims:
+        raw_email = str(payload.get("validated_email", "")).strip()
+        if (
+            getattr(settings, "TSMS_ENVIRONMENT", "development") == "production"
+            or not getattr(settings, "TSMS_ENABLE_DEV_AUTH", False)
+        ):
+            normalized_email = canonicalize_email(raw_email)
+            SessionInitializationService._audit_denial(
+                normalized_email,
+                "AUTH_DEV_LOGIN_DISABLED",
+                "Development email login is disabled outside local development.",
+            )
+            raise AuthError(
+                "AUTH_DEV_LOGIN_DISABLED",
+                "Development email login is disabled outside local development.",
+                403,
+            )
+        if not raw_email:
+            raise AuthError("AUTH_INVALID_REQUEST", "validated_email is required.", 400)
+        return ExternalIdentityClaims(
+            email=raw_email,
+            provider=ExternalIdentityAdapterService.DEVELOPMENT_EMAIL_PROVIDER,
+        )
+
+    @staticmethod
+    def _resolve_trusted_header_claims(request: HttpRequest) -> ExternalIdentityClaims:
+        header_name = getattr(
+            settings,
+            "TSMS_TRUSTED_EMAIL_HEADER",
+            "HTTP_X_MS_CLIENT_PRINCIPAL_NAME",
+        )
+        raw_email = str(request.META.get(header_name, "")).strip()
+        if not raw_email:
+            SessionInitializationService._audit_denial(
+                "",
+                "AUTH_EXTERNAL_IDENTITY_MISSING",
+                "Trusted external identity email claim is missing.",
+            )
+            raise AuthError(
+                "AUTH_EXTERNAL_IDENTITY_MISSING",
+                "Trusted external identity email claim is missing.",
+                401,
+            )
+        return ExternalIdentityClaims(
+            email=raw_email,
+            provider=ExternalIdentityAdapterService.TRUSTED_HEADER_PROVIDER,
         )

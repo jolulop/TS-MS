@@ -30,6 +30,16 @@ def build_database_config() -> dict[str, object]:
 
 SECRET_KEY = os.getenv("TSMS_SECRET_KEY", "unsafe-dev-secret-key")
 DEBUG = env_bool("TSMS_DEBUG", True)
+TSMS_ENVIRONMENT = os.getenv("TSMS_ENVIRONMENT", "development").strip().lower()
+TSMS_AUTH_PROVIDER = os.getenv(
+    "TSMS_AUTH_PROVIDER",
+    "trusted-header" if TSMS_ENVIRONMENT == "production" else "development-email",
+).strip()
+TSMS_ENABLE_DEV_AUTH = env_bool("TSMS_ENABLE_DEV_AUTH", TSMS_ENVIRONMENT != "production")
+TSMS_TRUSTED_EMAIL_HEADER = os.getenv(
+    "TSMS_TRUSTED_EMAIL_HEADER",
+    "HTTP_X_MS_CLIENT_PRINCIPAL_NAME",
+).strip()
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.getenv("TSMS_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")

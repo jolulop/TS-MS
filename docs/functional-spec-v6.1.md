@@ -31,6 +31,14 @@ Role behavior is additive. A user may hold multiple roles at once.
 ## 4. Authentication And Session Model
 
 - External validation is used only to validate an email at access time.
+- The production authentication boundary is provider-based. The external
+  provider supplies a trusted authenticated email claim; TS then resolves that
+  email to an internal employee record.
+- Local `validated_email` entry is a development adapter only and must be
+  disabled when `TSMS_ENVIRONMENT=production`.
+- Google SSO or Azure ingress must integrate by passing a trusted email claim
+  through the configured production adapter, not by posting arbitrary emails
+  from the browser.
 - After validation, the system identifies the user internally by `employee.email`.
 - The internal session stores the resolved employee and active Office context.
 - All later authorization is internal to TS data.

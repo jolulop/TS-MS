@@ -8,6 +8,7 @@ from apps.auth.errors import AuthError
 from apps.auth.policies import AuthorizationPolicyService
 from apps.auth.services import (
     CurrentUserService,
+    ExternalIdentityAdapterService,
     SessionInitializationService,
     error_response,
     parse_json_request,
@@ -71,10 +72,7 @@ def _serialize_employee(employee: Employee) -> dict:
 def initialize_session(request: HttpRequest) -> JsonResponse:
     try:
         payload = parse_json_request(request)
-        validated_email = str(payload.get("validated_email", "")).strip()
-        if not validated_email:
-            raise AuthError("AUTH_INVALID_REQUEST", "validated_email is required.", 400)
-        current_user = SessionInitializationService.initialize(request, validated_email)
+        current_user = ExternalIdentityAdapterService.initialize_session(request, payload)
     except AuthError as exc:
         return error_response(exc.code, exc.message, exc.status)
 

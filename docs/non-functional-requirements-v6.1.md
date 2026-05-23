@@ -3,6 +3,10 @@
 ## 1. Security
 
 - all post-login authorization is internal
+- production authentication must use a trusted external identity claim boundary
+  rather than browser-posted email values
+- local development email login must be disabled when
+  `TSMS_ENVIRONMENT=production`
 - server-side authorization is mandatory
 - deny by default
 - do not rely on hidden UI actions for security

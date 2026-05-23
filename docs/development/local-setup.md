@@ -69,3 +69,12 @@ Run these before preparing a commit.
 
 After `seed_dev_data`, a seeded `TS_ADMIN` access email is:
 - `jose.luis.lopez@timia.ai`
+
+Local email login uses the development adapter:
+
+- `TSMS_ENVIRONMENT=development`
+- `TSMS_AUTH_PROVIDER=development-email`
+- `TSMS_ENABLE_DEV_AUTH=1`
+
+Production deployments must use a trusted external identity provider adapter
+instead of the local `validated_email` form.
