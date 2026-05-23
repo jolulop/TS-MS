@@ -550,6 +550,8 @@ Important UI behavior:
   - scoped live inquiry
   - project-related filters
   - totals
+  - grouped Project Time report results with BU / Project and Week Start
+    expand-collapse in the HTML viewer
 
 ## 11. Approval Screens
 
@@ -661,9 +663,16 @@ Important UI behavior:
   - includes charged project time from valid cross-office staffed employees
   - the existing displayed `BU` field remains the weekly-timesheet home
     Business Unit unless a later reporting change says otherwise
-  - adds a `Weekly Summary Grid` above the detailed results grid
-  - weekly summary columns are `Project Code`, `Project`, `BU`, `Week Start`,
-    `Employee`, `Total Hours`, `Billable Hours`, and `Approval State`
+  - HTML results use one grouped `Results Grid`
+  - each visible `BU` / `Project` shows one summary row with expand/collapse
+    access to grouped `Week Start` rows
+  - each visible grouped `Week Start` row shows expand/collapse access to its
+    detail lines
+  - grouped results-grid columns are `BU`, `Project Code`, `Project`,
+    `Week Start`, `Employee Code`, `Employee`, `Work Date`, `Hours`,
+    `Billable`, `Approval State`, and `Comment`
+  - row toggles use icon-only `+` and `-` controls
+  - CSV export remains a flat detail download using the current filters
 - Pending Approvals:
   - `Export CSV` available from the shared report viewer actions
   - `TS_ADMIN` project approval visibility follows the target project Office

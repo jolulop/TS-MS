@@ -366,7 +366,10 @@ def _project_missing_timesheet_rows(
 
     missing_rows_by_employee_week: dict[tuple[int, date], list[str]] = {}
     for staffing_window, first_week_start, last_week_start in assignment_windows:
-        existing_week_starts = existing_timesheets_by_employee.get(staffing_window.employee_id, set())
+        existing_week_starts = existing_timesheets_by_employee.get(
+            staffing_window.employee_id,
+            set(),
+        )
         week_start = first_week_start
         while week_start <= last_week_start:
             if week_start not in existing_week_starts:
@@ -712,7 +715,13 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
             "approval_state",
         )
         .filter(project_id__in=_scoped_project_ids(current_user))
-        .order_by("-work_date", "weekly_timesheet__employee__employee_code", "id")
+        .order_by(
+            "weekly_timesheet__business_unit__bu_code",
+            "project__project_code",
+            "-work_date",
+            "weekly_timesheet__employee__employee_code",
+            "id",
+        )
     )
 
     business_unit_id = _selected_value(request, "business_unit_id")
@@ -734,53 +743,122 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
     if parsed_end is not None:
         queryset = queryset.filter(work_date__lte=parsed_end)
 
-    weekly_summary_rows = [
+    lines = list(queryset)
+    grouped_rows: list[dict[str, object]] = []
+    export_rows = [
         [
-            row["project__project_code"],
-            row["project__name"],
-            row["weekly_timesheet__business_unit__bu_code"],
-            row["weekly_timesheet__week_start_date"].isoformat(),
-            row["weekly_timesheet__employee__full_name"],
-            _decimal_display(row["total_hours"]),
-            _decimal_display(row["billable_hours"]),
-            row["approval_state__value_code"] or "Not routed",
-        ]
-        for row in queryset.values(
-            "project__project_code",
-            "project__name",
-            "weekly_timesheet__business_unit__bu_code",
-            "weekly_timesheet__week_start_date",
-            "weekly_timesheet__employee__full_name",
-            "approval_state__value_code",
-        )
-        .annotate(
-            total_hours=Sum("hours"),
-            billable_hours=Sum("hours", filter=Q(billable_flag=True)),
-        )
-        .order_by(
-            "-weekly_timesheet__week_start_date",
-            "project__project_code",
-            "weekly_timesheet__employee__full_name",
-            "approval_state__value_code",
-        )
-    ]
-
-    rows = [
-        [
-            line.work_date.isoformat(),
-            line.weekly_timesheet.employee.employee_code,
-            line.weekly_timesheet.employee.full_name,
+            line.weekly_timesheet.business_unit.bu_code,
             line.project.project_code if line.project else "",
             line.project.name if line.project else "",
-            line.weekly_timesheet.business_unit.bu_code,
             line.weekly_timesheet.week_start_date.isoformat(),
-            str(line.hours),
+            line.weekly_timesheet.employee.employee_code,
+            line.weekly_timesheet.employee.full_name,
+            line.work_date.isoformat(),
+            _decimal_display(line.hours),
             "Billable" if line.billable_flag else "Non-billable",
             line.approval_state.value_code if line.approval_state_id else "Not routed",
             line.comment_text or "",
         ]
-        for line in queryset
+        for line in lines
     ]
+
+    project_groups: dict[tuple[str, int], list[TimesheetLine]] = {}
+    for line in lines:
+        bu_code = line.weekly_timesheet.business_unit.bu_code
+        project_groups.setdefault((bu_code, line.project_id), []).append(line)
+
+    for group_index, project_lines in enumerate(project_groups.values(), start=1):
+        first_line = project_lines[0]
+        bu_code = first_line.weekly_timesheet.business_unit.bu_code
+        project_code = first_line.project.project_code if first_line.project else ""
+        project_name = first_line.project.name if first_line.project else ""
+        group_id = f"project-time-group-{group_index}"
+        total_hours = sum((line.hours for line in project_lines), start=Decimal("0.00"))
+        billable_hours = sum(
+            (line.hours for line in project_lines if line.billable_flag),
+            start=Decimal("0.00"),
+        )
+        week_groups: dict[date, list[TimesheetLine]] = {}
+        for line in project_lines:
+            week_groups.setdefault(line.weekly_timesheet.week_start_date, []).append(line)
+        grouped_rows.append(
+            {
+                "kind": "project_group",
+                "row_id": group_id,
+                "project_label": f"{project_code} - {project_name}",
+                "detail_count": len(project_lines),
+                "week_count": len(week_groups),
+                "cells": [
+                    bu_code,
+                    project_code,
+                    project_name,
+                    "",
+                    "",
+                    "",
+                    "",
+                    _decimal_display(total_hours),
+                    _decimal_display(billable_hours),
+                    "",
+                    "",
+                ],
+            }
+        )
+
+        for week_index, (week_start, week_lines) in enumerate(week_groups.items(), start=1):
+            week_row_id = f"{group_id}-week-{week_index}"
+            week_total_hours = sum((line.hours for line in week_lines), start=Decimal("0.00"))
+            week_billable_hours = sum(
+                (line.hours for line in week_lines if line.billable_flag),
+                start=Decimal("0.00"),
+            )
+            grouped_rows.append(
+                {
+                    "kind": "week_group",
+                    "row_id": week_row_id,
+                    "parent_id": group_id,
+                    "week_label": week_start.isoformat(),
+                    "detail_count": len(week_lines),
+                    "cells": [
+                        "",
+                        "",
+                        "",
+                        week_start.isoformat(),
+                        "",
+                        "",
+                        "",
+                        _decimal_display(week_total_hours),
+                        _decimal_display(week_billable_hours),
+                        "",
+                        "",
+                    ],
+                }
+            )
+
+            for line in week_lines:
+                grouped_rows.append(
+                    {
+                        "kind": "detail",
+                        "parent_id": week_row_id,
+                        "cells": [
+                            "",
+                            "",
+                            "",
+                            "",
+                            line.weekly_timesheet.employee.employee_code,
+                            line.weekly_timesheet.employee.full_name,
+                            line.work_date.isoformat(),
+                            _decimal_display(line.hours),
+                            "Billable" if line.billable_flag else "Non-billable",
+                            (
+                                line.approval_state.value_code
+                                if line.approval_state_id
+                                else "Not routed"
+                            ),
+                            line.comment_text or "",
+                        ],
+                    }
+                )
+
     totals = queryset.aggregate(
         total_hours=Sum("hours"),
         billable_hours=Sum("hours", filter=Q(billable_flag=True)),
@@ -826,34 +904,30 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
                 "value": work_date_to,
             },
         ],
-        "summary_title": "Weekly Summary Grid",
-        "summary_headers": (
+        "table_intro": (
+            "Expand a BU / Project summary row to reveal grouped weeks, then "
+            "expand a week row to view the detail lines."
+        ),
+        "row_objects": grouped_rows,
+        "row_behavior": "project-time-nested-groups",
+        "table_class": "data-table data-table-wide",
+        "headers": (
+            "BU",
             "Project Code",
             "Project",
-            "BU",
             "Week Start",
-            "Employee",
-            "Total Hours",
-            "Billable Hours",
-            "Approval State",
-        ),
-        "summary_rows": weekly_summary_rows,
-        "headers": (
-            "Work Date",
             "Employee Code",
             "Employee",
-            "Project Code",
-            "Project",
-            "BU",
-            "Week Start",
+            "Work Date",
             "Hours",
             "Billable",
             "Approval State",
             "Comment",
         ),
-        "rows": rows,
+        "rows": export_rows,
         "totals": [
-            {"label": "Lines Returned", "value": str(len(rows))},
+            {"label": "Projects Returned", "value": str(len(project_groups))},
+            {"label": "Detail Lines", "value": str(len(lines))},
             {"label": "Total Hours", "value": str(totals["total_hours"] or Decimal("0.00"))},
             {"label": "Billable Hours", "value": str(totals["billable_hours"] or Decimal("0.00"))},
             {
@@ -863,7 +937,6 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
         ],
         "empty_message": "No project time lines match the current filters.",
     }
-
 
 def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -> dict:
     active_ad_hoc_role_ids = (
@@ -1559,7 +1632,10 @@ def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpReque
                 "value": _decimal_display(totals["non_billable_hours"]),
             },
         ],
-        "empty_message": "No Office, Business Unit, or project summary rows match the current filters.",
+        "empty_message": (
+            "No Office, Business Unit, or project summary rows match the "
+            "current filters."
+        ),
     }
 
 
@@ -2034,8 +2110,12 @@ def render_report_view(
             "summary_table_title": payload.get("summary_title"),
             "summary_table_headers": payload.get("summary_headers"),
             "summary_table_rows": payload.get("summary_rows"),
+            "table_intro": payload.get("table_intro"),
             "table_headers": payload["headers"],
             "table_rows": payload["rows"],
+            "table_row_objects": payload.get("row_objects"),
+            "table_class": payload.get("table_class", "data-table"),
+            "table_row_behavior": payload.get("row_behavior", ""),
             "totals": payload["totals"],
             "empty_message": payload["empty_message"],
             "back_href": back_href,
@@ -2083,11 +2163,13 @@ def _export_report_csv_response(request: HttpRequest, *, report_code: str) -> Ht
         )
 
     payload = REPORT_BUILDERS[report_code](current_user, request)
+    export_headers = payload.get("export_headers", payload["headers"])
+    export_rows = payload.get("export_rows", payload["rows"])
     _audit_report_export(
         current_user,
         report_code=report_code,
         request=request,
-        row_count=len(payload["rows"]),
+        row_count=len(export_rows),
     )
 
     response = HttpResponse(content_type="text/csv")
@@ -2095,8 +2177,8 @@ def _export_report_csv_response(request: HttpRequest, *, report_code: str) -> Ht
         f'attachment; filename="{report_code}-{_current_monday().isoformat()}.csv"'
     )
     writer = csv.writer(response)
-    writer.writerow(payload["headers"])
-    writer.writerows(payload["rows"])
+    writer.writerow(export_headers)
+    writer.writerows(export_rows)
     return response
 
 

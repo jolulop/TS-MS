@@ -350,6 +350,12 @@ HTML report export routes:
 - `GET /reports/general-charge-code-usage/export/`
 - `GET /reports/approval-turnaround/export/`
 
+Report export notes:
+- Project Time HTML results may be grouped and collapsible in the browser UI
+  without changing the CSV export contract
+- Project Time CSV export remains a flat detail export using the active filters
+  and the same server-side scope rules
+
 Current `/api/v1` export support remains narrower than the HTML UI and is only
 implemented for Missing Timesheets by Project.
 

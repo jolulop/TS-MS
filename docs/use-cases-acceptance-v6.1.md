@@ -325,6 +325,9 @@ A Project Owner or Project Manager views live project time.
 
 - inquiry screen is available to `PROJECT_OWNER` and `PROJECT_MANAGER`
 - only owned or managed project scope is visible
+- the Project Time report viewer supports BU / Project expand-collapse for
+  grouped week rows
+- the grouped week rows support expand-collapse for the detail rows
 
 ## 11A. Project Management Summary
 
@@ -469,6 +472,8 @@ report viewer without copying rows manually from the browser.
 ### Acceptance
 
 - Project Time can be exported to CSV from the report viewer
+- Project Time CSV export remains a flat detail export even when the HTML UI is
+  grouped
 - Pending Approvals can be exported to CSV from the report viewer
 - Archived Timesheets can be exported to CSV from the report viewer
 - Audit History can be exported to CSV from the report viewer

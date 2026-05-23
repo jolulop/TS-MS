@@ -104,10 +104,13 @@
     <section class="surface-card">
       <div class="section-header">
         <h2>Results Grid</h2>
+        {% if table_intro %}
+          <p>{{ table_intro }}</p>
+        {% endif %}
       </div>
-      {% if table_rows %}
+      {% if table_row_objects or table_rows %}
         <div class="table-wrap">
-          <table class="data-table">
+          <table class="{{ table_class|default:'data-table' }}"{% if table_row_behavior == 'project-time-nested-groups' %} data-project-time-grouped-table{% endif %}>
             <thead>
               <tr>
                 {% for header in table_headers %}
@@ -116,13 +119,51 @@
               </tr>
             </thead>
             <tbody>
-              {% for row in table_rows %}
-                <tr>
-                  {% for cell in row %}
-                    <td>{{ cell }}</td>
-                  {% endfor %}
-                </tr>
-              {% endfor %}
+              {% if table_row_objects %}
+                {% for row in table_row_objects %}
+                  <tr class="{% if row.kind == 'project_group' %}report-group-row{% elif row.kind == 'week_group' %}report-week-row{% else %}report-detail-row{% endif %}"{% if row.row_id %} data-project-time-row-id="{{ row.row_id }}"{% endif %}{% if row.parent_id %} data-project-time-parent="{{ row.parent_id }}" hidden{% endif %}>
+                    {% for cell in row.cells %}
+                      {% if row.kind == 'project_group' and forloop.counter0 == 2 %}
+                        <td class="report-group-cell">
+                          <button class="report-row-toggle" type="button" data-project-time-toggle="{{ row.row_id }}" aria-expanded="false">
+                            <span class="report-row-toggle-icon" data-project-time-toggle-icon="{{ row.row_id }}">+</span>
+                            <span class="sr-only">detail rows for {{ row.project_label }}</span>
+                          </button>
+                          <span class="report-group-label">{{ cell }}</span>
+                          <span class="report-group-meta">{{ row.week_count }} week{{ row.week_count|pluralize }} · {{ row.detail_count }} line{{ row.detail_count|pluralize }}</span>
+                        </td>
+                      {% elif row.kind == 'week_group' and forloop.counter0 < 3 %}
+                        <td class="report-detail-muted">{{ cell }}</td>
+                      {% elif row.kind == 'week_group' and forloop.counter0 == 3 %}
+                        <td class="report-group-cell report-week-indent">
+                          <button class="report-row-toggle" type="button" data-project-time-toggle="{{ row.row_id }}" aria-expanded="false">
+                            <span class="report-row-toggle-icon" data-project-time-toggle-icon="{{ row.row_id }}">+</span>
+                            <span class="sr-only">detail rows for week {{ row.week_label }}</span>
+                          </button>
+                          <span class="report-group-label">{{ cell }}</span>
+                          <span class="report-group-meta">{{ row.detail_count }} line{{ row.detail_count|pluralize }}</span>
+                        </td>
+                      {% elif row.kind == 'detail' and forloop.counter0 < 3 %}
+                        <td class="report-detail-muted">{{ cell }}</td>
+                      {% elif row.kind == 'detail' and forloop.counter0 < 6 %}
+                        <td class="report-detail-muted">{{ cell }}</td>
+                      {% elif row.kind == 'detail' and forloop.counter0 == 6 %}
+                        <td class="report-detail-indent">{{ cell }}</td>
+                      {% else %}
+                        <td>{{ cell }}</td>
+                      {% endif %}
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              {% else %}
+                {% for row in table_rows %}
+                  <tr>
+                    {% for cell in row %}
+                      <td>{{ cell }}</td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              {% endif %}
             </tbody>
           </table>
         </div>
@@ -131,4 +172,69 @@
       {% endif %}
     </section>
   </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  {% if table_row_behavior == "project-time-nested-groups" %}
+    <script>
+      (() => {
+        const table = document.querySelector("[data-project-time-grouped-table]");
+        if (!table) {
+          return;
+        }
+
+        const directChildren = (rowId) =>
+          Array.from(table.querySelectorAll(`[data-project-time-parent="${rowId}"]`));
+
+        const setButtonExpanded = (rowId, expanded) => {
+          const button = table.querySelector(`[data-project-time-toggle="${rowId}"]`);
+          const icon = table.querySelector(`[data-project-time-toggle-icon="${rowId}"]`);
+          if (button) {
+            button.setAttribute("aria-expanded", expanded ? "true" : "false");
+          }
+          if (icon) {
+            icon.textContent = expanded ? "-" : "+";
+          }
+        }
+
+        const hideDescendants = (rowId) => {
+          directChildren(rowId).forEach((childRow) => {
+            const childRowId = childRow.getAttribute("data-project-time-row-id");
+            childRow.hidden = true;
+            if (childRowId) {
+              setButtonExpanded(childRowId, false);
+              hideDescendants(childRowId);
+            }
+          });
+        };
+
+        const setExpanded = (rowId, expanded) => {
+          setButtonExpanded(rowId, expanded);
+          const children = directChildren(rowId);
+          if (expanded) {
+            children.forEach((childRow) => {
+              childRow.hidden = false;
+            });
+            return;
+          }
+          children.forEach((childRow) => {
+            const childRowId = childRow.getAttribute("data-project-time-row-id");
+            childRow.hidden = true;
+            if (childRowId) {
+              setButtonExpanded(childRowId, false);
+              hideDescendants(childRowId);
+            }
+          });
+        };
+
+        table.querySelectorAll("[data-project-time-toggle]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const groupId = button.getAttribute("data-project-time-toggle");
+            const expanded = button.getAttribute("aria-expanded") === "true";
+            setExpanded(groupId, !expanded);
+          });
+        });
+      })();
+    </script>
+  {% endif %}
 {% endblock %}

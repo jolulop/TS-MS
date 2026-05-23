@@ -381,11 +381,26 @@ def test_project_owner_project_time_report_is_scoped() -> None:
     assert 'class="report-panel-stack"' in content
     assert '<label for="work_date_from">From</label>' in content
     assert '<label for="work_date_to">To</label>' in content
-    assert "Weekly Summary Grid" in content
+    assert "Weekly Summary Grid" not in content
+    assert "Expand a BU / Project summary row to reveal grouped weeks" in content
+    assert "data-project-time-grouped-table" in content
+    assert 'data-project-time-toggle="project-time-group-1"' in content
+    assert 'data-project-time-row-id="project-time-group-1"' in content
+    assert 'data-project-time-row-id="project-time-group-1-week-1"' in content
+    assert 'data-project-time-parent="project-time-group-1"' in content
+    assert 'data-project-time-parent="project-time-group-1-week-1"' in content
+    assert "Show" not in content
+    assert "Hide" not in content
+    assert "Projects Returned" in content
+    assert "Detail Lines" in content
+    assert "12.00" in content
     assert "<th>Project Code</th>" in content
     assert "<th>Week Start</th>" in content
-    assert "<th>Total Hours</th>" in content
+    assert "<th>Employee Code</th>" in content
+    assert "<th>Work Date</th>" in content
     assert "PRJ-RPT" in content
+    assert "2026-05-04" in content
+    assert "2026-04-27" in content
     assert "Reports User" in content
     assert "5.00" in content
     assert "Billable delivery" in content
@@ -921,14 +936,15 @@ def test_project_time_report_csv_export_downloads_filtered_rows_and_audits() -> 
     assert response["Content-Type"].startswith("text/csv")
     content = response.content.decode()
     assert (
-        "Work Date,Employee Code,Employee,Project Code,Project,BU,Week Start,Hours,"
+        "BU,Project Code,Project,Week Start,Employee Code,Employee,Work Date,Hours,"
         "Billable,Approval State,Comment" in content
     )
     assert (
-        "2026-05-04,EMP-RPT-USER,Reports User,PRJ-RPT,Reports Project,"
-        "BU-RPT,2026-05-04,5.00,Billable,PENDING,Billable delivery"
+        "BU-RPT,PRJ-RPT,Reports Project,2026-05-04,EMP-RPT-USER,Reports User,"
+        "2026-05-04,5.00,Billable,PENDING,Billable delivery"
         in content
     )
+    assert "BU-RPT,PRJ-RPT,Reports Project,,,,,12.00,12.00,," not in content
     assert AuditLog.objects.filter(
         entity_name="project_time_report",
         action_type__value_code="EXPORT",

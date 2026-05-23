@@ -580,9 +580,11 @@ Audience highlights:
 Cross-office staffing reporting rules:
 - Project Time includes charged project time from employees staffed from other
   Offices when the employee is validly staffed to the target project.
-- Project Time adds a weekly summary layer above the detailed line grid,
-  grouped by project, weekly-timesheet BU, week start, employee, and approval
-  state.
+- Project Time uses one grouped HTML results grid with:
+  - one summary row per visible weekly-timesheet `BU` / `Project`
+  - nested week summary rows under each visible `BU` / `Project`
+  - expand/collapse visibility at both the project and week levels
+  - flat CSV export rows that keep the same filtered detail scope
 - Missing Timesheets by Project derives staffing windows from both normal
   Project Assignments and Cross-Office Staffing.
 - Office / BU summary-style reports still remain based on the weekly-timesheet

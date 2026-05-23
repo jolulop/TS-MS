@@ -113,8 +113,10 @@ v6.1 captures these major baseline changes relative to the older docs:
   approvers and `TS_ADMIN`, shortens employee/approver labels to names in the
   grids and detail context, adds TS submission date visibility, and stacks the
   detail context above the related links box.
-- Project Time now adds a weekly summary grid above the detailed results grid,
-  and Pending Approvals now starts with Week Start Date while dropping the
+- Project Time now uses a single grouped results grid with BU/project summary
+  rows, nested week summary rows, and expand/collapse detail visibility while
+  CSV export stays flat, and Pending Approvals now starts with Week Start Date
+  while dropping the
   internal Approval Item and Status columns from the report output.
 - Project approval and project-time visibility follow the target project even
   when the charged employee belongs to another Office.
