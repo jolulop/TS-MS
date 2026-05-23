@@ -109,6 +109,10 @@ v6.1 captures these major baseline changes relative to the older docs:
   hours by project while keeping cross-office visibility available from both
   the home-office and target-office sides and displaying the charged project's
   Office / BU on those rows.
+- Office / BU Time Summary Business Unit filtering is a scoped perspective
+  filter: in-scope selected BUs include rows matching either the
+  weekly-timesheet home BU or the charged target project BU, while out-of-scope
+  filter values must not widen access.
 - Approval workspace polish now uses a shared `Approval Worklist` title for
   approvers and `TS_ADMIN`, shortens employee/approver labels to names in the
   grids and detail context, adds TS submission date visibility, and stacks the

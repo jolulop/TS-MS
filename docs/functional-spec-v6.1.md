@@ -103,8 +103,15 @@ Role behavior is additive. A user may hold multiple roles at once.
 - The target Office receives a new employee record with a new unique employee
   code and a new `employee_id`.
 - Employee detail in System Management also shows a read-only grid of the
-  employee's active project assignments with direct navigation to the linked
-  project detail screens.
+  employee's active project assignments, including valid cross-office project
+  staffing where the employee's home Office / Business Unit differs from the
+  target project's Office / Business Unit.
+- Cross-office assignment visibility is informational for origin-office users:
+  it must show the employee's full active project picture, but it does not
+  grant permission to edit or inspect target-office project data beyond the
+  safe row fields shown in the grid.
+- Direct navigation to linked project detail screens is available only when
+  the current user is authorized for the target project scope.
 
 ## 6. Office-Level Configuration
 
@@ -627,6 +634,12 @@ Advanced admin-report behavior:
     - origin-office / weekly-timesheet home BU when that home BU is in scope
     - target-project Office / BU when that project BU is in scope and the
       employee belongs to another Office
+  - treats the Business Unit filter as a scoped reporting-perspective filter:
+    a selected in-scope Business Unit must include project-charged rows when
+    either the weekly timesheet home Business Unit or the charged target
+    project Business Unit matches it
+  - ignores or rejects out-of-scope Business Unit filter values for
+    authorization purposes; a tampered filter must never widen report scope
   - displays the charged project's Office and Business Unit values on the
     returned project rows
   - supports filtering by Business Unit and work-date range

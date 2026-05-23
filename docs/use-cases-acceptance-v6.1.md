@@ -520,6 +520,12 @@ and scoped Business Units.
     Business Unit
   - target-office admin reporting through the charged project's Office /
     Business Unit
+- when an in-scope Business Unit filter is selected, Office / BU Time Summary
+  still includes project-charged rows where either the weekly-timesheet home
+  Business Unit or the charged target project Business Unit matches the
+  selected Business Unit
+- out-of-scope Business Unit filter values do not expand Office / BU Time
+  Summary access
 - Office / BU Time Summary displays cross-office project rows with the charged
   project's Office and Business Unit values, not the employee's home ones
 - General Charge Code Usage supports filters for Business Unit, General Charge
@@ -556,6 +562,10 @@ and the target project stakeholders review the result.
   employee belongs to another Office
 - `Project Time` includes the charged project time from cross-office staffed
   employees
+- employee detail for the origin Office shows active cross-office staffed
+  projects so the employee's project list reconciles with reported hours
+- origin-office visibility of cross-office staffed projects is read-only and
+  does not grant target-office project edit authority
 
 ## 11C. TS Admin Approval Worklist
 

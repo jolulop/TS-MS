@@ -1511,7 +1511,13 @@ def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpReque
     work_date_from = _selected_value(request, "work_date_from")
     work_date_to = _selected_value(request, "work_date_to")
     scoped_business_unit_ids = (
-        [int(business_unit_id)] if business_unit_id else current_user.scoped_business_unit_ids
+        [
+            scoped_id
+            for scoped_id in current_user.scoped_business_unit_ids
+            if str(scoped_id) == business_unit_id
+        ]
+        if business_unit_id
+        else current_user.scoped_business_unit_ids
     )
 
     queryset = TimesheetLine.objects.filter(

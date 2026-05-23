@@ -10,6 +10,7 @@ from tests.helpers import (
     create_business_unit,
     create_employee,
     create_office,
+    ref_value,
     seed_reference_data,
 )
 
@@ -197,3 +198,108 @@ def test_logout_clears_internal_session() -> None:
     assert logout_response.status_code == 200
     assert session_response.status_code == 401
     assert session_response.json()["error"]["code"] == "AUTH_SESSION_REQUIRED"
+
+
+@pytest.mark.django_db
+def test_session_roles_are_rebuilt_from_database_on_next_request() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-ROLE-REFRESH", name="Role Refresh BU")
+    employee = create_employee(
+        employee_code="EMP-ROLE-REFRESH",
+        full_name="Role Refresh User",
+        email="role-refresh@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    client = Client()
+    initialize_response = client.post(
+        "/api/v1/auth/session/initialize",
+        data=json.dumps({"validated_email": employee.email}),
+        content_type="application/json",
+    )
+    assert initialize_response.status_code == 201
+    assert initialize_response.json()["session"]["roles"] == ["USER"]
+
+    assign_role(employee=employee, role_code="TS_ADMIN")
+    refreshed_response = client.get("/api/v1/auth/session")
+
+    assert refreshed_response.status_code == 200
+    assert refreshed_response.json()["session"]["roles"] == ["TS_ADMIN", "USER"]
+
+
+@pytest.mark.django_db
+def test_session_is_cleared_when_employee_becomes_inactive() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-INACTIVE-SESSION", name="Inactive Session BU")
+    employee = create_employee(
+        employee_code="EMP-INACTIVE-SESSION",
+        full_name="Inactive Session User",
+        email="inactive-session@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    client = Client()
+    initialize_response = client.post(
+        "/api/v1/auth/session/initialize",
+        data=json.dumps({"validated_email": employee.email}),
+        content_type="application/json",
+    )
+    assert initialize_response.status_code == 201
+
+    employee.status = ref_value("EMPLOYEE_STATUS", "INACTIVE")
+    employee.updated_by = "system@test.local"
+    employee.save(update_fields=["status", "updated_by", "updated_at"])
+    invalid_response = client.get("/api/v1/auth/session")
+    second_response = client.get("/api/v1/auth/session")
+
+    assert invalid_response.status_code == 401
+    assert invalid_response.json()["error"]["code"] == "AUTH_SESSION_REQUIRED"
+    assert second_response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_session_is_cleared_when_employee_loses_all_active_roles() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-NO-ROLE-SESSION", name="No Role Session BU")
+    employee = create_employee(
+        employee_code="EMP-NO-ROLE-SESSION",
+        full_name="No Role Session User",
+        email="no-role-session@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    role_assignment = assign_role(employee=employee, role_code="USER")
+
+    client = Client()
+    initialize_response = client.post(
+        "/api/v1/auth/session/initialize",
+        data=json.dumps({"validated_email": employee.email}),
+        content_type="application/json",
+    )
+    assert initialize_response.status_code == 201
+
+    role_assignment.status = ref_value("ROLE_ASSIGNMENT_STATUS", "INACTIVE")
+    role_assignment.updated_by = "system@test.local"
+    role_assignment.save(update_fields=["status", "updated_by", "updated_at"])
+    invalid_response = client.get("/api/v1/auth/session")
+    second_response = client.get("/api/v1/auth/session")
+
+    assert invalid_response.status_code == 401
+    assert invalid_response.json()["error"]["code"] == "AUTH_SESSION_REQUIRED"
+    assert second_response.status_code == 401

@@ -83,6 +83,12 @@
   approve/reject authority from the admin role alone
 - can run the advanced admin analytics reports only inside active Office and
   scoped Business Units
+- can see cross-office staffed project rows for origin-office employees and
+  Office / BU reporting reconciliation when either the employee home Business
+  Unit or the target project Business Unit is in scope
+- origin-side cross-office visibility does not grant edit authority over
+  target-office projects, project assignments, approvals, or protected project
+  data outside the user's scoped target project authority
 
 ### TS_ADMIN_MASTER
 

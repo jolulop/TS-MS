@@ -167,9 +167,12 @@ Important UI behavior:
   `Name`, `BU`, `From`, and `To`
 - employee detail project-assignment visibility also includes active
   cross-office staffed projects as read-only `[Cross-Office]` rows so
-  origin-office admins can see the employee's full project picture
+  origin-office admins can see the employee's full project picture, including
+  target-office projects outside the employee's home Office / Business Unit
 - clicking the project name in that grid opens the related Project detail screen
-  for same-office assignments only
+  only when the current user is authorized for the target project scope; rows
+  for unauthorized target-office projects remain visible as read-only text and
+  cannot expose edit actions
 
 ### SCR-112 Employee Transfer
 
@@ -705,6 +708,11 @@ Important UI behavior:
       is in scope
     - the target-office summary when the charged project's BU is in scope and
       the employee belongs to another Office
+  - selecting a Business Unit filters the report perspective, not just the row
+    owner: rows remain included when the selected in-scope BU matches either
+    the weekly-timesheet home BU or the charged target project's BU
+  - out-of-scope Business Unit filter values must not broaden the server-side
+    report query
   - cross-office project rows display the charged project's target Office and
     target Business Unit values in the grid
 - General Charge Code Usage:

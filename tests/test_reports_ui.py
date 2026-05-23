@@ -7,7 +7,12 @@ from apps.audit.models import AuditLog
 from apps.audit.services import write_audit_event
 from apps.integrations.models import IntegrationJob
 from apps.master_data.models import Employee, Project
-from apps.timesheets.models import ApprovalItem, WeeklyTimesheet
+from apps.timesheets.models import (
+    ApprovalItem,
+    TimesheetLine,
+    TimesheetSubmissionCycle,
+    WeeklyTimesheet,
+)
 from tests.helpers import (
     assign_calendar,
     assign_cross_office_project,
@@ -304,6 +309,197 @@ def _setup_reports_context() -> dict:
         "general_charge_code_id": general_charge_code.id,
         "missing_employee_email": missing_employee.email,
         "missing_employee_name": missing_employee.full_name,
+    }
+
+
+def _create_out_of_scope_report_data(context: dict) -> dict:
+    week_start = context["week_start"]
+    business_unit = create_business_unit(
+        bu_code="BU-RPT-OUT",
+        name="Reports Out Of Scope BU",
+    )
+    create_business_unit_configuration(business_unit=business_unit, approval_mode_code="PROJECT")
+    calendar = create_yearly_calendar(
+        business_unit=business_unit,
+        calendar_year=2026,
+        calendar_name="Reports Out Scope Calendar",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=calendar,
+        business_unit=business_unit,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+    employee = create_employee(
+        employee_code="EMP-RPT-OUT",
+        full_name="Reports Out Scope Employee",
+        email="reports-out@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_calendar(employee=employee, yearly_calendar=calendar)
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+    owner = create_employee(
+        employee_code="EMP-RPT-OUT-PO",
+        full_name="Reports Out Scope Owner",
+        email="reports-out-owner@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=owner,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=owner, role_code="PROJECT_OWNER")
+    manager = create_employee(
+        employee_code="EMP-RPT-OUT-PM",
+        full_name="Reports Out Scope Manager",
+        email="reports-out-manager@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=manager,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=manager, role_code="PROJECT_MANAGER")
+    client_record = create_client(
+        business_unit=business_unit,
+        client_code="CLI-RPT-OUT",
+        name="Reports Out Scope Client",
+    )
+    internal_category = create_internal_category(
+        business_unit=business_unit,
+        category_code="IC-RPT-OUT",
+        name="Reports Out Scope Category",
+    )
+    cost_center = create_cost_center(
+        business_unit=business_unit,
+        cost_center_code="CC-RPT-OUT",
+        name="Reports Out Scope Cost Center",
+    )
+    project = create_project(
+        business_unit=business_unit,
+        project_code="PRJ-RPT-OUT-GUARD",
+        name="Reports Out Scope Project Guard",
+        project_owner_employee=owner,
+        project_manager_employee=manager,
+        client=client_record,
+        internal_category=internal_category,
+        cost_center=cost_center,
+        start_date=week_start,
+        billable_flag=True,
+    )
+    general_charge_code = create_general_charge_code(
+        business_unit=business_unit,
+        code="GCC-RPT-OUT-GUARD",
+        name="Reports Out Scope GCC Guard",
+        cost_center=cost_center,
+        valid_from=week_start,
+    )
+    submitted_status = ref_value("TIMESHEET_STATUS", "SUBMITTED")
+    archived_status = ref_value("TIMESHEET_STATUS", "ARCHIVED")
+    timesheet = WeeklyTimesheet.objects.create(
+        employee=employee,
+        business_unit=business_unit,
+        week_start_date=week_start,
+        week_end_date=week_start + timedelta(days=6),
+        status=submitted_status,
+        submission_datetime=datetime(2026, 5, 6, 9, 0, tzinfo=UTC),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+    TimesheetLine.objects.create(
+        weekly_timesheet=timesheet,
+        work_date=week_start,
+        project=project,
+        hours="4.00",
+        comment_text="OUT-SCOPE-PROJECT-LINE-GUARD",
+        billable_flag=True,
+        approval_state=ref_value("APPROVAL_STATUS", "PENDING"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+    TimesheetLine.objects.create(
+        weekly_timesheet=timesheet,
+        work_date=week_start + timedelta(days=1),
+        general_charge_code=general_charge_code,
+        hours="2.00",
+        comment_text="OUT-SCOPE-GCC-LINE-GUARD",
+        billable_flag=False,
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+    archived_timesheet = WeeklyTimesheet.objects.create(
+        employee=employee,
+        business_unit=business_unit,
+        week_start_date=week_start + timedelta(days=7),
+        week_end_date=week_start + timedelta(days=13),
+        status=archived_status,
+        archive_eligible_date=date(2026, 5, 31),
+        comment_text="OUT-SCOPE-ARCHIVED-GUARD",
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+    submission_cycle = TimesheetSubmissionCycle.objects.create(
+        weekly_timesheet=timesheet,
+        submission_no=1,
+        submitted_by_employee=employee,
+        submitted_at=datetime(2026, 5, 6, 9, 0, tzinfo=UTC),
+        cycle_status=ref_value("SUBMISSION_CYCLE_STATUS", "OPEN"),
+        outcome_status=ref_value("APPROVAL_STATUS", "PENDING"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+    ApprovalItem.objects.create(
+        submission_cycle=submission_cycle,
+        scope_type=ref_value("APPROVAL_SCOPE_TYPE", "PROJECT"),
+        approver_employee=manager,
+        project=project,
+        status=ref_value("APPROVAL_STATUS", "PENDING"),
+        created_by="system@test.local",
+        updated_by="system@test.local",
+    )
+    write_audit_event(
+        action_code="EXPORT",
+        entity_name="out_scope_report_guard",
+        entity_id=archived_timesheet.id,
+        actor_employee=employee,
+        actor_email=employee.email,
+        business_unit=business_unit,
+        reason_text="OUT-SCOPE-AUDIT-GUARD",
+    )
+    IntegrationJob.objects.create(
+        business_unit=business_unit,
+        interface_code="OUT_SCOPE_JOB_GUARD",
+        direction="INBOUND",
+        status=ref_value("INTEGRATION_JOB_STATUS", "COMPLETED"),
+        requested_by_employee=employee,
+        total_records=1,
+        success_records=1,
+        error_records=0,
+        summary_message="OUT-SCOPE-JOB-GUARD",
+        created_by="system@test.local",
+    )
+    return {
+        "business_unit": business_unit,
+        "markers": (
+            "BU-RPT-OUT",
+            "Reports Out Scope Employee",
+            "PRJ-RPT-OUT-GUARD",
+            "GCC-RPT-OUT-GUARD",
+            "OUT-SCOPE-PROJECT-LINE-GUARD",
+            "OUT-SCOPE-GCC-LINE-GUARD",
+            "OUT-SCOPE-ARCHIVED-GUARD",
+            "out_scope_report_guard",
+            "OUT-SCOPE-AUDIT-GUARD",
+            "OUT_SCOPE_JOB_GUARD",
+            "OUT-SCOPE-JOB-GUARD",
+        ),
     }
 
 
@@ -622,6 +818,136 @@ def test_cross_office_staffing_reports_include_foreign_employee_time() -> None:
     assert "Reports Foreign BU" not in foreign_admin_office_summary_content
     assert "PRJ-RPT - Reports Project" in foreign_admin_office_summary_content
     assert "6.00" in foreign_admin_office_summary_content
+
+
+@pytest.mark.django_db
+def test_office_bu_time_summary_filter_keeps_cross_office_origin_and_target_visibility() -> None:
+    context = _setup_reports_context()
+    project = Project.objects.get(project_code="PRJ-RPT")
+
+    foreign_office = create_office(office_name="Reports Filter Worker Office")
+    foreign_business_unit = create_business_unit(
+        bu_code="BU-RPT-FLT-FGN",
+        name="Reports Filter Foreign BU",
+        office=foreign_office,
+    )
+    create_business_unit_configuration(
+        business_unit=foreign_business_unit,
+        approval_mode_code="PROJECT",
+    )
+    foreign_calendar = create_yearly_calendar(
+        business_unit=foreign_business_unit,
+        calendar_year=2026,
+        calendar_name="Reports Filter Foreign Calendar",
+    )
+    create_calendar_period_rule(
+        yearly_calendar=foreign_calendar,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+    foreign_employee = create_employee(
+        employee_code="EMP-RPT-FLT-FGN",
+        full_name="Reports Filter Foreign Employee",
+        email="reports-filter-foreign@example.com",
+        primary_business_unit=foreign_business_unit,
+    )
+    assign_calendar(employee=foreign_employee, yearly_calendar=foreign_calendar)
+    assign_employee_to_business_unit(
+        employee=foreign_employee,
+        business_unit=foreign_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=foreign_employee, role_code="USER")
+    assign_cross_office_project(
+        project=project,
+        employee=foreign_employee,
+        assignment_start_date=context["week_start"],
+    )
+    foreign_admin = create_employee(
+        employee_code="EMP-RPT-FLT-ADM",
+        full_name="Reports Filter Foreign Admin",
+        email="reports-filter-foreign-admin@example.com",
+        primary_business_unit=foreign_business_unit,
+    )
+    assign_calendar(employee=foreign_admin, yearly_calendar=foreign_calendar)
+    assign_employee_to_business_unit(
+        employee=foreign_admin,
+        business_unit=foreign_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=foreign_admin, role_code="USER")
+    assign_role(employee=foreign_admin, role_code="TS_ADMIN")
+
+    foreign_client = Client()
+    initialize_ui_session(foreign_client, foreign_employee.email)
+    create_response = foreign_client.post(
+        "/ts/",
+        data={"week_start_date": context["week_start"].isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+    foreign_client.post(
+        create_response.headers["Location"],
+        data={
+            "form_name": "lines",
+            "row_count": "8",
+            "line_0_work_date": context["week_start"].isoformat(),
+            "line_0_hours": "6.00",
+            "line_0_project_id": str(project.id),
+            "line_0_general_charge_code_id": "",
+            "line_0_comment_text": "Filtered cross-office delivery",
+        },
+        follow=False,
+    )
+
+    foreign_admin_client = Client()
+    initialize_ui_session(foreign_admin_client, foreign_admin.email)
+    target_response = context["admin_client"].get(
+        "/reports/office-bu-time-summary/",
+        data={"business_unit_id": str(project.business_unit_id)},
+    )
+    origin_response = foreign_admin_client.get(
+        "/reports/office-bu-time-summary/",
+        data={"business_unit_id": str(foreign_business_unit.id)},
+    )
+
+    assert target_response.status_code == 200
+    target_content = target_response.content.decode()
+    assert "PRJ-RPT - Reports Project" in target_content
+    assert "18.00" in target_content
+
+    assert origin_response.status_code == 200
+    origin_content = origin_response.content.decode()
+    assert "PRJ-RPT - Reports Project" in origin_content
+    assert "6.00" in origin_content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "report_path",
+    [
+        "/reports/employee-utilization/",
+        "/reports/office-bu-time-summary/",
+        "/reports/general-charge-code-usage/",
+        "/reports/approval-turnaround/",
+        "/reports/archived-timesheets/",
+        "/reports/audit-history/",
+        "/reports/integration-jobs/",
+    ],
+)
+def test_ts_admin_report_business_unit_filter_cannot_widen_scope(report_path: str) -> None:
+    context = _setup_reports_context()
+    out_of_scope = _create_out_of_scope_report_data(context)
+
+    response = context["admin_client"].get(
+        report_path,
+        data={"business_unit_id": str(out_of_scope["business_unit"].id)},
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    for marker in out_of_scope["markers"]:
+        assert marker not in content
 
 
 @pytest.mark.django_db
