@@ -249,4 +249,87 @@
       </div>
     {% endif %}
   </div>
+  {% if cross_office_staffing_dynamic_form %}
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const projectSelect = document.getElementById("project_id");
+        const targetOfficeInput = document.getElementById("target_office_name");
+        const targetBusinessUnitInput = document.getElementById("target_business_unit_name");
+        const originOfficeSelect = document.getElementById("origin_office_id");
+        const employeeSelect = document.getElementById("employee_id");
+        const originBusinessUnitInput = document.getElementById("origin_business_unit_name");
+
+        if (!projectSelect || !targetOfficeInput || !targetBusinessUnitInput || !originOfficeSelect || !employeeSelect || !originBusinessUnitInput) {
+          return;
+        }
+
+        const activeOfficeName = targetOfficeInput.value;
+        const allEmployeeOptions = Array.from(employeeSelect.options).map(function (option) {
+          return {
+            value: option.value,
+            label: option.textContent,
+            officeId: option.dataset.officeId || "",
+            originBuLabel: option.dataset.originBuLabel || "",
+          };
+        });
+
+        function syncProjectContext() {
+          const selectedOption = projectSelect.selectedOptions[0];
+          targetOfficeInput.value = selectedOption && selectedOption.dataset.officeName
+            ? selectedOption.dataset.officeName
+            : activeOfficeName;
+          targetBusinessUnitInput.value = selectedOption && selectedOption.dataset.buLabel
+            ? selectedOption.dataset.buLabel
+            : "";
+        }
+
+        function syncOriginBusinessUnit() {
+          const selectedOption = employeeSelect.selectedOptions[0];
+          originBusinessUnitInput.value = selectedOption && selectedOption.dataset.originBuLabel
+            ? selectedOption.dataset.originBuLabel
+            : "";
+        }
+
+        function syncEmployeeOptions() {
+          const selectedOriginOfficeId = originOfficeSelect.value;
+          const currentValue = employeeSelect.value;
+          employeeSelect.innerHTML = "";
+
+          allEmployeeOptions.forEach(function (optionData) {
+            if (optionData.value && (!selectedOriginOfficeId || optionData.officeId !== selectedOriginOfficeId)) {
+              return;
+            }
+            const option = document.createElement("option");
+            option.value = optionData.value;
+            option.textContent = optionData.label;
+            if (optionData.officeId) {
+              option.dataset.officeId = optionData.officeId;
+            }
+            if (optionData.originBuLabel) {
+              option.dataset.originBuLabel = optionData.originBuLabel;
+            }
+            if (optionData.value === currentValue) {
+              option.selected = true;
+            }
+            employeeSelect.appendChild(option);
+          });
+
+          if (
+            employeeSelect.value &&
+            employeeSelect.selectedOptions.length === 0
+          ) {
+            employeeSelect.value = "";
+          }
+          syncOriginBusinessUnit();
+        }
+
+        projectSelect.addEventListener("change", syncProjectContext);
+        originOfficeSelect.addEventListener("change", syncEmployeeOptions);
+        employeeSelect.addEventListener("change", syncOriginBusinessUnit);
+
+        syncProjectContext();
+        syncEmployeeOptions();
+      });
+    </script>
+  {% endif %}
 {% endblock %}

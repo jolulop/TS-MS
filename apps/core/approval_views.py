@@ -1,3 +1,4 @@
+from datetime import datetime
 from urllib.parse import urlencode
 
 from django.http import HttpRequest, HttpResponse
@@ -77,16 +78,13 @@ def _approval_target_kind(approval_item: dict) -> str:
 
 def _employee_label(approval_item: dict) -> str:
     employee = approval_item["timesheet_employee"]
-    return f"{employee['full_name']} ({employee['employee_code']})"
+    return employee["full_name"]
 
 
 def _approver_label(approval_item: dict) -> str:
     approver_employee = approval_item.get("approver_employee")
     if approver_employee is not None:
-        return (
-            f"{approver_employee['full_name']} "
-            f"({approver_employee['employee_code']})"
-        )
+        return approver_employee["full_name"]
     approver_roles = approval_item.get("approver_roles", [])
     if approver_roles:
         return ", ".join(
@@ -94,6 +92,14 @@ def _approver_label(approval_item: dict) -> str:
             for approver_role in approver_roles
         )
     return "Unassigned"
+
+
+def _submission_date_label(approval_item: dict) -> str:
+    value = approval_item["timesheet"].get("submission_datetime")
+    if not value:
+        return "Not submitted"
+    normalized_value = value.replace("Z", "+00:00")
+    return datetime.fromisoformat(normalized_value).strftime("%m/%d/%Y")
 
 
 def _pending_age_label(approval_item: dict) -> str:
@@ -123,6 +129,7 @@ def _approval_rows(
                 _approval_target_label(approval_item),
                 approval_item["business_unit"]["bu_code"],
                 _approver_label(approval_item),
+                _submission_date_label(approval_item),
                 _pending_age_label(approval_item),
                 _stalled_label(approval_item),
             ]
@@ -342,7 +349,7 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
         return _render_approval_auth_error(
             request,
             current_user,
-            title="Approval Oversight" if admin_oversight else "Approval Worklist",
+            title="Approval Worklist",
             eyebrow="SCR-305" if admin_oversight else "SCR-205",
             intro=(
                 "Scoped pending approvals, aging visibility, and related timesheet "
@@ -365,7 +372,7 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
             )
         )
         decided_items = [item for item in filtered_items if item["status"] != "PENDING"]
-        title = "Approval Oversight"
+        title = "Approval Worklist"
         eyebrow = "SCR-305"
         intro = (
             "Monitor pending approvals across your scoped Business Units, inspect "
@@ -377,6 +384,7 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
             "Target",
             "BU",
             "Approver",
+            "TS Submission Date",
             "Pending Age",
             "Queue State",
         )
@@ -385,6 +393,7 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
             "Target",
             "BU",
             "Approver",
+            "TS Submission Date",
             "Timesheet Status",
             "Outcome",
         )
@@ -412,6 +421,7 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
                     _approval_target_label(approval_item),
                     approval_item["business_unit"]["bu_code"],
                     _approver_label(approval_item),
+                    _submission_date_label(approval_item),
                     approval_item["timesheet"]["status"],
                     approval_item["status"],
                 ],
@@ -625,6 +635,7 @@ def approval_detail(request: HttpRequest, approval_item_id: int) -> HttpResponse
             "approval_project_label": _approval_target_label(approval_item),
             "approval_approver_label": _approver_label(approval_item),
             "timesheet_employee_label": _employee_label(approval_item),
+            "timesheet_submission_date_label": _submission_date_label(approval_item),
             "can_decide": AuthorizationPolicyService.can_approve_approval_item(
                 current_user,
                 approval_item_record,

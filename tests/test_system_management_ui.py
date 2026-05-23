@@ -1344,6 +1344,74 @@ def test_employee_detail_shows_assigned_projects_section() -> None:
         employee=managed_employee,
         assignment_start_date=date(2026, 2, 1),
     )
+    foreign_office = create_office(office_name="Employee Detail Foreign Office")
+    foreign_business_unit = create_business_unit(
+        bu_code="BU-EMP-DETAIL-FGN",
+        name="Employee Detail Foreign BU",
+        office=foreign_office,
+    )
+    foreign_project_owner = create_employee(
+        employee_code="EMP-PROJ-OWNER-FGN",
+        full_name="Foreign Detail Owner",
+        email="foreign-detail-owner@example.com",
+        primary_business_unit=foreign_business_unit,
+    )
+    foreign_project_manager = create_employee(
+        employee_code="EMP-PROJ-MANAGER-FGN",
+        full_name="Foreign Detail Manager",
+        email="foreign-detail-manager@example.com",
+        primary_business_unit=foreign_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=foreign_project_owner,
+        business_unit=foreign_business_unit,
+        is_primary_flag=True,
+    )
+    assign_employee_to_business_unit(
+        employee=foreign_project_manager,
+        business_unit=foreign_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=foreign_project_owner, role_code="USER")
+    assign_role(employee=foreign_project_owner, role_code="PROJECT_OWNER")
+    assign_role(employee=foreign_project_manager, role_code="USER")
+    assign_role(employee=foreign_project_manager, role_code="PROJECT_MANAGER")
+    foreign_client = create_client(
+        business_unit=foreign_business_unit,
+        client_code="CLI-EMP-DETAIL-FGN",
+        name="Employee Detail Foreign Client",
+    )
+    foreign_category = create_internal_category(
+        business_unit=foreign_business_unit,
+        category_code="CAT-EMP-DETAIL-FGN",
+        name="Employee Detail Foreign Category",
+    )
+    foreign_cost_center = create_cost_center(
+        business_unit=foreign_business_unit,
+        cost_center_code="CC-EMP-DETAIL-FGN",
+        name="Employee Detail Foreign Cost Center",
+    )
+    foreign_pricing_model = create_pricing_model(
+        business_unit=foreign_business_unit,
+        name="Employee Detail Foreign Pricing",
+    )
+    foreign_project = create_project(
+        business_unit=foreign_business_unit,
+        project_code="PRJ-EMP-DETAIL-FGN",
+        name="Employee Detail Foreign Project",
+        project_owner_employee=foreign_project_owner,
+        project_manager_employee=foreign_project_manager,
+        client=foreign_client,
+        internal_category=foreign_category,
+        cost_center=foreign_cost_center,
+        pricing_model=foreign_pricing_model,
+        start_date=date(2026, 2, 1),
+    )
+    assign_cross_office_project(
+        project=foreign_project,
+        employee=managed_employee,
+        assignment_start_date=date(2026, 2, 15),
+    )
     archived_project = create_project(
         business_unit=business_units[0],
         project_code="PRJ-EMP-HIDDEN",
@@ -1374,6 +1442,8 @@ def test_employee_detail_shows_assigned_projects_section() -> None:
     assert 'href="/system/projects/' in content
     assert f'href="/system/projects/{project.id}/"' in content
     assert ">Employee Detail Project</a>" in content
+    assert "[Cross-Office] Employee Detail Foreign Project" in content
+    assert f'href="/system/projects/{foreign_project.id}/"' not in content
     assert "PRJ-EMP-HIDDEN" not in content
     assert "Hidden Inactive Assignment" not in content
     primary_match = re.search(
@@ -3753,6 +3823,16 @@ def test_cross_office_staffing_admin_can_create_update_and_delete_assignments() 
     assert f'value="{project.office.office_name}"' in create_content
     assert (
         f'value="{project.business_unit.bu_code} - {project.business_unit.name}"'
+        in create_content
+    )
+    assert f'data-office-name="{project.office.office_name}"' in create_content
+    assert (
+        f'data-bu-label="{project.business_unit.bu_code} - {project.business_unit.name}"'
+        in create_content
+    )
+    assert f'data-office-id="{origin_office.id}"' in create_content
+    assert (
+        f'data-origin-bu-label="{origin_business_unit.bu_code} - {origin_business_unit.name}"'
         in create_content
     )
 

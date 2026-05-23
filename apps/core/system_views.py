@@ -253,12 +253,19 @@ def _selected_values(raw_values: object) -> set[str]:
     return {str(raw_values)}
 
 
-def _option(value: object, label: str, *, selected_values: set[str]) -> dict:
+def _option(
+    value: object,
+    label: str,
+    *,
+    selected_values: set[str],
+    attrs: dict[str, str] | None = None,
+) -> dict:
     string_value = str(value)
     return {
         "value": string_value,
         "label": label,
         "selected": string_value in selected_values,
+        "attrs": attrs or {},
     }
 
 
@@ -770,13 +777,14 @@ def _scoped_project_options(
     include_blank: bool = False,
     client_id: int | None = None,
     active_only: bool = False,
+    include_scope_metadata: bool = False,
 ) -> list[dict]:
     selected_values = _selected_values(selected)
     options = []
     if include_blank:
         options.append(_option("", "Select a Project", selected_values=selected_values))
     projects = (
-        Project.objects.select_related("business_unit", "status")
+        Project.objects.select_related("business_unit", "office", "status")
         .filter(
             business_unit_id__in=current_user.scoped_business_unit_ids,
             office_id=current_user.office_id,
@@ -805,6 +813,16 @@ def _scoped_project_options(
             project.id,
             f"{project.business_unit.bu_code} - {project.project_code} - {project.name}",
             selected_values=selected_values,
+            attrs=(
+                {
+                    "data-office-name": project.office.office_name,
+                    "data-bu-label": (
+                        f"{project.business_unit.bu_code} - {project.business_unit.name}"
+                    ),
+                }
+                if include_scope_metadata
+                else None
+            ),
         )
         for project in projects
     )
@@ -2162,6 +2180,8 @@ def _cross_office_employee_options(
     selected: object = None,
     include_blank: bool = False,
     origin_office_id: int | None = None,
+    include_scope_metadata: bool = False,
+    apply_origin_filter: bool = True,
 ) -> list[dict]:
     selected_values = _selected_values(selected)
     options = []
@@ -2171,7 +2191,7 @@ def _cross_office_employee_options(
         status__value_code="ACTIVE"
     )
     employees = employees.exclude(office_id=current_user.office_id)
-    if origin_office_id is not None:
+    if apply_origin_filter and origin_office_id is not None:
         employees = employees.filter(office_id=origin_office_id)
     employees = employees.order_by("office__office_name", "primary_business_unit__bu_code", "employee_code")
     options.extend(
@@ -2182,6 +2202,17 @@ def _cross_office_employee_options(
                 f"{employee.employee_code} - {employee.full_name}"
             ),
             selected_values=selected_values,
+            attrs=(
+                {
+                    "data-office-id": str(employee.office_id),
+                    "data-origin-bu-label": (
+                        f"{employee.primary_business_unit.bu_code} - "
+                        f"{employee.primary_business_unit.name}"
+                    ),
+                }
+                if include_scope_metadata
+                else None
+            ),
         )
         for employee in employees
     )
@@ -2305,6 +2336,7 @@ def _cross_office_staffing_fields(
                 selected=selected_project_id,
                 include_blank=entity is None,
                 active_only=True,
+                include_scope_metadata=entity is None,
             ),
             required=True,
             disabled=immutable,
@@ -2356,6 +2388,8 @@ def _cross_office_staffing_fields(
                 selected=selected_employee_id,
                 include_blank=entity is None,
                 origin_office_id=normalized_origin_office_id,
+                include_scope_metadata=entity is None,
+                apply_origin_filter=entity is not None,
             ),
             required=True,
             disabled=immutable,
@@ -2811,6 +2845,7 @@ def _render_detail_page(
     show_detail_panel: bool = True,
     detail_content_class: str = "content-stack",
     page_action: dict | None = None,
+    extra_context: dict | None = None,
 ) -> HttpResponse:
     context = _system_context(
         request,
@@ -2831,6 +2866,8 @@ def _render_detail_page(
             "page_action": page_action,
         }
     )
+    if extra_context:
+        context.update(extra_context)
     return render(request, "core/system_detail.html", context)
 
 
@@ -2895,6 +2932,7 @@ def _render_master_create(
     form_intro: str,
     setup_title: str | None = None,
     submit_label: str | None = None,
+    extra_context: dict | None = None,
 ) -> HttpResponse:
     return _render_detail_page(
         request,
@@ -2921,6 +2959,7 @@ def _render_master_create(
         entity_status="New",
         show_detail_panel=False,
         page_action={"label": f"Back to {config.plural_label}", "href": config.collection_path},
+        extra_context=extra_context,
     )
 
 
@@ -3021,9 +3060,17 @@ def _employee_project_assignment_rows(
 ) -> list[dict]:
     return [
         {
-            "href": f"/system/projects/{assignment['project']['id']}/",
+            "href": (
+                f"/system/projects/{assignment['project']['id']}/"
+                if assignment.get("assignment_type") != "CROSS_OFFICE"
+                else ""
+            ),
             "cells": [
-                assignment["project"]["name"],
+                (
+                    f"[Cross-Office] {assignment['project']['name']}"
+                    if assignment.get("assignment_type") == "CROSS_OFFICE"
+                    else assignment["project"]["name"]
+                ),
                 assignment["project"]["business_unit"]["bu_code"],
                 assignment["assignment_start_date"],
                 assignment["assignment_end_date"] or "Open",
@@ -5328,8 +5375,8 @@ def employee_detail(request: HttpRequest, employee_id: int) -> HttpResponse:
         _read_only_table_section(
             title="Project Assignments",
             intro=(
-                "Review the employee's active project assignments in your scoped "
-                "administration area."
+                "Review the employee's active same-office and cross-office project "
+                "staffing in your scoped administration area."
             ),
             table_headers=("Name", "BU", "From", "To"),
             table_rows=_employee_project_assignment_rows(project_assignments),
@@ -7256,6 +7303,7 @@ def cross_office_staffing_create(request: HttpRequest) -> HttpResponse:
         form_fields=_cross_office_staffing_fields(current_user, post_data=post_data),
         form_error=form_error,
         form_intro="Create a new Cross-Office Staffing record in your current target-project scope.",
+        extra_context={"cross_office_staffing_dynamic_form": True},
     )
 
 

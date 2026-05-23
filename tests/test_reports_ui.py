@@ -381,7 +381,13 @@ def test_project_owner_project_time_report_is_scoped() -> None:
     assert 'class="report-panel-stack"' in content
     assert '<label for="work_date_from">From</label>' in content
     assert '<label for="work_date_to">To</label>' in content
+    assert "Weekly Summary Grid" in content
+    assert "<th>Project Code</th>" in content
+    assert "<th>Week Start</th>" in content
+    assert "<th>Total Hours</th>" in content
     assert "PRJ-RPT" in content
+    assert "Reports User" in content
+    assert "5.00" in content
     assert "Billable delivery" in content
     assert "Admin support" not in content
 
@@ -396,8 +402,65 @@ def test_project_manager_pending_approvals_report_is_available() -> None:
     assert response.status_code == 200
     assert "Pending Approvals" in content
     assert 'class="report-panel-stack"' in content
+    assert "<th>Week Start Date</th>" in content
+    assert "<th>Approval Item</th>" not in content
+    assert "<th>Status</th>" not in content
+    assert context["week_start"].isoformat() in content
     assert "PRJ-RPT" in content
     assert "EMP-RPT-USER" in content
+
+
+@pytest.mark.django_db
+def test_office_bu_time_summary_splits_rows_by_project() -> None:
+    context = _setup_reports_context()
+    project = context["project"]
+    user = Employee.objects.get(email="reports-user@example.com")
+    second_project = create_project(
+        business_unit=project.business_unit,
+        project_code="PRJ-RPT-2",
+        name="Reports Project Two",
+        project_owner_employee=project.project_owner_employee,
+        project_manager_employee=project.project_manager_employee,
+        client=project.client,
+        internal_category=project.internal_category,
+        cost_center=project.cost_center,
+        pricing_model=project.pricing_model,
+        start_date=project.start_date,
+        billable_flag=False,
+    )
+    assign_project(
+        project=second_project,
+        employee=user,
+        assignment_start_date=context["week_start"] + timedelta(days=7),
+    )
+
+    create_response = context["user_client"].post(
+        "/ts/",
+        data={"week_start_date": (context["week_start"] + timedelta(days=7)).isoformat()},
+        follow=False,
+    )
+    assert create_response.status_code == 302
+    save_response = context["user_client"].post(
+        create_response.headers["Location"],
+        data={
+            "form_name": "lines",
+            "row_count": "8",
+            "line_0_work_date": (context["week_start"] + timedelta(days=7)).isoformat(),
+            "line_0_hours": "4.00",
+            "line_0_project_id": str(second_project.id),
+            "line_0_general_charge_code_id": "",
+            "line_0_comment_text": "Second project delivery",
+        },
+        follow=False,
+    )
+    assert save_response.status_code == 302
+
+    response = context["admin_client"].get("/reports/office-bu-time-summary/")
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "PRJ-RPT - Reports Project" in content
+    assert "PRJ-RPT-2 - Reports Project Two" in content
 
 
 @pytest.mark.django_db
@@ -491,7 +554,13 @@ def test_cross_office_staffing_reports_include_foreign_employee_time() -> None:
     pm_response = context["pm_client"].get("/reports/pending-approvals/")
     admin_pending_response = context["admin_client"].get("/reports/pending-approvals/")
     admin_turnaround_response = context["admin_client"].get("/reports/approval-turnaround/")
+    admin_office_summary_response = context["admin_client"].get(
+        "/reports/office-bu-time-summary/"
+    )
     foreign_admin_pending_response = foreign_admin_client.get("/reports/pending-approvals/")
+    foreign_admin_office_summary_response = foreign_admin_client.get(
+        "/reports/office-bu-time-summary/"
+    )
 
     assert owner_response.status_code == 200
     owner_content = owner_response.content.decode()
@@ -517,10 +586,27 @@ def test_cross_office_staffing_reports_include_foreign_employee_time() -> None:
     assert "BU-RPT" in admin_turnaround_content
     assert "BU-RPT-FGN" not in admin_turnaround_content
 
+    assert admin_office_summary_response.status_code == 200
+    admin_office_summary_content = admin_office_summary_response.content.decode()
+    assert "Office / BU Time Summary" in admin_office_summary_content
+    assert "Reports BU" in admin_office_summary_content
+    assert "PRJ-RPT - Reports Project" in admin_office_summary_content
+    assert "18.00" in admin_office_summary_content
+
     assert foreign_admin_pending_response.status_code == 200
     foreign_admin_pending_content = foreign_admin_pending_response.content.decode()
     assert "EMP-RPT-FGN" not in foreign_admin_pending_content
     assert "PRJ-RPT" not in foreign_admin_pending_content
+
+    assert foreign_admin_office_summary_response.status_code == 200
+    foreign_admin_office_summary_content = (
+        foreign_admin_office_summary_response.content.decode()
+    )
+    assert "Office / BU Time Summary" in foreign_admin_office_summary_content
+    assert "Reports BU" in foreign_admin_office_summary_content
+    assert "Reports Foreign BU" not in foreign_admin_office_summary_content
+    assert "PRJ-RPT - Reports Project" in foreign_admin_office_summary_content
+    assert "6.00" in foreign_admin_office_summary_content
 
 
 @pytest.mark.django_db
@@ -636,8 +722,9 @@ def test_ts_admin_can_open_admin_reports() -> None:
     assert "Office / BU Time Summary" in office_summary_content
     assert 'class="report-panel-stack"' in office_summary_content
     assert 'class="report-filter-grid"' in office_summary_content
-    assert "BU-RPT" in office_summary_content
-    assert "16.00" in office_summary_content
+    assert "Reports BU" in office_summary_content
+    assert "PRJ-RPT - Reports Project" in office_summary_content
+    assert "12.00" in office_summary_content
     assert gcc_response.status_code == 200
     gcc_content = gcc_response.content.decode()
     assert "General Charge Code (GCC) Usage" in gcc_content
@@ -733,10 +820,10 @@ def test_ts_admin_advanced_report_csv_exports_download_and_audit() -> None:
 
     assert office_summary_response.status_code == 200
     assert (
-        "Office,BU,BU Name,Employees,Timesheets,Lines,Total Hours"
+        "Office,BU Name,Project,Employees,Timesheets,Lines,Total Hours"
         in office_summary_response.content.decode()
     )
-    assert "BU-RPT" in office_summary_response.content.decode()
+    assert "PRJ-RPT - Reports Project" in office_summary_response.content.decode()
     assert AuditLog.objects.filter(
         entity_name="office_bu_time_summary_report",
         action_type__value_code="EXPORT",
@@ -863,9 +950,11 @@ def test_pending_approvals_report_csv_export_downloads_rows_and_audits() -> None
     assert response["Content-Type"].startswith("text/csv")
     content = response.content.decode()
     assert (
-        "Approval Item,Employee Code,Employee,Target Code,Target,BU,Submission No.,Status"
+        "Week Start Date,Employee Code,Employee,Target Code,Target,BU,Submission No."
         in content
     )
+    assert "Approval Item" not in content
+    assert "Status" not in content
     assert "EMP-RPT-USER" in content
     assert "PRJ-RPT" in content
     assert AuditLog.objects.filter(

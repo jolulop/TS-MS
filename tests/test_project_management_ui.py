@@ -345,7 +345,7 @@ def test_project_manager_and_ts_admin_can_open_filtered_project_approval_worklis
 
     assert admin_response.status_code == 200
     admin_content = admin_response.content.decode()
-    assert "Approval Oversight" in admin_content
+    assert "Approval Worklist" in admin_content
     assert "Project Mgmt Employee" in admin_content
     assert "Project Mgmt Project" in admin_content
 

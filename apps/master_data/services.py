@@ -1261,6 +1261,7 @@ def _serialize_project(project: Project) -> dict:
 def _serialize_project_assignment(assignment: ProjectAssignment) -> dict:
     return {
         "id": assignment.id,
+        "assignment_type": "PROJECT_ASSIGNMENT",
         "name": (
             f"{assignment.project.project_code} -> "
             f"{assignment.employee.employee_code} ({assignment.assignment_start_date.isoformat()})"
@@ -1303,6 +1304,7 @@ def _serialize_cross_office_project_assignment(
 ) -> dict:
     return {
         "id": assignment.id,
+        "assignment_type": "CROSS_OFFICE",
         "name": (
             f"{assignment.project.project_code} -> "
             f"{assignment.employee.employee_code} ({assignment.assignment_start_date.isoformat()})"
@@ -2650,7 +2652,7 @@ class EmployeeManagementService:
     ) -> list[dict]:
         _ensure_ts_admin(current_user)
         employee = _get_scoped_employee_for_management(current_user, employee_id)
-        assignments = (
+        assignments = list(
             ProjectAssignment.objects.select_related(
                 "project",
                 "project__office",
@@ -2672,7 +2674,46 @@ class EmployeeManagementService:
                 "-assignment_start_date",
             )
         )
-        return [_serialize_project_assignment(assignment) for assignment in assignments]
+        cross_office_assignments = list(
+            CrossOfficeProjectAssignment.objects.select_related(
+                "project",
+                "project__office",
+                "project__business_unit",
+                "project__client",
+                "employee",
+                "employee__office",
+                "employee__primary_business_unit",
+                "origin_office",
+                "origin_business_unit",
+                "status",
+            )
+            .filter(
+                employee_id=employee.id,
+                origin_office_id=current_user.office_id,
+                status__domain__domain_code="PROJECT_ASSIGNMENT_STATUS",
+                status__value_code="ACTIVE",
+            )
+            .order_by(
+                "project__office__office_name",
+                "project__business_unit__bu_code",
+                "project__project_code",
+                "-assignment_start_date",
+            )
+        )
+        serialized_assignments = [_serialize_project_assignment(assignment) for assignment in assignments]
+        serialized_assignments.extend(
+            _serialize_cross_office_project_assignment(assignment)
+            for assignment in cross_office_assignments
+        )
+        serialized_assignments.sort(
+            key=lambda assignment: (
+                assignment["project"]["business_unit"]["bu_code"],
+                assignment["project"]["project_code"],
+                assignment["assignment_type"] != "PROJECT_ASSIGNMENT",
+                assignment["assignment_start_date"],
+            )
+        )
+        return serialized_assignments
 
     @staticmethod
     def list_transfer_candidates(current_user: CurrentUser) -> list[dict]:

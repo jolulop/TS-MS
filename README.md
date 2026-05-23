@@ -67,24 +67,24 @@ After running `make seed-dev`, you can initialize a TS Admin session in the acce
 ## Documentation baseline
 
 Current repository-aligned specification set:
-- `docs/specification-index-v6.0.md`
-- `docs/functional-spec-v6.0.md`
-- `docs/ui-screen-spec-v6.0.md`
-- `docs/integration-api-spec-v6.0.md`
-- `docs/authorization-matrix-v6.0.md`
-- `docs/business-rules-catalog-v6.0.md`
-- `docs/use-cases-acceptance-v6.0.md`
-- `docs/data-model-erd-v6.0.md`
-- `docs/non-functional-requirements-v6.0.md`
+- `docs/specification-index-v6.1.md`
+- `docs/functional-spec-v6.1.md`
+- `docs/ui-screen-spec-v6.1.md`
+- `docs/integration-api-spec-v6.1.md`
+- `docs/authorization-matrix-v6.1.md`
+- `docs/business-rules-catalog-v6.1.md`
+- `docs/use-cases-acceptance-v6.1.md`
+- `docs/data-model-erd-v6.1.md`
+- `docs/non-functional-requirements-v6.1.md`
 
-Legacy `v5.2`, `v5.4`, `v5.5`, `v5.6`, `v5.7`, `v5.8`, `v5.9`, `v5.9.1`, `v5.9.2`, `v5.9.3`, and `v5.9.5` markdown notes remain in `docs/` only as historical superseded deltas and should not be used as the current source of truth.
+Legacy `v5.2`, `v5.4`, `v5.5`, `v5.6`, `v5.7`, `v5.8`, `v5.9`, `v5.9.1`, `v5.9.2`, `v5.9.3`, `v5.9.5`, and `v6.0` markdown notes remain in `docs/` only as historical superseded deltas and should not be used as the current source of truth.
 
 ## Repository guidance
 
 Before implementing business features, follow:
 - `AGENTS.md`
 - `PLANS.md`
-- `docs/specification-index-v6.0.md`
+- `docs/specification-index-v6.1.md`
 - `docs/architecture/stack.md`
 - `docs/development/local-setup.md`
 - `docs/development/reference-data-strategy.md`

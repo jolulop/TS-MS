@@ -31,7 +31,7 @@
             {% if field.disabled %}disabled{% endif %}
             {% if field.required %}required{% endif %}>
             {% for option in field.options %}
-              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}{% if option.attrs %}{% for attr_name, attr_value in option.attrs.items %} {{ attr_name }}="{{ attr_value }}"{% endfor %}{% endif %}>{{ option.label }}</option>
             {% endfor %}
           </select>
         {% elif field.kind == "listbox" %}
@@ -42,7 +42,7 @@
             {% if field.disabled %}disabled{% endif %}
             {% if field.required %}required{% endif %}>
             {% for option in field.options %}
-              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}{% if option.attrs %}{% for attr_name, attr_value in option.attrs.items %} {{ attr_name }}="{{ attr_value }}"{% endfor %}{% endif %}>{{ option.label }}</option>
             {% endfor %}
           </select>
         {% elif field.kind == "multiselect" %}
@@ -54,7 +54,7 @@
             {% if field.disabled %}disabled{% endif %}
             {% if field.required %}required{% endif %}>
             {% for option in field.options %}
-              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+              <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}{% if option.attrs %}{% for attr_name, attr_value in option.attrs.items %} {{ attr_name }}="{{ attr_value }}"{% endfor %}{% endif %}>{{ option.label }}</option>
             {% endfor %}
           </select>
         {% else %}

@@ -520,6 +520,7 @@ def test_project_manager_worklist_shows_pending_approval_item() -> None:
     assert "Completed Decisions" not in content
     assert "Last actions" in content
     assert "Approval Employee" in content
+    assert "EMP-APR-001" not in content
     assert context["project"].project_code in content
     assert f"/approvals/{context['approval_item'].id}/" in content
 
@@ -546,8 +547,9 @@ def test_ts_admin_oversight_shows_scoped_pending_items_and_stalled_filters() -> 
 
     assert response.status_code == 200
     content = response.content.decode()
-    assert "Approval Oversight" in content
+    assert "Approval Worklist" in content
     assert "Oversight Filters" in content
+    assert "TS Submission Date" in content
     assert "Stalled" in content
     assert "Approval Employee" in content
     assert "Approver" in content
@@ -577,6 +579,8 @@ def test_ts_admin_can_open_approval_detail_in_read_only_oversight_mode() -> None
     assert "Open Related Timesheet" in content
     assert f"/system/projects/{context['project'].id}/" in content
     assert context["project_manager"].full_name in content
+    assert context["project_manager"].employee_code not in content
+    assert "TS Submission Date" in content
     assert "read-only for admin oversight" in content
     assert "Approve Item" not in content
     assert "Reject Item" not in content
@@ -593,8 +597,9 @@ def test_target_office_ts_admin_oversight_sees_cross_office_project_item() -> No
 
     assert worklist_response.status_code == 200
     worklist_content = worklist_response.content.decode()
-    assert "Approval Oversight" in worklist_content
-    assert "EMP-APR-CO-WORKER" in worklist_content
+    assert "Approval Worklist" in worklist_content
+    assert "Approval Cross Office Worker" in worklist_content
+    assert "EMP-APR-CO-WORKER" not in worklist_content
     assert "PRJ-APR-CO" in worklist_content
 
     assert detail_response.status_code == 200

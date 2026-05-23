@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from urllib.parse import urlencode
 
-from django.db.models import Count, Max, Min, Q, Sum
+from django.db.models import Count, F, Max, Min, Q, Sum
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET
@@ -734,6 +734,37 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
     if parsed_end is not None:
         queryset = queryset.filter(work_date__lte=parsed_end)
 
+    weekly_summary_rows = [
+        [
+            row["project__project_code"],
+            row["project__name"],
+            row["weekly_timesheet__business_unit__bu_code"],
+            row["weekly_timesheet__week_start_date"].isoformat(),
+            row["weekly_timesheet__employee__full_name"],
+            _decimal_display(row["total_hours"]),
+            _decimal_display(row["billable_hours"]),
+            row["approval_state__value_code"] or "Not routed",
+        ]
+        for row in queryset.values(
+            "project__project_code",
+            "project__name",
+            "weekly_timesheet__business_unit__bu_code",
+            "weekly_timesheet__week_start_date",
+            "weekly_timesheet__employee__full_name",
+            "approval_state__value_code",
+        )
+        .annotate(
+            total_hours=Sum("hours"),
+            billable_hours=Sum("hours", filter=Q(billable_flag=True)),
+        )
+        .order_by(
+            "-weekly_timesheet__week_start_date",
+            "project__project_code",
+            "weekly_timesheet__employee__full_name",
+            "approval_state__value_code",
+        )
+    ]
+
     rows = [
         [
             line.work_date.isoformat(),
@@ -795,6 +826,18 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
                 "value": work_date_to,
             },
         ],
+        "summary_title": "Weekly Summary Grid",
+        "summary_headers": (
+            "Project Code",
+            "Project",
+            "BU",
+            "Week Start",
+            "Employee",
+            "Total Hours",
+            "Billable Hours",
+            "Approval State",
+        ),
+        "summary_rows": weekly_summary_rows,
         "headers": (
             "Work Date",
             "Employee Code",
@@ -876,7 +919,7 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
 
     rows = [
         [
-            str(item.id),
+            item.submission_cycle.weekly_timesheet.week_start_date.isoformat(),
             item.submission_cycle.weekly_timesheet.employee.employee_code,
             item.submission_cycle.weekly_timesheet.employee.full_name,
             item.project.project_code if item.project else "",
@@ -889,7 +932,6 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
             ),
             approval_item_effective_business_unit(item)["bu_code"],
             str(item.submission_cycle.submission_no),
-            item.status.value_code,
         ]
         for item in queryset.order_by("submission_cycle__weekly_timesheet__week_start_date", "id")
     ]
@@ -922,14 +964,13 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
             },
         ],
         "headers": (
-            "Approval Item",
+            "Week Start Date",
             "Employee Code",
             "Employee",
             "Target Code",
             "Target",
             "BU",
             "Submission No.",
-            "Status",
         ),
         "rows": rows,
         "totals": [
@@ -1396,12 +1437,16 @@ def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpReque
     business_unit_id = _selected_value(request, "business_unit_id")
     work_date_from = _selected_value(request, "work_date_from")
     work_date_to = _selected_value(request, "work_date_to")
+    scoped_business_unit_ids = (
+        [int(business_unit_id)] if business_unit_id else current_user.scoped_business_unit_ids
+    )
 
-    queryset = TimesheetLine.objects.select_related(
-        "weekly_timesheet__business_unit__office"
-    ).filter(weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids)
-    if business_unit_id:
-        queryset = queryset.filter(weekly_timesheet__business_unit_id=business_unit_id)
+    queryset = TimesheetLine.objects.filter(
+        project_id__isnull=False,
+    ).filter(
+        Q(weekly_timesheet__business_unit_id__in=scoped_business_unit_ids)
+        | Q(project__business_unit_id__in=scoped_business_unit_ids)
+    )
 
     default_start, default_end = _aggregate_date_bounds(queryset, "work_date")
     (
@@ -1420,10 +1465,17 @@ def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpReque
     if resolved_end is not None:
         queryset = queryset.filter(work_date__lte=resolved_end)
 
+    queryset = queryset.annotate(
+        effective_office_name=F("project__office__office_name"),
+        effective_business_unit_id=F("project__business_unit_id"),
+        effective_business_unit_name=F("project__business_unit__name"),
+    )
+
     grouped_rows = queryset.values(
-        "weekly_timesheet__business_unit__office__office_name",
-        "weekly_timesheet__business_unit__bu_code",
-        "weekly_timesheet__business_unit__name",
+        "effective_office_name",
+        "effective_business_unit_name",
+        "project__project_code",
+        "project__name",
     ).annotate(
         employee_count=Count("weekly_timesheet__employee", distinct=True),
         timesheet_count=Count("weekly_timesheet", distinct=True),
@@ -1432,15 +1484,16 @@ def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpReque
         billable_hours=Sum("hours", filter=Q(billable_flag=True)),
         non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
     ).order_by(
-        "weekly_timesheet__business_unit__office__office_name",
-        "weekly_timesheet__business_unit__bu_code",
+        "effective_office_name",
+        "effective_business_unit_name",
+        "project__project_code",
     )
 
     rows = [
         [
-            row["weekly_timesheet__business_unit__office__office_name"],
-            row["weekly_timesheet__business_unit__bu_code"],
-            row["weekly_timesheet__business_unit__name"],
+            row["effective_office_name"],
+            row["effective_business_unit_name"],
+            f"{row['project__project_code']} - {row['project__name']}",
             str(row["employee_count"]),
             str(row["timesheet_count"]),
             str(row["line_count"]),
@@ -1485,8 +1538,8 @@ def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpReque
         ],
         "headers": (
             "Office",
-            "BU",
             "BU Name",
+            "Project",
             "Employees",
             "Timesheets",
             "Lines",
@@ -1506,7 +1559,7 @@ def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpReque
                 "value": _decimal_display(totals["non_billable_hours"]),
             },
         ],
-        "empty_message": "No Office or Business Unit summary rows match the current filters.",
+        "empty_message": "No Office, Business Unit, or project summary rows match the current filters.",
     }
 
 
@@ -1978,6 +2031,9 @@ def render_report_view(
             "report_definition": definition,
             "filter_fields": filters,
             "report_filter_grid_class": payload.get("filter_grid_class", "report-filter-grid"),
+            "summary_table_title": payload.get("summary_title"),
+            "summary_table_headers": payload.get("summary_headers"),
+            "summary_table_rows": payload.get("summary_rows"),
             "table_headers": payload["headers"],
             "table_rows": payload["rows"],
             "totals": payload["totals"],

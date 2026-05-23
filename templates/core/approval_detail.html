@@ -23,13 +23,13 @@
       </div>
     </div>
 
-    <div class="split-grid">
+    <div class="report-panel-stack">
       <section class="surface-card">
         <div class="section-header">
           <h2>Approval Context</h2>
-          <p><a href="{{ back_href }}">Back to {% if is_admin_oversight %}Approval Oversight{% else %}Approval Worklist{% endif %}</a></p>
+          <p><a href="{{ back_href }}">Back to Approval Worklist</a></p>
         </div>
-        <dl class="meta-grid">
+        <dl class="meta-grid meta-grid-inline">
           <div class="meta-row">
             <dt>Employee</dt>
             <dd>{{ timesheet_employee_label }}</dd>
@@ -39,36 +39,24 @@
             <dd>{{ approval_project_label }}</dd>
           </div>
           <div class="meta-row">
-            <dt>Business Unit</dt>
-            <dd>{{ approval_item.business_unit.bu_code }} - {{ approval_item.business_unit.name }}</dd>
+            <dt>BU</dt>
+            <dd>{{ approval_item.business_unit.name }}</dd>
           </div>
           <div class="meta-row">
             <dt>Approver</dt>
             <dd>{{ approval_approver_label }}</dd>
           </div>
           <div class="meta-row">
+            <dt>TS Submission Date</dt>
+            <dd>{{ timesheet_submission_date_label }}</dd>
+          </div>
+          <div class="meta-row">
             <dt>Submission No.</dt>
             <dd>{{ approval_item.submission_no }}</dd>
           </div>
           <div class="meta-row">
-            <dt>Scope Type</dt>
-            <dd>{{ approval_item.scope_type }}</dd>
-          </div>
-          <div class="meta-row">
             <dt>Status</dt>
             <dd>{{ approval_item.status }}</dd>
-          </div>
-          <div class="meta-row">
-            <dt>Pending Age</dt>
-            <dd>{{ pending_age_label }}</dd>
-          </div>
-          <div class="meta-row">
-            <dt>Queue State</dt>
-            <dd>{{ queue_state_label }}</dd>
-          </div>
-          <div class="meta-row">
-            <dt>Rejection Reason</dt>
-            <dd>{{ approval_item.rejection_reason|default:"Not rejected" }}</dd>
           </div>
         </dl>
       </section>
@@ -84,6 +72,9 @@
             <a class="button ghost" href="{{ related_project_href }}">Open Related Project</a>
           {% endif %}
         </div>
+        {% if approval_item.rejection_reason %}
+          <p>Rejection Reason: {{ approval_item.rejection_reason }}</p>
+        {% endif %}
         <p>
           {% if can_decide %}
             The backend still enforces approver scope, pending-only actions, and self-approval prevention.

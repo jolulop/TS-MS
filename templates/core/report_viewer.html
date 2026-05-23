@@ -73,6 +73,34 @@
       </section>
     </div>
 
+    {% if summary_table_headers and summary_table_rows %}
+      <section class="surface-card">
+        <div class="section-header">
+          <h2>{{ summary_table_title|default:"Summary Grid" }}</h2>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                {% for header in summary_table_headers %}
+                  <th>{{ header }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in summary_table_rows %}
+                <tr>
+                  {% for cell in row %}
+                    <td>{{ cell }}</td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endif %}
+
     <section class="surface-card">
       <div class="section-header">
         <h2>Results Grid</h2>

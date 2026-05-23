@@ -2,6 +2,21 @@
 
 ## Active Plans
 
+- `2026-05-23`: `docs/plans/2026-05-23-docs-v6.1-promotion.md`
+  - status: completed
+  - focus: publish the v6.1 markdown source-of-truth set and repoint repo guidance away from the v6.0 baseline
+- `2026-05-23`: `docs/plans/2026-05-23-report-grid-refinements.md`
+  - status: completed
+  - focus: add the Project Time weekly summary grid and refine Pending Approvals report columns
+- `2026-05-22`: `docs/plans/2026-05-22-approval-worklist-ui-polish.md`
+  - status: completed
+  - focus: rename the approval workspace consistently to Approval Worklist and compact the approval detail/list layouts
+- `2026-05-22`: `docs/plans/2026-05-22-office-bu-time-summary-project-split.md`
+  - status: completed
+  - focus: rework Office / BU Time Summary into a project-split summary with cross-office visibility from both sides
+- `2026-05-22`: `docs/plans/2026-05-22-cross-office-staffing-followup.md`
+  - status: completed
+  - focus: close the first UAT gaps in cross-office staffing create UX, employee detail visibility, and Office / BU reporting
 - `2026-05-22`: `docs/plans/2026-05-22-cross-office-staffing-phase-3-implementation.md`
   - status: completed
   - focus: move project approval oversight for `TS_ADMIN` to the target project Office and scoped target Business Unit side while keeping GCC approval oversight on the home-BU side
@@ -137,7 +152,7 @@
 
 Historical note:
 - completed plan files intentionally preserve the source-document references and milestone wording that existed when those plans were written
-- use `AGENTS.md`, this file, and the v6.0 markdown spec set for current implementation work
+- use `AGENTS.md`, this file, and the v6.1 markdown spec set for current implementation work
 
 ## Purpose
 
