@@ -666,6 +666,8 @@ Important UI behavior:
   - includes charged project time from valid cross-office staffed employees
   - the existing displayed `BU` field remains the weekly-timesheet home
     Business Unit unless a later reporting change says otherwise
+  - for `TS_ADMIN`, the `Business Unit` filter is applied to the charged
+    target project's Business Unit, not to the displayed home-BU value
   - HTML results use one grouped `Results Grid`
   - each visible `BU` / `Project` shows one summary row with expand/collapse
     access to grouped `Week Start` rows

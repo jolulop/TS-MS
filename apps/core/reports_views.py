@@ -621,6 +621,28 @@ def _selected_value(request: HttpRequest, name: str) -> str:
     return request.GET.get(name, "").strip()
 
 
+def _parse_business_unit_filter_id(raw_business_unit_id: str) -> int | None:
+    if not raw_business_unit_id.isdigit():
+        return None
+    return int(raw_business_unit_id)
+
+
+def _scoped_business_unit_filter_ids(
+    current_user: CurrentUser,
+    raw_business_unit_id: str,
+) -> list[int]:
+    scoped_business_unit_ids = list(current_user.scoped_business_unit_ids)
+    if not raw_business_unit_id:
+        return scoped_business_unit_ids
+
+    selected_business_unit_id = _parse_business_unit_filter_id(raw_business_unit_id)
+    if selected_business_unit_id is None:
+        return []
+    if selected_business_unit_id not in scoped_business_unit_ids:
+        return []
+    return [selected_business_unit_id]
+
+
 def _common_filter_fields(current_user: CurrentUser, *, include_bu: bool = False) -> list[dict]:
     fields: list[dict] = []
     if include_bu and current_user.is_ts_admin and len(current_user.scoped_business_units) > 1:
@@ -731,7 +753,12 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
     work_date_to = _selected_value(request, "work_date_to")
 
     if business_unit_id and current_user.is_ts_admin:
-        queryset = queryset.filter(weekly_timesheet__business_unit_id=business_unit_id)
+        queryset = queryset.filter(
+            project__business_unit_id__in=_scoped_business_unit_filter_ids(
+                current_user,
+                business_unit_id,
+            )
+        )
     if project_id:
         queryset = queryset.filter(project_id=project_id)
     if employee_id:
@@ -978,13 +1005,20 @@ def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -
     project_id = _selected_value(request, "project_id")
     employee_id = _selected_value(request, "employee_id")
 
-    if business_unit_id.isdigit() and current_user.is_ts_admin:
-        queryset = queryset.filter(
-            ts_admin_approval_business_unit_filter_q(
-                current_user,
-                int(business_unit_id),
-            )
+    if business_unit_id and current_user.is_ts_admin:
+        scoped_business_unit_ids = _scoped_business_unit_filter_ids(
+            current_user,
+            business_unit_id,
         )
+        if scoped_business_unit_ids:
+            queryset = queryset.filter(
+                ts_admin_approval_business_unit_filter_q(
+                    current_user,
+                    scoped_business_unit_ids[0],
+                )
+            )
+        else:
+            queryset = queryset.none()
     if project_id:
         queryset = queryset.filter(project_id=project_id)
     if employee_id:
@@ -1091,17 +1125,19 @@ def _archived_timesheets_report(current_user: CurrentUser, request: HttpRequest)
     employee_id = _selected_value(request, "employee_id")
     week_start_from = _selected_value(request, "week_start_from")
     week_start_to = _selected_value(request, "week_start_to")
+    scoped_business_unit_ids = _scoped_business_unit_filter_ids(
+        current_user,
+        business_unit_id,
+    )
 
     queryset = WeeklyTimesheet.objects.select_related(
         "employee",
         "business_unit",
         "status",
     ).filter(
-        business_unit_id__in=current_user.scoped_business_unit_ids,
+        business_unit_id__in=scoped_business_unit_ids,
         status__value_code="ARCHIVED",
     )
-    if business_unit_id:
-        queryset = queryset.filter(business_unit_id=business_unit_id)
     if employee_id:
         queryset = queryset.filter(employee_id=employee_id)
     parsed_start = _parse_date_query(week_start_from)
@@ -1179,14 +1215,16 @@ def _audit_history_report(current_user: CurrentUser, request: HttpRequest) -> di
     action_code = _selected_value(request, "action_code")
     event_from = _selected_value(request, "event_from")
     event_to = _selected_value(request, "event_to")
+    scoped_business_unit_ids = _scoped_business_unit_filter_ids(
+        current_user,
+        business_unit_id,
+    )
 
     queryset = AuditLog.objects.select_related(
         "business_unit",
         "actor_employee",
         "action_type",
-    ).filter(business_unit_id__in=current_user.scoped_business_unit_ids)
-    if business_unit_id:
-        queryset = queryset.filter(business_unit_id=business_unit_id)
+    ).filter(business_unit_id__in=scoped_business_unit_ids)
     if entity_name:
         queryset = queryset.filter(entity_name__icontains=entity_name)
     if action_code:
@@ -1271,14 +1309,16 @@ def _integration_jobs_report(current_user: CurrentUser, request: HttpRequest) ->
     business_unit_id = _selected_value(request, "business_unit_id")
     interface_code = _selected_value(request, "interface_code")
     status_code = _selected_value(request, "status")
+    scoped_business_unit_ids = _scoped_business_unit_filter_ids(
+        current_user,
+        business_unit_id,
+    )
 
     queryset = IntegrationJob.objects.select_related(
         "business_unit",
         "status",
         "requested_by_employee",
-    ).filter(business_unit_id__in=current_user.scoped_business_unit_ids)
-    if business_unit_id:
-        queryset = queryset.filter(business_unit_id=business_unit_id)
+    ).filter(business_unit_id__in=scoped_business_unit_ids)
     if interface_code:
         queryset = queryset.filter(interface_code__icontains=interface_code)
     if status_code:
@@ -1356,13 +1396,10 @@ def _employee_utilization_report(current_user: CurrentUser, request: HttpRequest
     work_date_from = _selected_value(request, "work_date_from")
     work_date_to = _selected_value(request, "work_date_to")
 
-    scope_business_unit_ids = current_user.scoped_business_unit_ids
-    if business_unit_id:
-        scope_business_unit_ids = [
-            scoped_id
-            for scoped_id in current_user.scoped_business_unit_ids
-            if str(scoped_id) == business_unit_id
-        ]
+    scope_business_unit_ids = _scoped_business_unit_filter_ids(
+        current_user,
+        business_unit_id,
+    )
 
     line_queryset = TimesheetLine.objects.filter(
         weekly_timesheet__business_unit_id__in=scope_business_unit_ids
@@ -1510,14 +1547,9 @@ def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpReque
     business_unit_id = _selected_value(request, "business_unit_id")
     work_date_from = _selected_value(request, "work_date_from")
     work_date_to = _selected_value(request, "work_date_to")
-    scoped_business_unit_ids = (
-        [
-            scoped_id
-            for scoped_id in current_user.scoped_business_unit_ids
-            if str(scoped_id) == business_unit_id
-        ]
-        if business_unit_id
-        else current_user.scoped_business_unit_ids
+    scoped_business_unit_ids = _scoped_business_unit_filter_ids(
+        current_user,
+        business_unit_id,
     )
 
     queryset = TimesheetLine.objects.filter(
@@ -1656,11 +1688,12 @@ def _general_charge_code_usage_report(current_user: CurrentUser, request: HttpRe
         "weekly_timesheet__business_unit__office",
         "general_charge_code",
     ).filter(
-        weekly_timesheet__business_unit_id__in=current_user.scoped_business_unit_ids,
+        weekly_timesheet__business_unit_id__in=_scoped_business_unit_filter_ids(
+            current_user,
+            business_unit_id,
+        ),
         general_charge_code_id__isnull=False,
     )
-    if business_unit_id:
-        queryset = queryset.filter(weekly_timesheet__business_unit_id=business_unit_id)
     if general_charge_code_id:
         queryset = queryset.filter(general_charge_code_id=general_charge_code_id)
     if employee_id:
@@ -1860,13 +1893,20 @@ def _approval_turnaround_report(current_user: CurrentUser, request: HttpRequest)
         "approver_roles__existing_role",
         "approver_roles__approval_role",
     ).filter(ts_admin_visible_approval_items_q(current_user))
-    if business_unit_id.isdigit():
-        queryset = queryset.filter(
-            ts_admin_approval_business_unit_filter_q(
-                current_user,
-                int(business_unit_id),
-            )
+    if business_unit_id:
+        scoped_business_unit_ids = _scoped_business_unit_filter_ids(
+            current_user,
+            business_unit_id,
         )
+        if scoped_business_unit_ids:
+            queryset = queryset.filter(
+                ts_admin_approval_business_unit_filter_q(
+                    current_user,
+                    scoped_business_unit_ids[0],
+                )
+            )
+        else:
+            queryset = queryset.none()
     if project_id:
         queryset = queryset.filter(project_id=project_id)
     if approver_employee_id:

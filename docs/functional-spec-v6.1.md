@@ -592,6 +592,9 @@ Cross-office staffing reporting rules:
   - nested week summary rows under each visible `BU` / `Project`
   - expand/collapse visibility at both the project and week levels
   - flat CSV export rows that keep the same filtered detail scope
+- For `TS_ADMIN`, the Project Time Business Unit filter is scoped and applied
+  to the charged target project's Business Unit. The displayed `BU` column
+  remains the weekly-timesheet home Business Unit for compatibility.
 - Missing Timesheets by Project derives staffing windows from both normal
   Project Assignments and Cross-Office Staffing.
 - Office / BU summary-style reports still remain based on the weekly-timesheet

@@ -124,6 +124,9 @@ v6.1 captures these major baseline changes relative to the older docs:
   internal Approval Item and Status columns from the report output.
 - Project approval and project-time visibility follow the target project even
   when the charged employee belongs to another Office.
+- For `TS_ADMIN`, Project Time Business Unit filtering follows the charged
+  target project's Business Unit while the displayed `BU` value remains the
+  weekly-timesheet home Business Unit.
 - Approved Phase 3 scope moves project approval oversight for `TS_ADMIN` to
   the target project Office and scoped target Business Unit side while keeping
   Office / BU summary analytics on the weekly-timesheet home-BU side unless

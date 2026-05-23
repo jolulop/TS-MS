@@ -762,6 +762,10 @@ def test_cross_office_staffing_reports_include_foreign_employee_time() -> None:
     )
 
     owner_response = context["owner_client"].get("/reports/project-time/")
+    admin_project_time_response = context["admin_client"].get(
+        "/reports/project-time/",
+        data={"business_unit_id": str(project.business_unit_id)},
+    )
     pm_response = context["pm_client"].get("/reports/pending-approvals/")
     admin_pending_response = context["admin_client"].get("/reports/pending-approvals/")
     admin_turnaround_response = context["admin_client"].get("/reports/approval-turnaround/")
@@ -777,6 +781,11 @@ def test_cross_office_staffing_reports_include_foreign_employee_time() -> None:
     owner_content = owner_response.content.decode()
     assert "EMP-RPT-FGN" in owner_content
     assert "Foreign worker delivery" in owner_content
+
+    assert admin_project_time_response.status_code == 200
+    admin_project_time_content = admin_project_time_response.content.decode()
+    assert "EMP-RPT-FGN" in admin_project_time_content
+    assert "Foreign worker delivery" in admin_project_time_content
 
     assert pm_response.status_code == 200
     pm_content = pm_response.content.decode()
@@ -936,6 +945,67 @@ def test_office_bu_time_summary_filter_keeps_cross_office_origin_and_target_visi
     ],
 )
 def test_ts_admin_report_business_unit_filter_cannot_widen_scope(report_path: str) -> None:
+    context = _setup_reports_context()
+    out_of_scope = _create_out_of_scope_report_data(context)
+
+    response = context["admin_client"].get(
+        report_path,
+        data={"business_unit_id": str(out_of_scope["business_unit"].id)},
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    for marker in out_of_scope["markers"]:
+        assert marker not in content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "report_path",
+    [
+        "/reports/project-time/",
+        "/reports/pending-approvals/",
+        "/reports/employee-utilization/",
+        "/reports/office-bu-time-summary/",
+        "/reports/general-charge-code-usage/",
+        "/reports/approval-turnaround/",
+        "/reports/archived-timesheets/",
+        "/reports/audit-history/",
+        "/reports/integration-jobs/",
+    ],
+)
+def test_ts_admin_report_invalid_business_unit_filter_returns_empty_scope(
+    report_path: str,
+) -> None:
+    context = _setup_reports_context()
+
+    response = context["admin_client"].get(
+        report_path,
+        data={"business_unit_id": "not-a-business-unit"},
+    )
+
+    assert response.status_code == 200
+    assert response.context["table_rows"] == []
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "report_path",
+    [
+        "/reports/project-time/export/",
+        "/reports/pending-approvals/export/",
+        "/reports/employee-utilization/export/",
+        "/reports/office-bu-time-summary/export/",
+        "/reports/general-charge-code-usage/export/",
+        "/reports/approval-turnaround/export/",
+        "/reports/archived-timesheets/export/",
+        "/reports/audit-history/export/",
+        "/reports/integration-jobs/export/",
+    ],
+)
+def test_ts_admin_report_csv_business_unit_filter_cannot_widen_scope(
+    report_path: str,
+) -> None:
     context = _setup_reports_context()
     out_of_scope = _create_out_of_scope_report_data(context)
 

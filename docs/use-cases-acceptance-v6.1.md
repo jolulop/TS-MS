@@ -328,6 +328,9 @@ A Project Owner or Project Manager views live project time.
 - the Project Time report viewer supports BU / Project expand-collapse for
   grouped week rows
 - the grouped week rows support expand-collapse for the detail rows
+- for `TS_ADMIN`, the Project Time Business Unit filter uses the charged target
+  project's Business Unit so cross-office staffed time remains visible from
+  the target-project side
 
 ## 11A. Project Management Summary
 
