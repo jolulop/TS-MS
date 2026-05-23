@@ -137,6 +137,10 @@ v6.1 captures these major baseline changes relative to the older docs:
   `development-email` access is disabled in production mode, while the
   `trusted-header` contract supports Google SSO / Azure ingress by accepting a
   trusted email claim before internal TS role and scope resolution.
+- Production settings now fail fast for unsafe secrets, missing allowed hosts,
+  non-PostgreSQL production databases, development auth, and insecure
+  HTTPS/cookie settings; Azure deployment variables are documented in
+  `docs/deployment/azure-production-checklist.md`.
 
 ## Reading Order
 

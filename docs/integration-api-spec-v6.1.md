@@ -49,6 +49,15 @@ Authentication provider behavior:
 - After the email claim is accepted, TS resolves roles, Office, and Business
   Unit scope from internal TS data only.
 
+Production deployment settings:
+- `TSMS_ENVIRONMENT=production` enables production validation.
+- `TSMS_DEBUG=0`, `TSMS_SECRET_KEY`, and `TSMS_ALLOWED_HOSTS` are mandatory.
+- `TSMS_DB_BACKEND=postgres` is required for production.
+- HTTPS/cookie settings are controlled by `TSMS_SESSION_COOKIE_SECURE`,
+  `TSMS_CSRF_COOKIE_SECURE`, `TSMS_SECURE_SSL_REDIRECT`, and
+  `TSMS_ENABLE_PROXY_SSL_HEADER`.
+- `TSMS_CSRF_TRUSTED_ORIGINS` accepts comma-separated HTTPS origins.
+
 ## 4. Reference And Identity Endpoints
 
 - `GET /api/v1/employees/`

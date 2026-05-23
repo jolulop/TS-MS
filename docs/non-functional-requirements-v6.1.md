@@ -7,6 +7,9 @@
   rather than browser-posted email values
 - local development email login must be disabled when
   `TSMS_ENVIRONMENT=production`
+- production configuration must fail fast when required secrets, allowed hosts,
+  secure-cookie settings, HTTPS proxy settings, or PostgreSQL configuration are
+  missing or unsafe
 - server-side authorization is mandatory
 - deny by default
 - do not rely on hidden UI actions for security
@@ -46,3 +49,12 @@
 
 - audit and integration job history must remain reportable
 - administrative failures should surface stable error codes or clear UI messages
+
+## 8. Production Deployment
+
+- Azure deployment variables are documented in
+  `docs/deployment/azure-production-checklist.md`.
+- Production uses PostgreSQL-compatible configuration.
+- Production secrets should come from Azure Key Vault or an equivalent managed
+  secret store.
+- Local SQLite bootstrap remains a development-only path.

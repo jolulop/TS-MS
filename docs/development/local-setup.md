@@ -78,3 +78,10 @@ Local email login uses the development adapter:
 
 Production deployments must use a trusted external identity provider adapter
 instead of the local `validated_email` form.
+
+## Production Readiness
+
+Production settings are intentionally stricter than local setup. See
+`docs/deployment/azure-production-checklist.md` for the required Azure
+environment variables, PostgreSQL settings, HTTPS settings, and Key Vault
+secret expectations.

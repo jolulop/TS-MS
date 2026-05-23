@@ -216,6 +216,15 @@ Acceptance criteria:
 - Local SQLite bootstrap still works for development.
 - PostgreSQL path is exercised in CI or a documented parity check.
 
+Implementation note:
+
+- Implemented in Phase 3 on `Codex-5.5` with production validation in
+  `config/settings.py`.
+- Production requires explicit `TSMS_SECRET_KEY`, `TSMS_ALLOWED_HOSTS`,
+  PostgreSQL, secure cookies, HTTPS redirect, and proxy SSL header settings.
+- Azure deployment settings are documented in
+  `docs/deployment/azure-production-checklist.md`.
+
 ## Phase 4 - Workflow Concurrency Hardening
 
 Goal: prevent double-submit, conflicting approval decisions, and last-write
