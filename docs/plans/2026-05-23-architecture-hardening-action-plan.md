@@ -448,6 +448,12 @@ Implementation notes:
   Internal Category, Cost Center, and Pricing Model CRUD plus guarded delete
   helpers used by project and General Charge Code services. The public service
   names remain re-exported from `apps.master_data.services`.
+- Calendar administration moved into
+  `apps.master_data.service_modules.calendar`, covering Yearly Calendar,
+  Calendar Special Day, and Calendar Period Rule CRUD, shared Office-calendar
+  scoping, special-day year/default-GCC validation, and period-rule overlap
+  locking/validation. The public service names remain re-exported from
+  `apps.master_data.services`.
 - Architecture boundary tests guard the new common helpers and prevent
   reintroducing a direct `apps.timesheets` import in auth policies. Large
   service/report module splitting remains a follow-up refactor slice because it

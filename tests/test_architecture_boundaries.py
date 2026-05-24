@@ -17,6 +17,15 @@ from apps.common.urls import safe_local_path
 from apps.master_data.service_modules.business_unit import (
     BusinessUnitManagementService as ExtractedBusinessUnitManagementService,
 )
+from apps.master_data.service_modules.calendar import (
+    CalendarPeriodRuleManagementService as ExtractedCalendarPeriodRuleManagementService,
+)
+from apps.master_data.service_modules.calendar import (
+    CalendarSpecialDayManagementService as ExtractedCalendarSpecialDayManagementService,
+)
+from apps.master_data.service_modules.calendar import (
+    YearlyCalendarManagementService as ExtractedYearlyCalendarManagementService,
+)
 from apps.master_data.service_modules.country_office import (
     CountryManagementService as ExtractedCountryManagementService,
 )
@@ -40,6 +49,8 @@ from apps.master_data.service_modules.reference_master import (
 )
 from apps.master_data.services import (
     BusinessUnitManagementService,
+    CalendarPeriodRuleManagementService,
+    CalendarSpecialDayManagementService,
     ClientManagementService,
     CostCenterManagementService,
     CountryManagementService,
@@ -47,6 +58,7 @@ from apps.master_data.services import (
     InternalCategoryManagementService,
     OfficeManagementService,
     PricingModelManagementService,
+    YearlyCalendarManagementService,
 )
 from apps.timesheets import approval_scope as legacy_approval_scope
 from tests.helpers import seed_reference_data
@@ -86,6 +98,12 @@ def test_reference_master_services_are_reexported_from_extracted_module() -> Non
     assert InternalCategoryManagementService is ExtractedInternalCategoryManagementService
     assert CostCenterManagementService is ExtractedCostCenterManagementService
     assert PricingModelManagementService is ExtractedPricingModelManagementService
+
+
+def test_calendar_services_are_reexported_from_extracted_module() -> None:
+    assert YearlyCalendarManagementService is ExtractedYearlyCalendarManagementService
+    assert CalendarSpecialDayManagementService is ExtractedCalendarSpecialDayManagementService
+    assert CalendarPeriodRuleManagementService is ExtractedCalendarPeriodRuleManagementService
 
 
 def test_safe_local_path_allows_only_single_slash_local_paths() -> None:

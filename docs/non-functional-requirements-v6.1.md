@@ -83,6 +83,9 @@
   use service-level validation plus scoped `SELECT FOR UPDATE` locking. SQLite
   development runs validate behavior but do not prove concurrent blocking;
   Azure/PostgreSQL parity runs must verify the blocking semantics before go-live.
+- Extracted calendar service modules must preserve the same scoped locking and
+  validation behavior when refactoring Yearly Calendar, Special Day, and Calendar
+  Period Rule administration.
 - Production secrets should come from Azure Key Vault or an equivalent managed
   secret store.
 - Local SQLite bootstrap remains a development-only path.
