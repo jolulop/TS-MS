@@ -23,9 +23,13 @@ from apps.master_data.service_modules.country_office import (
 from apps.master_data.service_modules.country_office import (
     OfficeManagementService as ExtractedOfficeManagementService,
 )
+from apps.master_data.service_modules.employee import (
+    EmployeeManagementService as ExtractedEmployeeManagementService,
+)
 from apps.master_data.services import (
     BusinessUnitManagementService,
     CountryManagementService,
+    EmployeeManagementService,
     OfficeManagementService,
 )
 from apps.timesheets import approval_scope as legacy_approval_scope
@@ -55,6 +59,10 @@ def test_country_office_services_are_reexported_from_extracted_module() -> None:
 
 def test_business_unit_service_is_reexported_from_extracted_module() -> None:
     assert BusinessUnitManagementService is ExtractedBusinessUnitManagementService
+
+
+def test_employee_service_is_reexported_from_extracted_module() -> None:
+    assert EmployeeManagementService is ExtractedEmployeeManagementService
 
 
 def test_safe_local_path_allows_only_single_slash_local_paths() -> None:

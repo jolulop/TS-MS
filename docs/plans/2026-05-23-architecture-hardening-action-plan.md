@@ -437,6 +437,12 @@ Implementation notes:
   `TS_ADMIN` Business Unit scope synchronization. `apps.master_data.services`
   still re-exports the public `BusinessUnitManagementService` name for
   view/API compatibility.
+- Employee administration moved into
+  `apps.master_data.service_modules.employee`, covering employee CRUD,
+  role replacement, Business Unit scope replacement, employee project-staffing
+  visibility, and the master-only archive-and-recreate Office transfer
+  workflow. `apps.master_data.services` still re-exports the public
+  `EmployeeManagementService` name for view/API compatibility.
 - Architecture boundary tests guard the new common helpers and prevent
   reintroducing a direct `apps.timesheets` import in auth policies. Large
   service/report module splitting remains a follow-up refactor slice because it

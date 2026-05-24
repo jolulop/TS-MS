@@ -32,7 +32,7 @@
 - master-data service splits should keep `apps.master_data.services` as a
   compatibility export layer until all views and APIs are migrated deliberately.
   This applies to extracted Country, Office, Office Configuration, and Business
-  Unit service modules.
+  Unit service modules, and to Employee administration/service-boundary modules.
 
 ## 3. Auditability
 
