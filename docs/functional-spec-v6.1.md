@@ -691,11 +691,15 @@ Audit coverage is required for sensitive state changes, including:
 - Business Unit scope changes
 - project ownership and management changes
 - project staffing changes, including Cross-Office Staffing
+- timesheet line replacement, as a summary event rather than per-line audit rows
 - timesheet submit, withdraw, reopen, archive, restore
 - approval approve and reject
 - guarded administrative deletes
 - project missing-timesheet report generation and export
 - report CSV export for the other supported report slices
+Audit events may carry a `correlation_id` when a caller supplies one, allowing
+related events from the same workflow/request to be connected without changing
+row-level authorization or report scoping.
 
 ## 13. Out Of Scope For v6.1
 

@@ -350,6 +350,20 @@ Acceptance criteria:
 - Audit reports remain scoped.
 - Correlation id is available for multi-write workflows.
 
+Implementation notes:
+
+- `write_audit_event` now persists the existing `AuditLog.correlation_id`
+  field when supplied by callers.
+- Timesheet line replacement is audited as one `weekly_timesheet` `UPDATE`
+  event with `field_name=lines`, before/after line counts, and before/after
+  total hours. Per-line audit rows remain intentionally out of scope for v6.1
+  because line replacement is a full-save workflow.
+- Reviewed the v6.1 sensitive write list against existing service calls:
+  employee identity, role changes, BU scope changes, project owner/manager
+  changes, project staffing, timesheet lifecycle, approval decisions, guarded
+  deletes, and report exports already had coverage; line replacement and
+  correlation-id persistence were the Phase 6 gaps closed here.
+
 ## Phase 7 - Service Boundary Refactor
 
 Goal: reduce module size and isolate bounded contexts without changing

@@ -25,6 +25,11 @@
 
 - sensitive administrative and workflow actions must emit audit events
 - audit should capture actor, target, action, and before/after details where relevant
+- audit events can store an optional correlation identifier for traceability
+  across related service operations
+- high-volume edits such as timesheet line replacement should use concise
+  summary audit events unless a later approved requirement asks for per-line
+  history
 
 ## 4. Consistency
 

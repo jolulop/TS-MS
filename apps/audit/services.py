@@ -16,6 +16,7 @@ def write_audit_event(
     old_value: str = "",
     new_value: str = "",
     reason_text: str = "",
+    correlation_id: str = "",
 ) -> None:
     action_type = RefValue.objects.get(
         domain__domain_code="AUDIT_ACTION_TYPE",
@@ -32,5 +33,6 @@ def write_audit_event(
         old_value=old_value,
         new_value=new_value,
         reason_text=reason_text,
+        correlation_id=correlation_id,
         business_unit=business_unit,
     )

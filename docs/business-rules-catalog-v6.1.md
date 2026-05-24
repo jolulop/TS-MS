@@ -240,6 +240,8 @@ Audit is required for:
 - Business Unit scope changes
 - project owner/manager changes
 - project staffing changes, including Cross-Office Staffing
+- timesheet line replacement, recorded as a weekly-timesheet summary with
+  before/after line count and total hours
 - timesheet submit, withdraw, reopen, archive, restore
 - approval approve/reject
 - guarded administrative deletes
@@ -250,6 +252,8 @@ Audit is required for:
 - archived-timesheets CSV export
 - audit-history CSV export
 - integration-jobs CSV export
+- audit events can include an optional correlation identifier supplied by the
+  caller
 - employee-utilization CSV export
 - office-bu-time-summary CSV export
 - general-charge-code-usage CSV export

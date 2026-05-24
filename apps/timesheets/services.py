@@ -519,6 +519,15 @@ def _daily_limit_for_date(employee: Employee, business_unit_id: int, work_date: 
     return Decimal(weekday_fields[work_date.weekday()])
 
 
+def _timesheet_line_summary(lines) -> str:
+    line_count = 0
+    total_hours = Decimal("0.00")
+    for line in lines:
+        line_count += 1
+        total_hours += line["hours"] if isinstance(line, dict) else line.hours
+    return f"lines={line_count}; hours={total_hours.quantize(Decimal('0.00'))}"
+
+
 def _office_configuration_for_business_unit(
     business_unit_id: int,
 ) -> OfficeConfiguration | None:
@@ -1225,6 +1234,7 @@ class TimesheetService:
                     400,
                 )
 
+        existing_line_summary = _timesheet_line_summary(timesheet.lines.all())
         timesheet.lines.all().delete()
         for normalized_line in normalized_lines:
             TimesheetLine.objects.create(
@@ -1238,6 +1248,20 @@ class TimesheetService:
                 created_by=current_user.email,
                 updated_by=current_user.email,
             )
+
+        replacement_line_summary = _timesheet_line_summary(normalized_lines)
+        write_audit_event(
+            action_code="UPDATE",
+            entity_name="weekly_timesheet",
+            entity_id=timesheet.id,
+            actor_employee=timesheet.employee,
+            actor_email=current_user.email,
+            business_unit=timesheet.business_unit,
+            field_name="lines",
+            old_value=existing_line_summary,
+            new_value=replacement_line_summary,
+            reason_text="Timesheet lines replaced.",
+        )
 
         refreshed = _get_timesheet_for_view(current_user, timesheet.id)
         return _serialize_timesheet(refreshed)

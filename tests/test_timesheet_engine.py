@@ -520,6 +520,16 @@ def test_user_can_replace_timesheet_lines_when_targets_and_day_limits_are_valid(
     assert len(payload["lines"]) == 2
     assert payload["lines"][0]["billable_flag"] is True
     assert payload["lines"][1]["billable_flag"] is False
+    audit_event = AuditLog.objects.get(
+        entity_name="weekly_timesheet",
+        entity_id=timesheet["id"],
+        action_type__value_code="UPDATE",
+        field_name="lines",
+    )
+    assert audit_event.old_value == "lines=0; hours=0.00"
+    assert audit_event.new_value == "lines=2; hours=6.50"
+    assert audit_event.actor_email == "user3@example.com"
+    assert audit_event.business_unit_id == business_unit.id
 
 
 @pytest.mark.django_db
