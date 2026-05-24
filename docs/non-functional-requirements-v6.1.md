@@ -31,6 +31,8 @@
   in `apps.common` before adding new call sites.
 - master-data service splits should keep `apps.master_data.services` as a
   compatibility export layer until all views and APIs are migrated deliberately.
+  This applies to extracted Country, Office, Office Configuration, and Business
+  Unit service modules.
 
 ## 3. Auditability
 

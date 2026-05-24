@@ -430,6 +430,13 @@ Implementation notes:
   Office service so the initial bootstrap Business Unit and bootstrap admin do
   not create a self-delete deadlock. Protected operational dependencies still
   block deletion and roll back the teardown attempt.
+- Business Unit administration moved into
+  `apps.master_data.service_modules.business_unit`, covering scoped Business
+  Unit list/create/get/update/delete, inherited Office-configuration blocking,
+  guarded delete cleanup of removable scope/role assignments, and same-Office
+  `TS_ADMIN` Business Unit scope synchronization. `apps.master_data.services`
+  still re-exports the public `BusinessUnitManagementService` name for
+  view/API compatibility.
 - Architecture boundary tests guard the new common helpers and prevent
   reintroducing a direct `apps.timesheets` import in auth policies. Large
   service/report module splitting remains a follow-up refactor slice because it
