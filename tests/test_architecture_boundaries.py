@@ -26,11 +26,27 @@ from apps.master_data.service_modules.country_office import (
 from apps.master_data.service_modules.employee import (
     EmployeeManagementService as ExtractedEmployeeManagementService,
 )
+from apps.master_data.service_modules.reference_master import (
+    ClientManagementService as ExtractedClientManagementService,
+)
+from apps.master_data.service_modules.reference_master import (
+    CostCenterManagementService as ExtractedCostCenterManagementService,
+)
+from apps.master_data.service_modules.reference_master import (
+    InternalCategoryManagementService as ExtractedInternalCategoryManagementService,
+)
+from apps.master_data.service_modules.reference_master import (
+    PricingModelManagementService as ExtractedPricingModelManagementService,
+)
 from apps.master_data.services import (
     BusinessUnitManagementService,
+    ClientManagementService,
+    CostCenterManagementService,
     CountryManagementService,
     EmployeeManagementService,
+    InternalCategoryManagementService,
     OfficeManagementService,
+    PricingModelManagementService,
 )
 from apps.timesheets import approval_scope as legacy_approval_scope
 from tests.helpers import seed_reference_data
@@ -63,6 +79,13 @@ def test_business_unit_service_is_reexported_from_extracted_module() -> None:
 
 def test_employee_service_is_reexported_from_extracted_module() -> None:
     assert EmployeeManagementService is ExtractedEmployeeManagementService
+
+
+def test_reference_master_services_are_reexported_from_extracted_module() -> None:
+    assert ClientManagementService is ExtractedClientManagementService
+    assert InternalCategoryManagementService is ExtractedInternalCategoryManagementService
+    assert CostCenterManagementService is ExtractedCostCenterManagementService
+    assert PricingModelManagementService is ExtractedPricingModelManagementService
 
 
 def test_safe_local_path_allows_only_single_slash_local_paths() -> None:

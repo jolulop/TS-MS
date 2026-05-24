@@ -443,6 +443,11 @@ Implementation notes:
   visibility, and the master-only archive-and-recreate Office transfer
   workflow. `apps.master_data.services` still re-exports the public
   `EmployeeManagementService` name for view/API compatibility.
+- Reference/master administration moved into
+  `apps.master_data.service_modules.reference_master`, covering Client,
+  Internal Category, Cost Center, and Pricing Model CRUD plus guarded delete
+  helpers used by project and General Charge Code services. The public service
+  names remain re-exported from `apps.master_data.services`.
 - Architecture boundary tests guard the new common helpers and prevent
   reintroducing a direct `apps.timesheets` import in auth policies. Large
   service/report module splitting remains a follow-up refactor slice because it
