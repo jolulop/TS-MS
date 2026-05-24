@@ -60,6 +60,10 @@
 - Production uses PostgreSQL-compatible configuration.
 - Workflow row-lock behavior must be validated against PostgreSQL-compatible
   parity environments because SQLite does not enforce `SELECT FOR UPDATE`.
+- Validity-window guards for Calendar Period Rules and staffing overlap writes
+  use service-level validation plus scoped `SELECT FOR UPDATE` locking. SQLite
+  development runs validate behavior but do not prove concurrent blocking;
+  Azure/PostgreSQL parity runs must verify the blocking semantics before go-live.
 - Production secrets should come from Azure Key Vault or an equivalent managed
   secret store.
 - Local SQLite bootstrap remains a development-only path.

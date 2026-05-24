@@ -16,8 +16,8 @@ from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
     CalendarSpecialDay,
-    CrossOfficeProjectAssignment,
     Country,
+    CrossOfficeProjectAssignment,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,
@@ -2700,7 +2700,9 @@ class EmployeeManagementService:
                 "-assignment_start_date",
             )
         )
-        serialized_assignments = [_serialize_project_assignment(assignment) for assignment in assignments]
+        serialized_assignments = [
+            _serialize_project_assignment(assignment) for assignment in assignments
+        ]
         serialized_assignments.extend(
             _serialize_cross_office_project_assignment(assignment)
             for assignment in cross_office_assignments
@@ -6538,6 +6540,10 @@ class CalendarPeriodRuleManagementService:
             message="effective_to must be a valid ISO date.",
         )
         CalendarPeriodRuleManagementService._validate_date_range(effective_from, effective_to)
+        CalendarPeriodRuleManagementService._lock_period_rule_overlap_scope(
+            yearly_calendar_id=yearly_calendar.id,
+            business_unit_ids={business_unit.id},
+        )
         CalendarPeriodRuleManagementService._ensure_no_overlap(
             yearly_calendar.id,
             business_unit.id,
@@ -6683,6 +6689,17 @@ class CalendarPeriodRuleManagementService:
         CalendarPeriodRuleManagementService._validate_date_range(
             proposed_effective_from,
             proposed_effective_to,
+        )
+        CalendarPeriodRuleManagementService._lock_period_rule_overlap_scope(
+            yearly_calendar_id=period_rule.yearly_calendar_id,
+            business_unit_ids={
+                business_unit_id
+                for business_unit_id in (
+                    period_rule.business_unit_id,
+                    proposed_business_unit.id,
+                )
+                if business_unit_id is not None
+            },
         )
         CalendarPeriodRuleManagementService._ensure_no_overlap(
             period_rule.yearly_calendar_id,
@@ -6842,6 +6859,21 @@ class CalendarPeriodRuleManagementService:
                 ),
                 400,
             )
+
+    @staticmethod
+    def _lock_period_rule_overlap_scope(
+        *,
+        yearly_calendar_id: int,
+        business_unit_ids: set[int],
+    ) -> None:
+        if business_unit_ids:
+            list(
+                BusinessUnit.objects.select_for_update(of=("self",))
+                .filter(id__in=sorted(business_unit_ids))
+                .order_by("id")
+            )
+            return
+        YearlyCalendar.objects.select_for_update(of=("self",)).get(id=yearly_calendar_id)
 
     @staticmethod
     def _get_scoped_yearly_calendar(
@@ -7581,12 +7613,20 @@ def _active_staffing_overlap_queryset(
     )
 
 
-def _validate_cross_office_staffing_overlap(
+def _lock_project_staffing_overlap_scope(*, project_id: int, employee_id: int) -> None:
+    Project.objects.select_for_update(of=("self",)).get(id=project_id)
+    Employee.objects.select_for_update(of=("self",)).get(id=employee_id)
+
+
+def _validate_project_staffing_overlap(
     *,
     project: Project,
     employee: Employee,
     assignment_start_date: date,
     assignment_end_date: date | None,
+    error_code: str,
+    error_message: str,
+    exclude_project_assignment_id: int | None = None,
     exclude_cross_office_assignment_id: int | None = None,
 ) -> None:
     overlapping_project_assignment_exists = _active_staffing_overlap_queryset(
@@ -7596,13 +7636,10 @@ def _validate_cross_office_staffing_overlap(
         ),
         assignment_start_date=assignment_start_date,
         assignment_end_date=assignment_end_date,
+        exclude_id=exclude_project_assignment_id,
     ).exists()
     if overlapping_project_assignment_exists:
-        raise AuthError(
-            "CROSS_OFFICE_PROJECT_ASSIGNMENT_OVERLAP",
-            "Cross-office staffing overlaps an active staffing window for this employee and project.",
-            400,
-        )
+        raise AuthError(error_code, error_message, 400)
 
     overlapping_cross_office_exists = _active_staffing_overlap_queryset(
         CrossOfficeProjectAssignment.objects.filter(
@@ -7614,11 +7651,7 @@ def _validate_cross_office_staffing_overlap(
         exclude_id=exclude_cross_office_assignment_id,
     ).exists()
     if overlapping_cross_office_exists:
-        raise AuthError(
-            "CROSS_OFFICE_PROJECT_ASSIGNMENT_OVERLAP",
-            "Cross-office staffing overlaps an active staffing window for this employee and project.",
-            400,
-        )
+        raise AuthError(error_code, error_message, 400)
 
 
 class ProjectAssignmentManagementService:
@@ -7727,21 +7760,35 @@ class ProjectAssignmentManagementService:
             code="PROJECT_ASSIGNMENT_END_INVALID",
             message="assignment_end_date must be a valid ISO date.",
         )
+        status = _ref_value(
+            "PROJECT_ASSIGNMENT_STATUS",
+            str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE",
+        )
         ProjectAssignmentManagementService._validate_assignment_dates(
             project=project,
             assignment_start_date=assignment_start_date,
             assignment_end_date=assignment_end_date,
         )
+        if status.value_code == "ACTIVE":
+            _lock_project_staffing_overlap_scope(project_id=project.id, employee_id=employee.id)
+            _validate_project_staffing_overlap(
+                project=project,
+                employee=employee,
+                assignment_start_date=assignment_start_date,
+                assignment_end_date=assignment_end_date,
+                error_code="PROJECT_ASSIGNMENT_OVERLAP",
+                error_message=(
+                    "Project assignment overlaps an active staffing window for this "
+                    "employee and project."
+                ),
+            )
         try:
             assignment = ProjectAssignment.objects.create(
                 project=project,
                 employee=employee,
                 assignment_start_date=assignment_start_date,
                 assignment_end_date=assignment_end_date,
-                status=_ref_value(
-                    "PROJECT_ASSIGNMENT_STATUS",
-                    str(payload.get("status_code", "ACTIVE")).strip() or "ACTIVE",
-                ),
+                status=status,
                 created_by=current_user.email,
                 updated_by=current_user.email,
             )
@@ -7857,6 +7904,23 @@ class ProjectAssignmentManagementService:
                     ("status", assignment.status.value_code, new_status.value_code)
                 )
                 assignment.status = new_status
+        if assignment.status.value_code == "ACTIVE":
+            _lock_project_staffing_overlap_scope(
+                project_id=assignment.project_id,
+                employee_id=assignment.employee_id,
+            )
+            _validate_project_staffing_overlap(
+                project=assignment.project,
+                employee=assignment.employee,
+                assignment_start_date=assignment.assignment_start_date,
+                assignment_end_date=assignment.assignment_end_date,
+                error_code="PROJECT_ASSIGNMENT_OVERLAP",
+                error_message=(
+                    "Project assignment overlaps an active staffing window for this "
+                    "employee and project."
+                ),
+                exclude_project_assignment_id=assignment.id,
+            )
         if changed_fields:
             try:
                 assignment.updated_by = current_user.email
@@ -8202,7 +8266,10 @@ class CrossOfficeProjectAssignmentManagementService:
         if employee.office_id == project.office_id:
             raise AuthError(
                 "CROSS_OFFICE_PROJECT_ASSIGNMENT_SAME_OFFICE_INVALID",
-                "Cross-office staffing requires the employee Office to differ from the target project Office.",
+                (
+                    "Cross-office staffing requires the employee Office to differ "
+                    "from the target project Office."
+                ),
                 400,
             )
         assignment_start_date = _parse_iso_date(
@@ -8225,11 +8292,17 @@ class CrossOfficeProjectAssignmentManagementService:
             assignment_end_date=assignment_end_date,
         )
         if status.value_code == "ACTIVE":
-            _validate_cross_office_staffing_overlap(
+            _lock_project_staffing_overlap_scope(project_id=project.id, employee_id=employee.id)
+            _validate_project_staffing_overlap(
                 project=project,
                 employee=employee,
                 assignment_start_date=assignment_start_date,
                 assignment_end_date=assignment_end_date,
+                error_code="CROSS_OFFICE_PROJECT_ASSIGNMENT_OVERLAP",
+                error_message=(
+                    "Cross-office staffing overlaps an active staffing window for "
+                    "this employee and project."
+                ),
             )
         try:
             assignment = CrossOfficeProjectAssignment.objects.create(
@@ -8348,11 +8421,20 @@ class CrossOfficeProjectAssignmentManagementService:
             assignment_end_date=proposed_end_date,
         )
         if proposed_status.value_code == "ACTIVE":
-            _validate_cross_office_staffing_overlap(
+            _lock_project_staffing_overlap_scope(
+                project_id=assignment.project_id,
+                employee_id=assignment.employee_id,
+            )
+            _validate_project_staffing_overlap(
                 project=assignment.project,
                 employee=assignment.employee,
                 assignment_start_date=proposed_start_date,
                 assignment_end_date=proposed_end_date,
+                error_code="CROSS_OFFICE_PROJECT_ASSIGNMENT_OVERLAP",
+                error_message=(
+                    "Cross-office staffing overlaps an active staffing window for "
+                    "this employee and project."
+                ),
                 exclude_cross_office_assignment_id=assignment.id,
             )
         changed_fields: list[tuple[str, str, str]] = []
@@ -8388,7 +8470,9 @@ class CrossOfficeProjectAssignmentManagementService:
                 )
                 assignment.justification_text = proposed_justification
         if proposed_status.id != assignment.status_id:
-            changed_fields.append(("status", assignment.status.value_code, proposed_status.value_code))
+            changed_fields.append(
+                ("status", assignment.status.value_code, proposed_status.value_code)
+            )
             assignment.status = proposed_status
         if changed_fields:
             try:
@@ -8446,7 +8530,10 @@ class CrossOfficeProjectAssignmentManagementService:
         except ProtectedError as exc:
             raise AuthError(
                 "CROSS_OFFICE_PROJECT_ASSIGNMENT_DELETE_BLOCKED",
-                "Cross-office staffing cannot be deleted because it is still referenced by other records.",
+                (
+                    "Cross-office staffing cannot be deleted because it is still "
+                    "referenced by other records."
+                ),
                 400,
             ) from exc
         write_audit_event(

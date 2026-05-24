@@ -395,6 +395,9 @@ The following masters remain Business Unit scoped:
 - The system blocks overlapping active staffing windows for the same
   employee/project combination across normal Project Assignments and
   Cross-Office Staffing.
+- Normal Project Assignment and Cross-Office Staffing writes use the same
+  active-window overlap rule; an inactive staffing record does not block a new
+  active window.
 - Cross-Office Staffing stores origin-office context for audit and reporting
   interpretation.
 - Cross-Office Staffing is managed in its own dedicated System Management UI

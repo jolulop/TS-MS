@@ -128,6 +128,9 @@
 - Assignment employee must be active.
 - Assignment employee must be in the project Business Unit scope.
 - Assignment date range must stay inside the allowed project window.
+- Active normal Project Assignment windows must not overlap another active
+  normal Project Assignment or active Cross-Office Staffing window for the
+  same employee/project combination.
 
 ## 7A. Cross-Office Staffing Rules
 
@@ -139,6 +142,9 @@
 - Cross-office staffing must not overlap an active normal Project Assignment or
   another active cross-office staffing window for the same employee and
   project.
+- Staffing-window overlap checks must run inside a write-side concurrency guard
+  so concurrent active staffing writes for the same employee/project cannot both
+  pass validation in production database environments.
 - Cross-office staffing create behavior must keep target-project context
   visible:
   - target Project determines the read-only target Office and target Business

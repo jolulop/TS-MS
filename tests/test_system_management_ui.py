@@ -3624,7 +3624,7 @@ def test_project_manager_can_manage_assignments_for_managed_projects_only() -> N
         project=managed_project,
         employee=assigned_employee,
         assignment_start_date=date(2026, 4, 7),
-        assignment_end_date=None,
+        assignment_end_date=date(2026, 4, 20),
         status=ref_value("PROJECT_ASSIGNMENT_STATUS", "ACTIVE"),
         created_by="system@test.local",
         updated_by="system@test.local",

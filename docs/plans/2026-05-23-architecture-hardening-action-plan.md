@@ -301,6 +301,19 @@ Acceptance criteria:
 - SQLite development behavior and PostgreSQL production behavior are both
   understood and tested or documented.
 
+Implementation notes:
+
+- Calendar Period Rule writes keep user-friendly service overlap validation and
+  now lock the relevant Business Unit scope before validation and write.
+- Normal Project Assignment and Cross-Office Staffing writes now share the same
+  active employee/project overlap rule across both staffing tables.
+- Active staffing writes lock the target Project and assigned Employee rows
+  before overlap validation and insert/update.
+- PostgreSQL exclusion constraints remain deferred because the current local
+  SQLite bootstrap cannot represent the same database-native range exclusion
+  semantics. Production/parity validation must confirm row-lock blocking on
+  PostgreSQL-compatible Azure databases.
+
 ## Phase 6 - Write Path Audit Consistency
 
 Goal: ensure sensitive changes are consistently audited and traceable.

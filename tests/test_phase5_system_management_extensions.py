@@ -2,11 +2,20 @@ import json
 from datetime import date
 
 import pytest
+from django.db.models.query import QuerySet
 from django.test import Client
 
 from apps.audit.models import AuditLog
+from apps.auth.errors import AuthError
+from apps.auth.services import CurrentUserService
+from apps.master_data.models import BusinessUnit, Employee, Project
+from apps.master_data.services import (
+    CrossOfficeProjectAssignmentManagementService,
+    ProjectAssignmentManagementService,
+)
 from tests.helpers import (
     assign_employee_to_business_unit,
+    assign_project,
     assign_role,
     create_business_unit,
     create_client,
@@ -19,6 +28,18 @@ from tests.helpers import (
     create_yearly_calendar,
     seed_reference_data,
 )
+
+
+def record_select_for_update_models(monkeypatch: pytest.MonkeyPatch) -> list[type]:
+    locked_models = []
+    original_select_for_update = QuerySet.select_for_update
+
+    def recording_select_for_update(self, *args, **kwargs):
+        locked_models.append(self.model)
+        return original_select_for_update(self, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "select_for_update", recording_select_for_update)
+    return locked_models
 
 
 def initialize_session(client: Client, validated_email: str) -> None:
@@ -446,7 +467,123 @@ def test_ts_admin_can_create_and_update_project_assignment_via_api() -> None:
 
 
 @pytest.mark.django_db
-def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
+def test_active_project_assignment_writes_lock_and_reject_staffing_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_reference_data()
+    (
+        business_unit,
+        admin_employee,
+        project_owner,
+        project_manager,
+        worker,
+        project_client,
+        category,
+        cost_center,
+        pricing_model,
+    ) = _build_admin_context()
+    project = create_project(
+        business_unit=business_unit,
+        project_code="PRJ-ASN-LOCK",
+        name="Assignment Lock Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+    current_user = CurrentUserService.build_for_employee(admin_employee)
+    locked_models = record_select_for_update_models(monkeypatch)
+
+    created_assignment = ProjectAssignmentManagementService.create_assignment(
+        current_user,
+        {
+            "project_id": project.id,
+            "employee_id": worker.id,
+            "assignment_start_date": "2026-04-07",
+            "assignment_end_date": "2026-05-31",
+            "status_code": "ACTIVE",
+        },
+    )
+
+    assert created_assignment["project"]["project_code"] == "PRJ-ASN-LOCK"
+    assert Project in locked_models
+    assert Employee in locked_models
+    with pytest.raises(AuthError) as exc_info:
+        ProjectAssignmentManagementService.create_assignment(
+            current_user,
+            {
+                "project_id": project.id,
+                "employee_id": worker.id,
+                "assignment_start_date": "2026-05-01",
+                "assignment_end_date": "2026-06-30",
+                "status_code": "ACTIVE",
+            },
+        )
+    assert exc_info.value.code == "PROJECT_ASSIGNMENT_OVERLAP"
+
+
+@pytest.mark.django_db
+def test_active_cross_office_staffing_writes_lock_and_reject_normal_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_reference_data()
+    (
+        business_unit,
+        admin_employee,
+        project_owner,
+        project_manager,
+        worker,
+        project_client,
+        category,
+        cost_center,
+        pricing_model,
+    ) = _build_admin_context()
+    project = create_project(
+        business_unit=business_unit,
+        project_code="PRJ-CO-LOCK",
+        name="Cross Office Lock Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+    assign_project(
+        project=project,
+        employee=worker,
+        assignment_start_date=date(2026, 4, 7),
+        assignment_end_date=date(2026, 5, 31),
+    )
+    current_user = CurrentUserService.build_for_employee(admin_employee)
+    locked_models = record_select_for_update_models(monkeypatch)
+
+    with pytest.raises(AuthError) as exc_info:
+        CrossOfficeProjectAssignmentManagementService.create_assignment(
+            current_user,
+            {
+                "project_id": project.id,
+                "origin_office_id": worker.office_id,
+                "employee_id": worker.id,
+                "assignment_start_date": "2026-05-01",
+                "assignment_end_date": "2026-06-30",
+                "status_code": "ACTIVE",
+            },
+        )
+
+    assert exc_info.value.code == "CROSS_OFFICE_PROJECT_ASSIGNMENT_OVERLAP"
+    assert Project in locked_models
+    assert Employee in locked_models
+
+
+@pytest.mark.django_db
+def test_calendar_period_rule_api_rejects_overlap_and_supports_update(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     seed_reference_data()
     (
         business_unit,
@@ -475,6 +612,7 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
     )
     client = Client()
     initialize_session(client, admin_employee.email)
+    locked_models = record_select_for_update_models(monkeypatch)
 
     first_response = client.post(
         "/api/v1/admin/calendar-period-rules/",
@@ -504,6 +642,7 @@ def test_calendar_period_rule_api_rejects_overlap_and_supports_update() -> None:
     assert created_period_rule["working_on_sundays_flag"] is False
     assert created_period_rule["saturday_max_hours"] == "5.00"
     assert created_period_rule["sunday_max_hours"] == "0.00"
+    assert BusinessUnit in locked_models
 
     overlap_response = client.post(
         "/api/v1/admin/calendar-period-rules/",

@@ -71,6 +71,8 @@ Each Project references:
 
 - `ProjectAssignment` is the normal same-office staffing model.
 - `CrossOfficeProjectAssignment` is the dedicated cross-office staffing model.
+- Active staffing windows are logically exclusive for the same
+  employee/project combination across both staffing models.
 - `CrossOfficeProjectAssignment` references:
   - one Employee
   - one target Project
