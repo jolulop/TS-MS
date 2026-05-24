@@ -201,6 +201,11 @@ The following masters remain Business Unit scoped:
 - Office collection does not embed an inline create form.
 - Office detail uses a full-width edit layout without the legacy `Current State` summary panel.
 - Office deletion is blocked when dependent records still exist.
+- Office deletion may remove setup-only bootstrap records in the same
+  transaction when the Office has only its initial Business Unit, its initial
+  Office administrator employee, Office configuration, and audit-only
+  references. This avoids a self-delete deadlock for newly-created Offices
+  while still blocking Offices with operational dependencies.
 
 ### 8.2A Employee Transfers
 

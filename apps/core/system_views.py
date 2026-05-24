@@ -5130,8 +5130,8 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
             "form_name": "delete",
             "title": "Delete Office",
             "intro": (
-                "Delete this Office only if it has no Business Units or other "
-                "dependent records. If it is still in use, deletion will be blocked."
+                "Delete this Office only if it has no operational dependencies. "
+                "Setup-only bootstrap records can be removed with the Office."
             ),
             "submit_label": "Delete Office",
             "form_error": form_error if active_form == "delete" else "",

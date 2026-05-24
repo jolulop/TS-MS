@@ -22,6 +22,10 @@
 - Business Unit detail may display inherited configuration but may not edit it.
 - Office create/edit must select an existing Country.
 - Office creation must also create an initial Business Unit and Office admin employee.
+- Office deletion is guarded. It may remove only setup-only bootstrap records
+  created to make a new Office manageable: the initial Business Unit, the
+  initial Office administrator employee, Office configuration, and audit-only
+  references. Operational dependencies still block deletion.
 
 ## 3. Employee Rules
 

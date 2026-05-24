@@ -29,6 +29,10 @@
 - bootstrap Business Unit is created in that Office
 - bootstrap admin employee is created in that Office
 - bootstrap admin employee is assigned to the bootstrap Business Unit
+- guarded Office delete can tear down the setup-only bootstrap Business Unit
+  and bootstrap admin employee in one transaction, including when the bootstrap
+  admin is the current logged-in employee
+- guarded Office delete remains blocked once operational dependencies exist
 
 ## 3. Office Configuration Inheritance
 

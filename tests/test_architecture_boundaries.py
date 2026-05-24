@@ -14,6 +14,13 @@ from apps.common.parsing import (
 )
 from apps.common.reference_data import get_ref_value
 from apps.common.urls import safe_local_path
+from apps.master_data.service_modules.country_office import (
+    CountryManagementService as ExtractedCountryManagementService,
+)
+from apps.master_data.service_modules.country_office import (
+    OfficeManagementService as ExtractedOfficeManagementService,
+)
+from apps.master_data.services import CountryManagementService, OfficeManagementService
 from apps.timesheets import approval_scope as legacy_approval_scope
 from tests.helpers import seed_reference_data
 
@@ -32,6 +39,11 @@ def test_legacy_timesheet_approval_scope_reexports_common_policy_helpers() -> No
         legacy_approval_scope.ts_admin_visible_approval_items_q
         is approval_scope.ts_admin_visible_approval_items_q
     )
+
+
+def test_country_office_services_are_reexported_from_extracted_module() -> None:
+    assert CountryManagementService is ExtractedCountryManagementService
+    assert OfficeManagementService is ExtractedOfficeManagementService
 
 
 def test_safe_local_path_allows_only_single_slash_local_paths() -> None:

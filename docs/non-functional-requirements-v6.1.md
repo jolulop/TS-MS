@@ -29,6 +29,8 @@
 - duplicated infrastructure helpers such as request/service parsing,
   reference-value lookup, and safe local path validation should be centralized
   in `apps.common` before adding new call sites.
+- master-data service splits should keep `apps.master_data.services` as a
+  compatibility export layer until all views and APIs are migrated deliberately.
 
 ## 3. Auditability
 

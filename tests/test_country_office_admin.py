@@ -4,7 +4,15 @@ import pytest
 from django.test import Client
 
 from apps.audit.models import AuditLog
-from apps.master_data.models import Country, Office
+from apps.master_data.models import (
+    BusinessUnit,
+    Country,
+    Employee,
+    EmployeeBusinessUnit,
+    EmployeeRole,
+    Office,
+    OfficeConfiguration,
+)
 from tests.helpers import (
     assign_employee_to_business_unit,
     assign_role,
@@ -264,6 +272,52 @@ def test_ts_admin_master_can_delete_unused_office_via_api() -> None:
         action_type__value_code="DELETE",
         actor_email="master-admin@example.com",
     ).exists()
+
+
+@pytest.mark.django_db
+def test_ts_admin_master_can_delete_setup_only_current_office_via_api() -> None:
+    seed_reference_data()
+    country = create_country(country_code="PER", country_name="Peru")
+    office = create_office(office_name="Peru Office", country=country)
+    business_unit = create_business_unit(
+        bu_code="PER-ADMIN",
+        name="Peru Admin",
+        office=office,
+    )
+    admin = create_employee(
+        employee_code="EMP-PER-ADMIN",
+        full_name="Peru Office Admin",
+        email="peru.admin@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin, role_code="USER")
+    assign_role(employee=admin, role_code="TS_ADMIN")
+    assign_role(employee=admin, role_code="TS_ADMIN_MASTER")
+    client = Client()
+    initialize_session(client, admin.email)
+
+    response = client.delete(f"/api/v1/admin/offices/{office.id}/")
+
+    assert response.status_code == 200
+    assert response.json() == {"deleted": True, "entity": "office", "id": office.id}
+    assert not Office.objects.filter(id=office.id).exists()
+    assert not OfficeConfiguration.objects.filter(office_id=office.id).exists()
+    assert not Employee.objects.filter(id=admin.id).exists()
+    assert not BusinessUnit.objects.filter(id=business_unit.id).exists()
+    assert not EmployeeRole.objects.filter(employee_id=admin.id).exists()
+    assert not EmployeeBusinessUnit.objects.filter(employee_id=admin.id).exists()
+    office_delete = AuditLog.objects.get(
+        entity_name="office",
+        entity_id=office.id,
+        action_type__value_code="DELETE",
+        actor_email=admin.email,
+    )
+    assert office_delete.actor_employee_id is None
 
 
 @pytest.mark.django_db

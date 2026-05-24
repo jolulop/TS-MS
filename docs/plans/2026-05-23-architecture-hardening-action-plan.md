@@ -421,6 +421,15 @@ Implementation notes:
   decimal parsing, Boolean parsing, and status filter validation/application.
   Master-data services, timesheet services, reports, and TS HTML views now use
   those common helpers while preserving their existing local alias names.
+- Country and Office administration services moved into
+  `apps.master_data.service_modules.country_office`, covering Country CRUD,
+  Office CRUD, Office Configuration upsert/delete, and Office bootstrap BU/admin
+  creation. `apps.master_data.services` still re-exports the same public service
+  class names for view/API compatibility.
+- Office delete now handles setup-only Office teardown inside the extracted
+  Office service so the initial bootstrap Business Unit and bootstrap admin do
+  not create a self-delete deadlock. Protected operational dependencies still
+  block deletion and roll back the teardown attempt.
 - Architecture boundary tests guard the new common helpers and prevent
   reintroducing a direct `apps.timesheets` import in auth policies. Large
   service/report module splitting remains a follow-up refactor slice because it

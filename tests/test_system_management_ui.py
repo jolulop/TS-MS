@@ -5031,6 +5031,54 @@ def test_country_management_can_delete_unused_office_via_html() -> None:
 
 
 @pytest.mark.django_db
+def test_office_management_can_delete_setup_only_current_office_via_html() -> None:
+    seed_reference_data()
+    country = create_country(country_code="ECU", country_name="Ecuador")
+    office = create_office(office_name="Ecuador Office", country=country, active=True)
+    business_unit = create_business_unit(
+        bu_code="ECU-ADMIN",
+        name="Ecuador Admin",
+        office=office,
+    )
+    admin = create_employee(
+        employee_code="EMP-ECU-ADMIN",
+        full_name="Ecuador Office Admin",
+        email="ecuador.admin@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=admin,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=admin, role_code="USER")
+    assign_role(employee=admin, role_code="TS_ADMIN")
+    assign_role(employee=admin, role_code="TS_ADMIN_MASTER")
+    client = Client()
+    initialize_ui_session(client, admin.email)
+
+    response = client.post(
+        f"/system/offices/{office.id}/",
+        data={"form_name": "delete"},
+        follow=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/system/offices/"
+    assert not Office.objects.filter(id=office.id).exists()
+    assert not OfficeConfiguration.objects.filter(office_id=office.id).exists()
+    assert not Employee.objects.filter(id=admin.id).exists()
+    assert not BusinessUnit.objects.filter(id=business_unit.id).exists()
+    assert AuditLog.objects.filter(
+        entity_name="office",
+        entity_id=office.id,
+        action_type__value_code="DELETE",
+        actor_email=admin.email,
+        actor_employee_id__isnull=True,
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_country_management_delete_is_blocked_when_office_has_business_units() -> None:
     client, _, _ = _build_ts_admin_master_client()
     office = create_office(office_name="Used Office", active=True)
