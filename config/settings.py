@@ -206,13 +206,32 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "formatters": {
+        "plain": {
+            "format": "%(levelname)s %(name)s %(message)s",
+        },
+        "json": {
+            "()": "apps.common.logging.JsonLogFormatter",
+        },
+    },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
+            "formatter": os.getenv(
+                "TSMS_LOG_FORMAT",
+                "json" if IS_PRODUCTION else "plain",
+            ),
         }
     },
     "root": {
         "handlers": ["console"],
         "level": os.getenv("TSMS_LOG_LEVEL", "INFO"),
+    },
+    "loggers": {
+        "tsms.observability": {
+            "handlers": ["console"],
+            "level": os.getenv("TSMS_OBSERVABILITY_LOG_LEVEL", "INFO"),
+            "propagate": False,
+        }
     },
 }

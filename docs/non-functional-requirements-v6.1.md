@@ -71,6 +71,12 @@
 
 - audit and integration job history must remain reportable
 - administrative failures should surface stable error codes or clear UI messages
+- key server-rendered workflow and report pages should have query-count
+  guardrails in automated tests
+- Employee Utilization expected-capacity calculations must use bulk calendar
+  lookups rather than per-employee/per-date database queries
+- production logging should support JSON-formatted structured events for access
+  denials, approval workflow conflicts, and report exports
 
 ## 8. Production Deployment
 

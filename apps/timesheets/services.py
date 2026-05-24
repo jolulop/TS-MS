@@ -15,6 +15,7 @@ from apps.common.approval_scope import (
     approval_item_effective_business_unit,
     ts_admin_visible_approval_items_q,
 )
+from apps.common.logging import log_workflow_conflict
 from apps.common.parsing import parse_iso_date as _parse_iso_date
 from apps.common.reference_data import get_ref_value as _ref_value
 from apps.master_data.models import (
@@ -925,6 +926,44 @@ def _submission_blockers(timesheet: WeeklyTimesheet) -> list[str]:
     return blockers
 
 
+def _matching_capacity_period_rule(
+    business_unit_rules: list[CalendarPeriodRule],
+    fallback_rules: list[CalendarPeriodRule],
+    work_date: date,
+) -> CalendarPeriodRule | None:
+    matching_rules = [
+        rule
+        for rule in business_unit_rules
+        if rule.effective_from <= work_date <= rule.effective_to
+    ]
+    if not matching_rules:
+        matching_rules = [
+            rule for rule in fallback_rules if rule.effective_from <= work_date <= rule.effective_to
+        ]
+    if len(matching_rules) != 1:
+        return None
+    return matching_rules[0]
+
+
+def _capacity_hours_for_rule_day(rule: CalendarPeriodRule, work_date: date) -> Decimal:
+    weekday = work_date.weekday()
+    if weekday == 0:
+        return Decimal(rule.monday_max_hours)
+    if weekday == 1:
+        return Decimal(rule.tuesday_max_hours)
+    if weekday == 2:
+        return Decimal(rule.wednesday_max_hours)
+    if weekday == 3:
+        return Decimal(rule.thursday_max_hours)
+    if weekday == 4:
+        return Decimal(rule.friday_max_hours)
+    if weekday == 5 and rule.working_on_saturdays_flag:
+        return Decimal(rule.saturday_max_hours)
+    if weekday == 6 and rule.working_on_sundays_flag:
+        return Decimal(rule.sunday_max_hours)
+    return Decimal("0.00")
+
+
 class TimesheetService:
     @staticmethod
     def expected_capacity_hours(
@@ -933,27 +972,95 @@ class TimesheetService:
         start_date: date,
         end_date: date,
     ) -> Decimal:
-        total_hours = Decimal("0.00")
-        current_day = start_date
-        while current_day <= end_date:
-            if employee.employment_start_date and current_day < employee.employment_start_date:
-                current_day += timedelta(days=1)
+        return TimesheetService.expected_capacity_hours_by_employee(
+            [employee],
+            start_date,
+            end_date,
+            business_unit_id_by_employee={employee.id: business_unit_id},
+        ).get(employee.id, Decimal("0.00"))
+
+    @staticmethod
+    def expected_capacity_hours_by_employee(
+        employees: list[Employee],
+        start_date: date,
+        end_date: date,
+        *,
+        business_unit_id_by_employee: dict[int, int] | None = None,
+    ) -> dict[int, Decimal]:
+        totals = {employee.id: Decimal("0.00") for employee in employees}
+        if end_date < start_date or not employees:
+            return totals
+
+        business_unit_ids_by_employee = business_unit_id_by_employee or {
+            employee.id: employee.primary_business_unit_id for employee in employees
+        }
+        calendar_ids = {
+            employee.assigned_calendar_id
+            for employee in employees
+            if employee.assigned_calendar_id is not None
+        }
+        business_unit_ids = {
+            business_unit_id
+            for business_unit_id in business_unit_ids_by_employee.values()
+            if business_unit_id is not None
+        }
+        if not calendar_ids or not business_unit_ids:
+            return totals
+
+        active_special_days = set(
+            CalendarSpecialDay.objects.filter(
+                yearly_calendar_id__in=calendar_ids,
+                special_date__gte=start_date,
+                special_date__lte=end_date,
+                status__domain__domain_code="SPECIAL_DAY_STATUS",
+                status__value_code="ACTIVE",
+            ).values_list("yearly_calendar_id", "special_date")
+        )
+        period_rules = CalendarPeriodRule.objects.filter(
+            yearly_calendar_id__in=calendar_ids,
+            effective_from__lte=end_date,
+            effective_to__gte=start_date,
+            status__domain__domain_code="CALENDAR_PERIOD_STATUS",
+            status__value_code="ACTIVE",
+        ).filter(Q(business_unit_id__in=business_unit_ids) | Q(business_unit_id__isnull=True))
+        rules_by_calendar_and_bu: dict[tuple[int, int], list[CalendarPeriodRule]] = defaultdict(
+            list
+        )
+        fallback_rules_by_calendar: dict[int, list[CalendarPeriodRule]] = defaultdict(list)
+        for rule in period_rules.order_by("effective_from", "id"):
+            if rule.business_unit_id is None:
+                fallback_rules_by_calendar[rule.yearly_calendar_id].append(rule)
+            else:
+                rules_by_calendar_and_bu[(rule.yearly_calendar_id, rule.business_unit_id)].append(
+                    rule
+                )
+
+        for employee in employees:
+            if employee.assigned_calendar_id is None:
                 continue
-            if employee.employment_end_date and current_day > employee.employment_end_date:
-                current_day += timedelta(days=1)
+            business_unit_id = business_unit_ids_by_employee.get(employee.id)
+            if business_unit_id is None:
                 continue
-            try:
-                if _is_chargeable_work_date(employee, business_unit_id, current_day):
-                    total_hours += _daily_limit_for_date(employee, business_unit_id, current_day)
-            except AuthError as error:
-                if error.code not in {
-                    "TIMESHEET_CALENDAR_REQUIRED",
-                    "TIMESHEET_DAY_LIMIT_NOT_FOUND",
-                    "TIMESHEET_DAY_LIMIT_CONFLICT",
-                }:
-                    raise
-            current_day += timedelta(days=1)
-        return total_hours
+            current_day = start_date
+            if employee.employment_start_date and employee.employment_start_date > current_day:
+                current_day = employee.employment_start_date
+            last_day = end_date
+            if employee.employment_end_date and employee.employment_end_date < last_day:
+                last_day = employee.employment_end_date
+            while current_day <= last_day:
+                if (employee.assigned_calendar_id, current_day) not in active_special_days:
+                    rule = _matching_capacity_period_rule(
+                        rules_by_calendar_and_bu.get(
+                            (employee.assigned_calendar_id, business_unit_id),
+                            [],
+                        ),
+                        fallback_rules_by_calendar.get(employee.assigned_calendar_id, []),
+                        current_day,
+                    )
+                    if rule is not None:
+                        totals[employee.id] += _capacity_hours_for_rule_day(rule, current_day)
+                current_day += timedelta(days=1)
+        return totals
 
     @staticmethod
     def can_copy_previous_week(current_user: CurrentUser) -> bool:
@@ -1627,6 +1734,13 @@ class TimesheetService:
     ) -> dict:
         approval_item = _get_approval_item_for_update(current_user, approval_item_id)
         if not AuthorizationPolicyService.can_approve_approval_item(current_user, approval_item):
+            log_workflow_conflict(
+                code="APPROVAL_ACTION_NOT_ALLOWED",
+                message="This approval item cannot be approved by the current user.",
+                actor_email=current_user.email,
+                entity_name="approval_item",
+                entity_id=approval_item.id,
+            )
             raise AuthError(
                 "APPROVAL_ACTION_NOT_ALLOWED",
                 "This approval item cannot be approved by the current user.",
@@ -1696,6 +1810,13 @@ class TimesheetService:
     ) -> dict:
         approval_item = _get_approval_item_for_update(current_user, approval_item_id)
         if not AuthorizationPolicyService.can_reject_approval_item(current_user, approval_item):
+            log_workflow_conflict(
+                code="APPROVAL_ACTION_NOT_ALLOWED",
+                message="This approval item cannot be rejected by the current user.",
+                actor_email=current_user.email,
+                entity_name="approval_item",
+                entity_id=approval_item.id,
+            )
             raise AuthError(
                 "APPROVAL_ACTION_NOT_ALLOWED",
                 "This approval item cannot be rejected by the current user.",
@@ -1704,6 +1825,13 @@ class TimesheetService:
 
         reason_text = str(payload.get("reason_text") or payload.get("comment_text") or "").strip()
         if not reason_text:
+            log_workflow_conflict(
+                code="APPROVAL_REJECTION_REASON_REQUIRED",
+                message="A rejection reason is required.",
+                actor_email=current_user.email,
+                entity_name="approval_item",
+                entity_id=approval_item.id,
+            )
             raise AuthError(
                 "APPROVAL_REJECTION_REASON_REQUIRED",
                 "A rejection reason is required.",

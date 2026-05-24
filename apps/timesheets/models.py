@@ -32,6 +32,16 @@ class WeeklyTimesheet(AuditFieldsModel):
     class Meta:
         db_table = "weekly_timesheet"
         ordering = ["-week_start_date", "employee__employee_code"]
+        indexes = [
+            models.Index(
+                fields=["business_unit", "week_start_date"],
+                name="weekly_ts_bu_week_idx",
+            ),
+            models.Index(
+                fields=["status", "week_start_date"],
+                name="weekly_ts_status_week_idx",
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["employee", "week_start_date"],
@@ -86,6 +96,20 @@ class TimesheetLine(AuditFieldsModel):
     class Meta:
         db_table = "timesheet_line"
         ordering = ["weekly_timesheet", "work_date", "id"]
+        indexes = [
+            models.Index(
+                fields=["weekly_timesheet", "work_date"],
+                name="ts_line_sheet_date_idx",
+            ),
+            models.Index(
+                fields=["project", "work_date"],
+                name="ts_line_project_date_idx",
+            ),
+            models.Index(
+                fields=["general_charge_code", "work_date"],
+                name="ts_line_gcc_date_idx",
+            ),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=(
@@ -182,6 +206,16 @@ class ApprovalItem(AuditFieldsModel):
     class Meta:
         db_table = "approval_item"
         ordering = ["submission_cycle", "id"]
+        indexes = [
+            models.Index(
+                fields=["status", "approver_employee"],
+                name="approval_item_status_appr_idx",
+            ),
+            models.Index(
+                fields=["status", "project"],
+                name="approval_item_status_prj_idx",
+            ),
+        ]
 
 
 class ApprovalItemApproverRole(AuditFieldsModel):

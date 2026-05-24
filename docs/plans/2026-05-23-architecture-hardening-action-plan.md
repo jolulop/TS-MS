@@ -488,6 +488,20 @@ Likely files:
 - `apps/core/reports_views.py`
 - `apps/timesheets/services.py`
 - model migrations for indexes if needed
+
+Implementation notes:
+
+- Employee Utilization now uses a bulk expected-capacity calculation that
+  preloads active Calendar Period Rules and active Special Days for the full
+  employee/date window instead of querying per employee per date.
+- Query-count guardrail tests cover My Timesheets, Approval Worklist, Project
+  Time Report, Office / BU Time Summary, and Employee Utilization.
+- Added report/workflow lookup indexes for Calendar Period Rule windows,
+  Timesheet Line report filters, Weekly Timesheet report filters, and Approval
+  Item worklist filters.
+- Added structured observability logging helpers and JSON log formatting for
+  production ingestion. Structured events now cover access denials, approval
+  workflow conflicts, and report CSV exports.
 - tests for report and approval paths
 
 Acceptance criteria:

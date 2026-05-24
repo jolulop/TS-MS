@@ -5,6 +5,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
 from apps.auth.services import ExternalIdentityAdapterService, SessionInitializationService
+from apps.common.logging import log_auth_failure
 from apps.core.ui import build_navigation
 from apps.master_data.models import Employee, Project
 from apps.timesheets.models import ApprovalItem, WeeklyTimesheet
@@ -53,6 +54,14 @@ def _render_access_denied(
     message: str,
     status: int = 403,
 ) -> HttpResponse:
+    current_user = getattr(request, "ts_user", None)
+    log_auth_failure(
+        code="AUTH_ACCESS_DENIED",
+        message=message,
+        status=status,
+        actor_email=current_user.email if current_user else None,
+        path=request.path,
+    )
     context = _page_context(
         request,
         title="Access Denied",

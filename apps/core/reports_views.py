@@ -18,6 +18,7 @@ from apps.common.approval_scope import (
     ts_admin_approval_business_unit_filter_q,
     ts_admin_visible_approval_items_q,
 )
+from apps.common.logging import log_report_export
 from apps.common.parsing import parse_optional_date_query as _parse_date_query
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.integrations.models import IntegrationJob
@@ -409,6 +410,14 @@ def _audit_missing_timesheets_report(
         business_unit=_primary_business_unit_for_audit(current_user),
         reason_text=f"{reason_prefix}; projects={project_list}; rows={row_count}",
     )
+    if action_code == "EXPORT":
+        log_report_export(
+            report_code="missing-timesheets",
+            actor_email=current_user.email,
+            row_count=row_count,
+            filters=f"projects={project_list}",
+            channel="csv",
+        )
 
 
 def _report_audit_entity_name(report_code: str) -> str:
@@ -453,6 +462,13 @@ def _audit_report_export(
             f"Exported {REPORT_DEFINITIONS[report_code].title} CSV; "
             f"filters={_report_filter_summary(request)}; rows={row_count}"
         ),
+    )
+    log_report_export(
+        report_code=report_code,
+        actor_email=current_user.email,
+        row_count=row_count,
+        filters=_report_filter_summary(request),
+        channel="csv",
     )
 
 
@@ -1440,14 +1456,15 @@ def _employee_utilization_report(current_user: CurrentUser, request: HttpRequest
     total_billable_hours = Decimal("0.00")
     total_non_billable_hours = Decimal("0.00")
     if resolved_start is not None and resolved_end is not None:
-        for employee in employee_queryset.order_by("employee_code"):
+        employees = list(employee_queryset.order_by("employee_code"))
+        expected_hours_by_employee = TimesheetService.expected_capacity_hours_by_employee(
+            employees,
+            resolved_start,
+            resolved_end,
+        )
+        for employee in employees:
             summary = line_summary_by_employee.get(employee.id, {})
-            expected_hours = TimesheetService.expected_capacity_hours(
-                employee,
-                employee.primary_business_unit_id,
-                resolved_start,
-                resolved_end,
-            )
+            expected_hours = expected_hours_by_employee.get(employee.id, Decimal("0.00"))
             worked_hours = summary.get("worked_hours") or Decimal("0.00")
             billable_hours = summary.get("billable_hours") or Decimal("0.00")
             non_billable_hours = summary.get("non_billable_hours") or Decimal("0.00")

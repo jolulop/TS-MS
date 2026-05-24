@@ -337,6 +337,16 @@ class CalendarPeriodRule(AuditFieldsModel):
     class Meta:
         db_table = "calendar_period_rule"
         ordering = ["yearly_calendar", "business_unit", "effective_from"]
+        indexes = [
+            models.Index(
+                fields=["yearly_calendar", "business_unit", "effective_from", "effective_to"],
+                name="cal_rule_cal_bu_window_idx",
+            ),
+            models.Index(
+                fields=["yearly_calendar", "effective_from", "effective_to"],
+                name="cal_rule_cal_window_idx",
+            ),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=Q(effective_to__gte=models.F("effective_from")),

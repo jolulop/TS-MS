@@ -56,3 +56,15 @@ application data.
 
 Store production secrets in Azure Key Vault or an equivalent managed secret
 store. Do not use `.env.example` values in production.
+
+## Observability
+
+Production defaults emit JSON application logs suitable for Azure log ingestion:
+
+- `TSMS_LOG_FORMAT=json`
+- `TSMS_LOG_LEVEL=INFO`
+- `TSMS_OBSERVABILITY_LOG_LEVEL=INFO`
+
+Route stdout/stderr to Azure Application Insights, Azure Monitor, or the
+equivalent platform log pipeline. Structured observability events currently
+cover access denials, approval workflow conflicts, and report CSV exports.
