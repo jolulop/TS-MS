@@ -8,6 +8,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
 from apps.auth.policies import AuthorizationPolicyService
+from apps.common.urls import safe_local_path
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.timesheets.models import ApprovalItem
 from apps.timesheets.services import TimesheetService
@@ -50,12 +51,6 @@ def _render_approval_auth_error(
     )
     context["denied_message"] = error.message
     return render(request, "core/access_denied.html", context, status=error.status)
-
-
-def _safe_local_path(raw_value: str | None, *, default: str) -> str:
-    if raw_value and raw_value.startswith("/") and not raw_value.startswith("//"):
-        return raw_value
-    return default
 
 
 def _approval_target_label(approval_item: dict) -> str:
@@ -399,7 +394,7 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
         )
         pending_rows = _approval_rows(
             pending_items,
-            back_href=_safe_local_path(
+            back_href=safe_local_path(
                 f"{request.path}?{request.GET.urlencode()}" if request.GET else request.path,
                 default="/approvals/",
             ),
@@ -409,7 +404,7 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
             {
                 "href": _approval_detail_href(
                     approval_item["id"],
-                    back_href=_safe_local_path(
+                    back_href=safe_local_path(
                         f"{request.path}?{request.GET.urlencode()}"
                         if request.GET
                         else request.path,
@@ -474,7 +469,7 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
 
     pending_items = [item for item in approval_items if item["status"] == "PENDING"]
     decided_items = [item for item in approval_items if item["status"] != "PENDING"]
-    back_href = _safe_local_path(
+    back_href = safe_local_path(
         f"{request.path}?{request.GET.urlencode()}" if request.GET else request.path,
         default="/approvals/",
     )
@@ -546,13 +541,13 @@ def approval_detail(request: HttpRequest, approval_item_id: int) -> HttpResponse
     form_error = ""
     approve_comment = ""
     reject_reason = ""
-    back_href = _safe_local_path(request.GET.get("back"), default="/approvals/")
+    back_href = safe_local_path(request.GET.get("back"), default="/approvals/")
 
     if request.method == "POST":
         active_form = request.POST.get("form_name", "approve")
         approve_comment = request.POST.get("comment_text", "")
         reject_reason = request.POST.get("reason_text", "")
-        back_href = _safe_local_path(request.POST.get("back"), default=back_href)
+        back_href = safe_local_path(request.POST.get("back"), default=back_href)
 
         try:
             if active_form == "approve":

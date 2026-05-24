@@ -3,11 +3,11 @@ from datetime import date
 from django.db.models import Q
 
 from apps.auth.context import CurrentUser
+from apps.common.approval_scope import can_ts_admin_view_approval_item
 from apps.master_data.models import (
     GeneralChargeCodeApprovalRoleAssignment,
     GeneralChargeCodeApproverRole,
 )
-from apps.timesheets.approval_scope import can_ts_admin_view_approval_item
 
 
 class AuthorizationPolicyService:

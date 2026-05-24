@@ -11,6 +11,11 @@ from apps.audit.services import write_audit_event
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
 from apps.auth.policies import AuthorizationPolicyService
+from apps.common.approval_scope import (
+    approval_item_effective_business_unit,
+    ts_admin_visible_approval_items_q,
+)
+from apps.common.reference_data import get_ref_value as _ref_value
 from apps.master_data.models import (
     BusinessUnit,
     CalendarPeriodRule,
@@ -25,11 +30,6 @@ from apps.master_data.staffing import (
     employee_has_project_staffing_on_date,
     staffed_project_ids_for_employee_window,
 )
-from apps.reference_data.models import RefValue
-from apps.timesheets.approval_scope import (
-    approval_item_effective_business_unit,
-    ts_admin_visible_approval_items_q,
-)
 from apps.timesheets.models import (
     ApprovalAction,
     ApprovalItem,
@@ -39,17 +39,6 @@ from apps.timesheets.models import (
     TimesheetSubmissionCycle,
     WeeklyTimesheet,
 )
-
-
-def _ref_value(domain_code: str, value_code: str) -> RefValue:
-    try:
-        return RefValue.objects.get(domain__domain_code=domain_code, value_code=value_code)
-    except RefValue.DoesNotExist as exc:
-        raise AuthError(
-            "REFERENCE_VALUE_NOT_FOUND",
-            f"Unknown reference value {domain_code}:{value_code}.",
-            400,
-        ) from exc
 
 
 def _parse_iso_date(value: object, *, code: str, message: str) -> date:

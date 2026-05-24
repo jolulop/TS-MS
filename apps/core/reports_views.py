@@ -13,6 +13,11 @@ from apps.audit.models import AuditLog
 from apps.audit.services import write_audit_event
 from apps.auth.context import CurrentUser
 from apps.auth.policies import AuthorizationPolicyService
+from apps.common.approval_scope import (
+    approval_item_effective_business_unit,
+    ts_admin_approval_business_unit_filter_q,
+    ts_admin_visible_approval_items_q,
+)
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.integrations.models import IntegrationJob
 from apps.master_data.models import (
@@ -22,11 +27,6 @@ from apps.master_data.models import (
     Project,
 )
 from apps.master_data.staffing import project_staffing_windows
-from apps.timesheets.approval_scope import (
-    approval_item_effective_business_unit,
-    ts_admin_approval_business_unit_filter_q,
-    ts_admin_visible_approval_items_q,
-)
 from apps.timesheets.models import ApprovalAction, ApprovalItem, TimesheetLine, WeeklyTimesheet
 from apps.timesheets.services import TimesheetService
 

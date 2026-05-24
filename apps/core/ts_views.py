@@ -3,13 +3,14 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from urllib.parse import urlencode
 
-from django.db.models import Count, Sum, Q
+from django.db.models import Count, Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
+from apps.common.urls import safe_local_path
 from apps.core.reports_views import render_report_view
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.master_data.models import Project
@@ -20,14 +21,8 @@ from apps.timesheets.services import TimesheetService
 INITIAL_EMPTY_EDITOR_ROWS = 5
 
 
-def _safe_local_path(raw_value: str | None, *, default: str) -> str:
-    if raw_value and raw_value.startswith("/") and not raw_value.startswith("//"):
-        return raw_value
-    return default
-
-
 def _timesheet_back_href(request: HttpRequest) -> str:
-    return _safe_local_path(
+    return safe_local_path(
         request.GET.get("next") or request.POST.get("next"),
         default="/ts/",
     )
@@ -362,7 +357,10 @@ def _timesheet_status_options(timesheets: list[dict], *, selected: str) -> list[
     ]
 
 
-def _filtered_timesheets(request: HttpRequest, timesheets: list[dict]) -> tuple[list[dict], list[dict]]:
+def _filtered_timesheets(
+    request: HttpRequest,
+    timesheets: list[dict],
+) -> tuple[list[dict], list[dict]]:
     status_code = _selected_filter_value(request, "status")
     week_start_from = _selected_filter_value(request, "week_start_from")
     week_start_to = _selected_filter_value(request, "week_start_to")
@@ -636,7 +634,8 @@ def my_timesheets(request: HttpRequest) -> HttpResponse:
         title="My Timesheets",
         eyebrow="SCR-200",
         intro=(
-            "Create a weekly timesheet, open editable weeks, and review your personal week history in one list."
+            "Create a weekly timesheet, open editable weeks, and review your "
+            "personal week history in one list."
         ),
     )
     context.update(

@@ -405,6 +405,22 @@ Acceptance criteria:
 - Future changes can target a bounded module instead of 8k-line services.
 - Public service APIs used by views remain stable or are migrated in one pass.
 
+Implementation notes:
+
+- Approval-scope helpers moved from `apps.timesheets.approval_scope` to neutral
+  `apps.common.approval_scope`; the old timesheets module remains as a
+  compatibility re-export.
+- `apps.auth.policies` now imports approval-scope checks from `apps.common`,
+  removing the direct auth-to-timesheets dependency.
+- Safe local redirect/path validation moved to `apps.common.urls` and is used
+  by TS and Approval HTML views.
+- Reference value lookup moved to `apps.common.reference_data` and is now used
+  by master-data and timesheet services.
+- Architecture boundary tests guard the new common helpers and prevent
+  reintroducing a direct `apps.timesheets` import in auth policies. Large
+  service/report module splitting remains a follow-up refactor slice because it
+  has a much larger blast radius than the dependency-boundary extraction.
+
 ## Phase 8 - Performance And Observability
 
 Goal: prepare for real production data volume.
