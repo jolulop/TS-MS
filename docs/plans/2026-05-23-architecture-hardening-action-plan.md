@@ -454,6 +454,11 @@ Implementation notes:
   scoping, special-day year/default-GCC validation, and period-rule overlap
   locking/validation. The public service names remain re-exported from
   `apps.master_data.services`.
+- Project and staffing administration moved into
+  `apps.master_data.service_modules.project_staffing`, covering Project,
+  Project Assignment, and Cross-Office Staffing CRUD plus shared staffing
+  overlap locking/validation. The public service names remain re-exported from
+  `apps.master_data.services`.
 - Architecture boundary tests guard the new common helpers and prevent
   reintroducing a direct `apps.timesheets` import in auth policies. Large
   service/report module splitting remains a follow-up refactor slice because it

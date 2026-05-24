@@ -86,6 +86,9 @@
 - Extracted calendar service modules must preserve the same scoped locking and
   validation behavior when refactoring Yearly Calendar, Special Day, and Calendar
   Period Rule administration.
+- Extracted project/staffing service modules must preserve row-level Office and
+  Business Unit scope checks, project owner/manager scope checks, audit writes,
+  and shared normal/cross-office staffing overlap locking.
 - Production secrets should come from Azure Key Vault or an equivalent managed
   secret store.
 - Local SQLite bootstrap remains a development-only path.

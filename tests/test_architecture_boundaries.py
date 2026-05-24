@@ -35,6 +35,15 @@ from apps.master_data.service_modules.country_office import (
 from apps.master_data.service_modules.employee import (
     EmployeeManagementService as ExtractedEmployeeManagementService,
 )
+from apps.master_data.service_modules.project_staffing import (
+    CrossOfficeProjectAssignmentManagementService as ExtractedCrossOfficeAssignmentService,
+)
+from apps.master_data.service_modules.project_staffing import (
+    ProjectAssignmentManagementService as ExtractedProjectAssignmentManagementService,
+)
+from apps.master_data.service_modules.project_staffing import (
+    ProjectManagementService as ExtractedProjectManagementService,
+)
 from apps.master_data.service_modules.reference_master import (
     ClientManagementService as ExtractedClientManagementService,
 )
@@ -54,10 +63,13 @@ from apps.master_data.services import (
     ClientManagementService,
     CostCenterManagementService,
     CountryManagementService,
+    CrossOfficeProjectAssignmentManagementService,
     EmployeeManagementService,
     InternalCategoryManagementService,
     OfficeManagementService,
     PricingModelManagementService,
+    ProjectAssignmentManagementService,
+    ProjectManagementService,
     YearlyCalendarManagementService,
 )
 from apps.timesheets import approval_scope as legacy_approval_scope
@@ -104,6 +116,15 @@ def test_calendar_services_are_reexported_from_extracted_module() -> None:
     assert YearlyCalendarManagementService is ExtractedYearlyCalendarManagementService
     assert CalendarSpecialDayManagementService is ExtractedCalendarSpecialDayManagementService
     assert CalendarPeriodRuleManagementService is ExtractedCalendarPeriodRuleManagementService
+
+
+def test_project_staffing_services_are_reexported_from_extracted_module() -> None:
+    assert ProjectManagementService is ExtractedProjectManagementService
+    assert ProjectAssignmentManagementService is ExtractedProjectAssignmentManagementService
+    assert (
+        CrossOfficeProjectAssignmentManagementService
+        is ExtractedCrossOfficeAssignmentService
+    )
 
 
 def test_safe_local_path_allows_only_single_slash_local_paths() -> None:
