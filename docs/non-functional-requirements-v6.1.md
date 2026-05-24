@@ -26,9 +26,9 @@
 - authorization policy code must not import from the `timesheets` application
   for approval-scope filtering; shared approval-scope helpers live in
   `apps.common`.
-- duplicated infrastructure helpers such as reference-value lookup and safe
-  local path validation should be centralized in `apps.common` before adding
-  new call sites.
+- duplicated infrastructure helpers such as request/service parsing,
+  reference-value lookup, and safe local path validation should be centralized
+  in `apps.common` before adding new call sites.
 
 ## 3. Auditability
 

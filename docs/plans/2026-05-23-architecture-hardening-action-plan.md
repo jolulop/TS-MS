@@ -416,6 +416,11 @@ Implementation notes:
   by TS and Approval HTML views.
 - Reference value lookup moved to `apps.common.reference_data` and is now used
   by master-data and timesheet services.
+- Shared service parsing helpers moved to `apps.common.parsing`, including
+  required integer parsing, ISO date parsing, optional date-query parsing,
+  decimal parsing, Boolean parsing, and status filter validation/application.
+  Master-data services, timesheet services, reports, and TS HTML views now use
+  those common helpers while preserving their existing local alias names.
 - Architecture boundary tests guard the new common helpers and prevent
   reintroducing a direct `apps.timesheets` import in auth policies. Large
   service/report module splitting remains a follow-up refactor slice because it

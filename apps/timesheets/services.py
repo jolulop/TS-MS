@@ -15,6 +15,7 @@ from apps.common.approval_scope import (
     approval_item_effective_business_unit,
     ts_admin_visible_approval_items_q,
 )
+from apps.common.parsing import parse_iso_date as _parse_iso_date
 from apps.common.reference_data import get_ref_value as _ref_value
 from apps.master_data.models import (
     BusinessUnit,
@@ -39,15 +40,6 @@ from apps.timesheets.models import (
     TimesheetSubmissionCycle,
     WeeklyTimesheet,
 )
-
-
-def _parse_iso_date(value: object, *, code: str, message: str) -> date:
-    if value in (None, ""):
-        raise AuthError(code, message, 400)
-    try:
-        return date.fromisoformat(str(value))
-    except ValueError as exc:
-        raise AuthError(code, message, 400) from exc
 
 
 def _parse_decimal_hours(value: object) -> Decimal:

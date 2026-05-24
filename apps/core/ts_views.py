@@ -10,6 +10,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.auth.context import CurrentUser
 from apps.auth.errors import AuthError
+from apps.common.parsing import parse_optional_date_query as _parse_date_query
 from apps.common.urls import safe_local_path
 from apps.core.reports_views import render_report_view
 from apps.core.views import _page_context, _render_access_denied, _require_user
@@ -320,15 +321,6 @@ def _project_management_rows(current_user: CurrentUser, projects: list[Project])
 
 def _default_week_start_date_value() -> str:
     return _current_monday().isoformat()
-
-
-def _parse_date_query(value: str) -> date | None:
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        return None
 
 
 def _selected_filter_value(request: HttpRequest, name: str) -> str:

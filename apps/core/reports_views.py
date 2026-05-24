@@ -18,6 +18,7 @@ from apps.common.approval_scope import (
     ts_admin_approval_business_unit_filter_q,
     ts_admin_visible_approval_items_q,
 )
+from apps.common.parsing import parse_optional_date_query as _parse_date_query
 from apps.core.views import _page_context, _render_access_denied, _require_user
 from apps.integrations.models import IntegrationJob
 from apps.master_data.models import (
@@ -164,15 +165,6 @@ def _reports_context(
 def _current_monday(today: date | None = None) -> date:
     current_date = today or date.today()
     return current_date - timedelta(days=current_date.weekday())
-
-
-def _parse_date_query(value: str) -> date | None:
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        return None
 
 
 def _date_display(value) -> str:
