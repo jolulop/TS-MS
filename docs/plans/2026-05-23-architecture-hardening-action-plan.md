@@ -255,6 +255,18 @@ Acceptance criteria:
 - Reopen/archive/restore/admin-withdraw transitions are serialized.
 - Business errors remain stable and user-facing.
 
+Implementation note:
+
+- Implemented in Phase 4 on `Codex-5.5` by adding lock-aware fetch helpers in
+  `apps/timesheets/services.py`.
+- Mutating timesheet workflows now request `SELECT FOR UPDATE` on the affected
+  weekly timesheet before state checks and writes.
+- Approval approve/reject requests lock the parent weekly timesheet, submission
+  cycle, and approval item before rechecking approval authority and status.
+- Local tests verify the lock calls and stale duplicate approval behavior; true
+  concurrent blocking semantics must also be verified on PostgreSQL because
+  SQLite ignores `SELECT FOR UPDATE`.
+
 ## Phase 5 - Validity Window And Overlap Hardening
 
 Goal: enforce important non-overlap rules safely under concurrency.

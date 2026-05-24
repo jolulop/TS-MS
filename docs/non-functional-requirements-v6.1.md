@@ -31,6 +31,9 @@
 - UI and backend validations must agree
 - Office and Business Unit scope must be applied consistently across UI, API, and reports
 - shared System Management create and edit screens should follow the same layout direction where implemented
+- critical workflow state transitions must be transactional and request row
+  locks for the affected timesheet, submission cycle, or approval item before
+  rechecking authorization and state
 
 ## 5. Usability
 
@@ -55,6 +58,8 @@
 - Azure deployment variables are documented in
   `docs/deployment/azure-production-checklist.md`.
 - Production uses PostgreSQL-compatible configuration.
+- Workflow row-lock behavior must be validated against PostgreSQL-compatible
+  parity environments because SQLite does not enforce `SELECT FOR UPDATE`.
 - Production secrets should come from Azure Key Vault or an equivalent managed
   secret store.
 - Local SQLite bootstrap remains a development-only path.

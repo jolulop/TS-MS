@@ -305,6 +305,31 @@ def _get_timesheet_for_view(current_user: CurrentUser, timesheet_id: int) -> Wee
     return timesheet
 
 
+def _timesheet_detail_queryset():
+    return WeeklyTimesheet.objects.select_related(
+        "employee",
+        "business_unit",
+        "status",
+    ).prefetch_related("lines__project", "lines__general_charge_code")
+
+
+def _get_timesheet_for_update(current_user: CurrentUser, timesheet_id: int) -> WeeklyTimesheet:
+    try:
+        timesheet = _timesheet_detail_queryset().select_for_update(of=("self",)).get(
+            id=timesheet_id
+        )
+    except WeeklyTimesheet.DoesNotExist as exc:
+        raise AuthError("TIMESHEET_NOT_FOUND", "Timesheet not found.", 404) from exc
+
+    if not AuthorizationPolicyService.can_view_timesheet(current_user, timesheet):
+        raise AuthError(
+            "AUTH_ACCESS_DENIED",
+            "You are not authorized to view this timesheet.",
+            403,
+        )
+    return timesheet
+
+
 def _validate_week_start_date(week_start_date: date) -> tuple[date, date]:
     if week_start_date.weekday() != 0:
         raise AuthError(
@@ -730,26 +755,62 @@ def _finalize_approved_timesheet(
 
 def _get_approval_item_for_view(current_user: CurrentUser, approval_item_id: int) -> ApprovalItem:
     try:
+        approval_item = _approval_item_detail_queryset().get(id=approval_item_id)
+    except ApprovalItem.DoesNotExist as exc:
+        raise AuthError("APPROVAL_ITEM_NOT_FOUND", "Approval item not found.", 404) from exc
+
+    if not AuthorizationPolicyService.can_view_approval_item(current_user, approval_item):
+        raise AuthError(
+            "AUTH_ACCESS_DENIED",
+            "You are not authorized to view this approval item.",
+            403,
+        )
+    return approval_item
+
+
+def _approval_item_detail_queryset():
+    return ApprovalItem.objects.select_related(
+        "scope_type",
+        "status",
+        "approver_employee",
+        "project",
+        "project__business_unit",
+        "project__office",
+        "general_charge_code",
+        "submission_cycle",
+        "submission_cycle__weekly_timesheet",
+        "submission_cycle__weekly_timesheet__employee",
+        "submission_cycle__weekly_timesheet__business_unit",
+    ).prefetch_related(
+        "approver_roles__existing_role",
+        "approver_roles__approval_role",
+        "submission_cycle__weekly_timesheet__lines__project",
+        "submission_cycle__weekly_timesheet__lines__general_charge_code",
+    )
+
+
+def _get_approval_item_for_update(
+    current_user: CurrentUser,
+    approval_item_id: int,
+) -> ApprovalItem:
+    try:
+        unlocked_item = ApprovalItem.objects.select_related("submission_cycle").get(
+            id=approval_item_id
+        )
+    except ApprovalItem.DoesNotExist as exc:
+        raise AuthError("APPROVAL_ITEM_NOT_FOUND", "Approval item not found.", 404) from exc
+
+    WeeklyTimesheet.objects.select_for_update(of=("self",)).get(
+        id=unlocked_item.submission_cycle.weekly_timesheet_id
+    )
+    TimesheetSubmissionCycle.objects.select_for_update(of=("self",)).get(
+        id=unlocked_item.submission_cycle_id
+    )
+
+    try:
         approval_item = (
-            ApprovalItem.objects.select_related(
-                "scope_type",
-                "status",
-                "approver_employee",
-                "project",
-                "project__business_unit",
-                "project__office",
-                "general_charge_code",
-                "submission_cycle",
-                "submission_cycle__weekly_timesheet",
-                "submission_cycle__weekly_timesheet__employee",
-                "submission_cycle__weekly_timesheet__business_unit",
-            )
-            .prefetch_related(
-                "approver_roles__existing_role",
-                "approver_roles__approval_role",
-                "submission_cycle__weekly_timesheet__lines__project",
-                "submission_cycle__weekly_timesheet__lines__general_charge_code",
-            )
+            _approval_item_detail_queryset()
+            .select_for_update(of=("self",))
             .get(id=approval_item_id)
         )
     except ApprovalItem.DoesNotExist as exc:
@@ -1057,7 +1118,7 @@ class TimesheetService:
     @staticmethod
     @transaction.atomic
     def replace_lines(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
-        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        timesheet = _get_timesheet_for_update(current_user, timesheet_id)
         if not AuthorizationPolicyService.can_edit_timesheet(current_user, timesheet):
             raise AuthError(
                 "TIMESHEET_NOT_EDITABLE",
@@ -1184,7 +1245,7 @@ class TimesheetService:
     @staticmethod
     @transaction.atomic
     def submit_timesheet(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
-        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        timesheet = _get_timesheet_for_update(current_user, timesheet_id)
         if not AuthorizationPolicyService.can_submit_timesheet(current_user, timesheet):
             raise AuthError(
                 "TIMESHEET_SUBMIT_NOT_ALLOWED",
@@ -1374,7 +1435,7 @@ class TimesheetService:
     @staticmethod
     @transaction.atomic
     def withdraw_timesheet(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
-        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        timesheet = _get_timesheet_for_update(current_user, timesheet_id)
         if not AuthorizationPolicyService.can_withdraw_timesheet(current_user, timesheet):
             raise AuthError(
                 "TIMESHEET_WITHDRAW_NOT_ALLOWED",
@@ -1383,7 +1444,7 @@ class TimesheetService:
             )
 
         try:
-            submission_cycle = timesheet.submission_cycles.select_related(
+            submission_cycle = timesheet.submission_cycles.select_for_update().select_related(
                 "cycle_status",
                 "outcome_status",
             ).get(submission_no=timesheet.current_submission_no)
@@ -1451,7 +1512,7 @@ class TimesheetService:
     @staticmethod
     @transaction.atomic
     def delete_timesheet(current_user: CurrentUser, timesheet_id: int) -> None:
-        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        timesheet = _get_timesheet_for_update(current_user, timesheet_id)
         if not AuthorizationPolicyService.can_delete_timesheet(current_user, timesheet):
             raise AuthError(
                 "TIMESHEET_DELETE_NOT_ALLOWED",
@@ -1559,7 +1620,7 @@ class TimesheetService:
         approval_item_id: int,
         payload: dict,
     ) -> dict:
-        approval_item = _get_approval_item_for_view(current_user, approval_item_id)
+        approval_item = _get_approval_item_for_update(current_user, approval_item_id)
         if not AuthorizationPolicyService.can_approve_approval_item(current_user, approval_item):
             raise AuthError(
                 "APPROVAL_ACTION_NOT_ALLOWED",
@@ -1628,7 +1689,7 @@ class TimesheetService:
         approval_item_id: int,
         payload: dict,
     ) -> dict:
-        approval_item = _get_approval_item_for_view(current_user, approval_item_id)
+        approval_item = _get_approval_item_for_update(current_user, approval_item_id)
         if not AuthorizationPolicyService.can_reject_approval_item(current_user, approval_item):
             raise AuthError(
                 "APPROVAL_ACTION_NOT_ALLOWED",
@@ -1725,7 +1786,7 @@ class TimesheetService:
     @staticmethod
     @transaction.atomic
     def reopen_timesheet(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
-        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        timesheet = _get_timesheet_for_update(current_user, timesheet_id)
         if not AuthorizationPolicyService.can_reopen_timesheet(current_user, timesheet):
             raise AuthError(
                 "TIMESHEET_REOPEN_NOT_ALLOWED",
@@ -1784,7 +1845,7 @@ class TimesheetService:
         timesheet_id: int,
         payload: dict,
     ) -> dict:
-        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        timesheet = _get_timesheet_for_update(current_user, timesheet_id)
         if not AuthorizationPolicyService.can_admin_withdraw_timesheet(current_user, timesheet):
             raise AuthError(
                 "TIMESHEET_ADMIN_WITHDRAW_NOT_ALLOWED",
@@ -1830,7 +1891,7 @@ class TimesheetService:
     @staticmethod
     @transaction.atomic
     def override_period_lock(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
-        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        timesheet = _get_timesheet_for_update(current_user, timesheet_id)
         if not AuthorizationPolicyService.can_override_period_lock(current_user, timesheet):
             raise AuthError(
                 "TIMESHEET_PERIOD_OVERRIDE_NOT_ALLOWED",
@@ -1888,7 +1949,7 @@ class TimesheetService:
     @staticmethod
     @transaction.atomic
     def archive_timesheet(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
-        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        timesheet = _get_timesheet_for_update(current_user, timesheet_id)
         if not AuthorizationPolicyService.can_archive_timesheet(current_user, timesheet):
             raise AuthError(
                 "TIMESHEET_ARCHIVE_NOT_ALLOWED",
@@ -1935,7 +1996,7 @@ class TimesheetService:
     @staticmethod
     @transaction.atomic
     def restore_timesheet(current_user: CurrentUser, timesheet_id: int, payload: dict) -> dict:
-        timesheet = _get_timesheet_for_view(current_user, timesheet_id)
+        timesheet = _get_timesheet_for_update(current_user, timesheet_id)
         if not AuthorizationPolicyService.can_restore_timesheet(current_user, timesheet):
             raise AuthError(
                 "TIMESHEET_RESTORE_NOT_ALLOWED",

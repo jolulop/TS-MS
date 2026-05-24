@@ -2,12 +2,12 @@ import json
 from datetime import date
 
 import pytest
+from django.db.models.query import QuerySet
 from django.test import Client
 
 from apps.audit.models import AuditLog
 from apps.auth.services import CurrentUserService
 from apps.master_data.models import OfficeConfiguration
-from apps.timesheets.services import TimesheetService
 from apps.timesheets.models import (
     ApprovalAction,
     ApprovalItem,
@@ -15,6 +15,7 @@ from apps.timesheets.models import (
     TimesheetSubmissionCycle,
     WeeklyTimesheet,
 )
+from apps.timesheets.services import TimesheetService
 from tests.helpers import (
     assign_calendar,
     assign_cross_office_project,
@@ -64,6 +65,18 @@ def create_timesheet(
     )
     assert response.status_code == 201
     return response.json()["timesheet"]
+
+
+def record_select_for_update_models(monkeypatch: pytest.MonkeyPatch) -> list[type]:
+    locked_models = []
+    original_select_for_update = QuerySet.select_for_update
+
+    def recording_select_for_update(self, *args, **kwargs):
+        locked_models.append(self.model)
+        return original_select_for_update(self, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "select_for_update", recording_select_for_update)
+    return locked_models
 
 
 def setup_project_approval_context(*, email: str, employee_code: str, full_name: str) -> dict:
@@ -1046,6 +1059,46 @@ def test_user_can_submit_and_withdraw_timesheet() -> None:
 
 
 @pytest.mark.django_db
+def test_submit_timesheet_requests_timesheet_row_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    seed_reference_data()
+    context = setup_project_approval_context(
+        email="submit-lock@example.com",
+        employee_code="EMP-SUBMIT-LOCK",
+        full_name="Submit Lock User",
+    )
+
+    client = Client()
+    initialize_session(client, "submit-lock@example.com")
+    timesheet = create_timesheet(client, "2026-05-04")
+    save_response = client.put(
+        f"/api/v1/timesheets/{timesheet['id']}/lines/",
+        data=json.dumps(
+            {
+                "lines": [
+                    {
+                        "work_date": "2026-05-04",
+                        "project_id": context["project"].id,
+                        "hours": "3.00",
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+    assert save_response.status_code == 200
+
+    locked_models = record_select_for_update_models(monkeypatch)
+    submit_response = client.post(
+        f"/api/v1/timesheets/{timesheet['id']}/submit/",
+        data=json.dumps({"comment_text": "Ready for approval"}),
+        content_type="application/json",
+    )
+
+    assert submit_response.status_code == 200
+    assert WeeklyTimesheet in locked_models
+
+
+@pytest.mark.django_db
 def test_timesheet_submit_requires_lines_and_submitted_timesheet_is_not_editable() -> None:
     seed_reference_data()
     context = setup_project_approval_context(
@@ -1254,7 +1307,9 @@ def test_cross_office_staffing_supports_timesheet_submit_and_pm_review() -> None
 
 
 @pytest.mark.django_db
-def test_project_manager_can_approve_final_pending_item_and_finalize_timesheet() -> None:
+def test_project_manager_can_approve_final_pending_item_and_finalize_timesheet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     seed_reference_data()
     context = setup_project_approval_context(
         email="user9@example.com",
@@ -1292,6 +1347,7 @@ def test_project_manager_can_approve_final_pending_item_and_finalize_timesheet()
 
     pm_client = Client()
     initialize_session(pm_client, context["project_manager"].email)
+    locked_models = record_select_for_update_models(monkeypatch)
     approve_response = pm_client.post(
         f"/api/v1/approvals/{approval_item.id}/approve/",
         data=json.dumps({"comment_text": "Looks good"}),
@@ -1300,6 +1356,9 @@ def test_project_manager_can_approve_final_pending_item_and_finalize_timesheet()
 
     assert approve_response.status_code == 200
     assert approve_response.json()["approval_item"]["status"] == "APPROVED"
+    assert WeeklyTimesheet in locked_models
+    assert TimesheetSubmissionCycle in locked_models
+    assert ApprovalItem in locked_models
 
     approval_item.refresh_from_db()
     submission_cycle = approval_item.submission_cycle
@@ -1319,6 +1378,22 @@ def test_project_manager_can_approve_final_pending_item_and_finalize_timesheet()
         ).approval_state.value_code
         == "APPROVED"
     )
+    assert (
+        ApprovalAction.objects.filter(
+            approval_item=approval_item,
+            action_type__value_code="APPROVE",
+        ).count()
+        == 1
+    )
+
+    second_approve_response = pm_client.post(
+        f"/api/v1/approvals/{approval_item.id}/approve/",
+        data=json.dumps({"comment_text": "Duplicate click"}),
+        content_type="application/json",
+    )
+
+    assert second_approve_response.status_code == 400
+    assert second_approve_response.json()["error"]["code"] == "APPROVAL_ACTION_NOT_ALLOWED"
     assert (
         ApprovalAction.objects.filter(
             approval_item=approval_item,
