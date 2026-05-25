@@ -3,7 +3,7 @@
     {% if field.kind == "hidden" %}
       <input id="{{ field.name }}" name="{{ field.name }}" type="hidden" value="{{ field.value }}">
     {% else %}
-    <div class="field{% if field.width_mode == 'full' or field.kind == 'checkbox' and field.width_mode != 'column' %} full-width{% endif %}">
+    <div class="field{% if field.width_mode == 'full' or field.kind == 'checkbox' and field.width_mode != 'column' %} full-width{% endif %}{% if field.muted %} muted-field{% endif %}">
       {% if field.kind == "checkbox" %}
         <label>{{ field.label }}</label>
         <label class="checkbox-row" for="{{ field.name }}">

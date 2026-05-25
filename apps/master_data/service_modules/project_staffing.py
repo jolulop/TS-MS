@@ -974,6 +974,12 @@ class ProjectAssignmentManagementService:
                 "Project assignment employee must be active.",
                 400,
             )
+        if not _employee_has_active_business_unit_scope(employee.id, project.business_unit_id):
+            raise AuthError(
+                "PROJECT_ASSIGNMENT_EMPLOYEE_BU_SCOPE_INVALID",
+                "Project assignment employee must be active in the project Business Unit.",
+                400,
+            )
         assignment_start_date = _parse_iso_date(
             payload.get("assignment_start_date"),
             code="PROJECT_ASSIGNMENT_START_REQUIRED",
@@ -1833,4 +1839,3 @@ class CrossOfficeProjectAssignmentManagementService:
             "origin_business_unit",
             "status",
         ).get(id=assignment_id)
-

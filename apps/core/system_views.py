@@ -28,9 +28,9 @@ from apps.master_data.services import (
     CalendarPeriodRuleManagementService,
     CalendarSpecialDayManagementService,
     ClientManagementService,
-    CrossOfficeProjectAssignmentManagementService,
     CostCenterManagementService,
     CountryManagementService,
+    CrossOfficeProjectAssignmentManagementService,
     EmployeeManagementService,
     GeneralChargeCodeApprovalRoleManagementService,
     GeneralChargeCodeManagementService,
@@ -291,6 +291,28 @@ def _ref_options(
     return options
 
 
+def _office_approval_mode_options() -> list[dict]:
+    selected_values = _selected_values("PROJECT")
+    project_mode = (
+        RefValue.objects.filter(
+            domain__domain_code="APPROVAL_MODE",
+            value_code="PROJECT",
+            active_flag=True,
+        )
+        .order_by("sort_order", "value_code")
+        .first()
+    )
+    if project_mode is None:
+        return [_option("PROJECT", "Project", selected_values=selected_values)]
+    return [
+        _option(
+            project_mode.value_code,
+            project_mode.value_label,
+            selected_values=selected_values,
+        )
+    ]
+
+
 def _country_options(
     *,
     selected: object = None,
@@ -452,6 +474,7 @@ def _field(
     checked: bool = False,
     readonly: bool = False,
     disabled: bool = False,
+    muted: bool = False,
     size: int | None = None,
     width_mode: str = "auto",
 ) -> dict:
@@ -466,6 +489,7 @@ def _field(
         "checked": checked,
         "readonly": readonly,
         "disabled": disabled,
+        "muted": muted,
         "size": size,
         "width_mode": width_mode,
     }
@@ -2129,7 +2153,6 @@ def _project_assignment_fields(
                 if post_data is not None or entity is not None
                 else "",
                 include_blank=entity is None,
-                include_all_employees=True,
             ),
             required=True,
         ),
@@ -2193,7 +2216,11 @@ def _cross_office_employee_options(
     employees = employees.exclude(office_id=current_user.office_id)
     if apply_origin_filter and origin_office_id is not None:
         employees = employees.filter(office_id=origin_office_id)
-    employees = employees.order_by("office__office_name", "primary_business_unit__bu_code", "employee_code")
+    employees = employees.order_by(
+        "office__office_name",
+        "primary_business_unit__bu_code",
+        "employee_code",
+    )
     options.extend(
         _option(
             employee.id,
@@ -2303,7 +2330,10 @@ def _cross_office_staffing_fields(
         else current_user.office_name
     )
     target_business_unit_label = (
-        f"{entity['project']['business_unit']['bu_code']} - {entity['project']['business_unit']['name']}"
+        (
+            f"{entity['project']['business_unit']['bu_code']} - "
+            f"{entity['project']['business_unit']['name']}"
+        )
         if entity is not None
         else f"{selected_project.business_unit.bu_code} - {selected_project.business_unit.name}"
         if selected_project is not None
@@ -3918,20 +3948,12 @@ def _configuration_fields(
             name="approval_mode_code",
             label="Approval Mode",
             kind="select",
-            options=_ref_options(
-                "APPROVAL_MODE",
-                selected=submitted_data.get(
-                    "approval_mode_code",
-                    configuration["approval_mode"],
-                )
-                if post_data is not None
-                else configuration["approval_mode"],
-            ),
+            options=_office_approval_mode_options(),
             required=True,
             disabled=read_only,
             help_text=(
-                "Defines how submitted time is routed for approval. The current "
-                f"working option is project-based approval for {help_scope}."
+                "Only project-based approval is available. Line and Mixed modes "
+                f"are reserved compatibility values and are hidden for {help_scope}."
             ),
             width_mode="column" if paired_layout else "auto",
         ),
@@ -3965,37 +3987,6 @@ def _configuration_fields(
             width_mode="column" if paired_layout else "auto",
         ),
         _field(
-            name="timesheet_cutoff_date",
-            label="Timesheet Cutoff Date",
-            kind="date",
-            value=submitted_data.get(
-                "timesheet_cutoff_date",
-                configuration["timesheet_cutoff_date"] or "",
-            )
-            if post_data is not None
-            else configuration["timesheet_cutoff_date"] or "",
-            readonly=read_only,
-            disabled=read_only,
-            help_text=(
-                "Optional date before which employee timesheets become locked for "
-                f"edit or submit in {help_scope}."
-            ),
-        ),
-        _field(
-            name="count_non_billable_in_daily_limit_flag",
-            label="Count Non-billable In Daily Limit",
-            kind="checkbox",
-            checked=_bool_from_post(post_data, "count_non_billable_in_daily_limit_flag")
-            if post_data is not None
-            else bool(configuration["count_non_billable_in_daily_limit_flag"]),
-            disabled=read_only,
-            help_text=(
-                "If enabled, non-billable hours count toward the daily calendar "
-                f"hour limit for {help_scope}."
-            ),
-            width_mode="column" if paired_layout else "auto",
-        ),
-        _field(
             name="archive_after_years",
             label="Archive After Years",
             kind="number",
@@ -4014,13 +4005,38 @@ def _configuration_fields(
             ),
         ),
         _field(
+            name="timesheet_cutoff_date",
+            label="Timesheet Cutoff Date",
+            kind="date",
+            value=configuration["timesheet_cutoff_date"] or "",
+            readonly=True,
+            disabled=True,
+            muted=True,
+            help_text=(
+                "Reserved date. Period locking is retained in the data model but "
+                f"is not editable from this screen for {help_scope}."
+            ),
+        ),
+        _field(
+            name="count_non_billable_in_daily_limit_flag",
+            label="Count Non-billable In Daily Limit",
+            kind="checkbox",
+            checked=bool(configuration["count_non_billable_in_daily_limit_flag"]),
+            disabled=True,
+            muted=True,
+            help_text=(
+                "Reserved switch. Set to always count all charged time, "
+                "billable and non-billable"
+            ),
+            width_mode="column" if paired_layout else "auto",
+        ),
+        _field(
             name="enable_timer_flag",
             label="Enable Timer",
             kind="checkbox",
-            checked=_bool_from_post(post_data, "enable_timer_flag")
-            if post_data is not None
-            else bool(configuration["enable_timer_flag"]),
-            disabled=read_only,
+            checked=bool(configuration["enable_timer_flag"]),
+            disabled=True,
+            muted=True,
             help_text=(
                 "Reserved switch for future timer-based time capture within "
                 f"{help_scope}."
@@ -4031,13 +4047,12 @@ def _configuration_fields(
             name="enable_leave_integration_flag",
             label="Enable Leave Integration",
             kind="checkbox",
-            checked=_bool_from_post(post_data, "enable_leave_integration_flag")
-            if post_data is not None
-            else bool(configuration["enable_leave_integration_flag"]),
-            disabled=read_only,
+            checked=bool(configuration["enable_leave_integration_flag"]),
+            disabled=True,
+            muted=True,
             help_text=(
-                "Reserved switch for future integration that imports leave or "
-                f"absence data into timesheet behavior for {help_scope}."
+                "Reserved switch for future integration that imports leave/absence "
+                "data into timesheet for this Office"
             ),
             width_mode="column" if paired_layout else "auto",
         ),
@@ -4116,6 +4131,7 @@ def _business_unit_configuration_fields(
         post_data=post_data,
         read_only=read_only,
         scope_label="this Business Unit",
+        paired_layout=True,
     )
 
 
@@ -4929,21 +4945,11 @@ def office_create(request: HttpRequest) -> HttpResponse:
                         "bootstrap_admin_full_name", ""
                     ),
                     "bootstrap_admin_email": request.POST.get("bootstrap_admin_email", ""),
-                    "approval_mode_code": request.POST.get("approval_mode_code", ""),
+                    "approval_mode_code": "PROJECT",
                     "allow_employee_withdraw_flag": _bool_from_post(
                         request.POST, "allow_employee_withdraw_flag"
                     ),
-                    "timesheet_cutoff_date": request.POST.get("timesheet_cutoff_date", ""),
-                    "count_non_billable_in_daily_limit_flag": _bool_from_post(
-                        request.POST,
-                        "count_non_billable_in_daily_limit_flag",
-                    ),
                     "archive_after_years": request.POST.get("archive_after_years", ""),
-                    "enable_timer_flag": _bool_from_post(request.POST, "enable_timer_flag"),
-                    "enable_leave_integration_flag": _bool_from_post(
-                        request.POST,
-                        "enable_leave_integration_flag",
-                    ),
                     "enable_copy_previous_week_flag": _bool_from_post(
                         request.POST,
                         "enable_copy_previous_week_flag",
@@ -5031,21 +5037,11 @@ def office_detail(request: HttpRequest, office_id: int) -> HttpResponse:
             }
         elif active_form == "configuration":
             payload = {
-                "approval_mode_code": request.POST.get("approval_mode_code", ""),
+                "approval_mode_code": "PROJECT",
                 "allow_employee_withdraw_flag": _bool_from_post(
                     request.POST, "allow_employee_withdraw_flag"
                 ),
-                "timesheet_cutoff_date": request.POST.get("timesheet_cutoff_date", ""),
-                "count_non_billable_in_daily_limit_flag": _bool_from_post(
-                    request.POST,
-                    "count_non_billable_in_daily_limit_flag",
-                ),
                 "archive_after_years": request.POST.get("archive_after_years", ""),
-                "enable_timer_flag": _bool_from_post(request.POST, "enable_timer_flag"),
-                "enable_leave_integration_flag": _bool_from_post(
-                    request.POST,
-                    "enable_leave_integration_flag",
-                ),
                 "enable_copy_previous_week_flag": _bool_from_post(
                     request.POST,
                     "enable_copy_previous_week_flag",
@@ -7302,7 +7298,10 @@ def cross_office_staffing_create(request: HttpRequest) -> HttpResponse:
         config=CROSS_OFFICE_STAFFING_CONFIG,
         form_fields=_cross_office_staffing_fields(current_user, post_data=post_data),
         form_error=form_error,
-        form_intro="Create a new Cross-Office Staffing record in your current target-project scope.",
+        form_intro=(
+            "Create a new Cross-Office Staffing record in your current "
+            "target-project scope."
+        ),
         extra_context={"cross_office_staffing_dynamic_form": True},
     )
 

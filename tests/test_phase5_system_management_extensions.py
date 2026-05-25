@@ -406,12 +406,24 @@ def test_ts_admin_can_create_and_update_project_assignment_via_api() -> None:
         admin_employee,
         project_owner,
         project_manager,
-        worker,
+        _worker,
         project_client,
         category,
         cost_center,
         pricing_model,
     ) = _build_admin_context()
+    local_worker = create_employee(
+        employee_code="EMP-WORKER-API",
+        full_name="API Worker User",
+        email="api-worker-ext@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=local_worker,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=local_worker, role_code="USER")
     project = create_project(
         business_unit=business_unit,
         project_code="PRJ-ASN-EXT",
@@ -432,7 +444,7 @@ def test_ts_admin_can_create_and_update_project_assignment_via_api() -> None:
         data=json.dumps(
             {
                 "project_id": project.id,
-                "employee_id": worker.id,
+                "employee_id": local_worker.id,
                 "assignment_start_date": "2026-04-07",
                 "status_code": "ACTIVE",
             }
@@ -443,7 +455,7 @@ def test_ts_admin_can_create_and_update_project_assignment_via_api() -> None:
     assert create_response.status_code == 201
     created_assignment = create_response.json()["project_assignment"]
     assert created_assignment["project"]["project_code"] == "PRJ-ASN-EXT"
-    assert created_assignment["employee"]["employee_code"] == "EMP-WORKER-EXT"
+    assert created_assignment["employee"]["employee_code"] == "EMP-WORKER-API"
 
     update_response = client.patch(
         f"/api/v1/admin/project-assignments/{created_assignment['id']}/",
@@ -476,12 +488,24 @@ def test_active_project_assignment_writes_lock_and_reject_staffing_overlap(
         admin_employee,
         project_owner,
         project_manager,
-        worker,
+        _worker,
         project_client,
         category,
         cost_center,
         pricing_model,
     ) = _build_admin_context()
+    local_worker = create_employee(
+        employee_code="EMP-WORKER-LOCAL",
+        full_name="Local Worker User",
+        email="local-worker-ext@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=local_worker,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=local_worker, role_code="USER")
     project = create_project(
         business_unit=business_unit,
         project_code="PRJ-ASN-LOCK",
@@ -501,7 +525,7 @@ def test_active_project_assignment_writes_lock_and_reject_staffing_overlap(
         current_user,
         {
             "project_id": project.id,
-            "employee_id": worker.id,
+            "employee_id": local_worker.id,
             "assignment_start_date": "2026-04-07",
             "assignment_end_date": "2026-05-31",
             "status_code": "ACTIVE",
@@ -516,7 +540,7 @@ def test_active_project_assignment_writes_lock_and_reject_staffing_overlap(
             current_user,
             {
                 "project_id": project.id,
-                "employee_id": worker.id,
+                "employee_id": local_worker.id,
                 "assignment_start_date": "2026-05-01",
                 "assignment_end_date": "2026-06-30",
                 "status_code": "ACTIVE",

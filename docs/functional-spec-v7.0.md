@@ -1,8 +1,8 @@
-# Functional Specification v6.1
+# Functional Specification v7.0
 
 ## 1. Purpose
 
-Define the approved v6.1 behavior baseline of the Timesheet Management System
+Define the approved v7.0 behavior baseline of the Timesheet Management System
 after the Office refactor, the expanded System Management feature set, the
 latest UI consolidation updates, and the approved cross-office staffing
 semantics.
@@ -718,7 +718,7 @@ Audit events may carry a `correlation_id` when a caller supplies one, allowing
 related events from the same workflow/request to be connected without changing
 row-level authorization or report scoping.
 
-## 13. Out Of Scope For v6.1
+## 13. Out Of Scope For v7.0
 
 - pricing calculations beyond storing a project Pricing Model
 - Office-level JSON admin API

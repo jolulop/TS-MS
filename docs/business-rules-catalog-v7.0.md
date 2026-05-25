@@ -1,4 +1,4 @@
-# Business Rules Catalog v6.1
+# Business Rules Catalog v7.0
 
 ## 1. Identity And Access
 

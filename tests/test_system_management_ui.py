@@ -701,7 +701,18 @@ def test_business_unit_management_list_and_detail_render_and_update_through_html
     assert "Back to Business Units" in detail_content
     assert "System BU 1 Updated" in detail_content
     assert "parent Office and are shown here for reference only" in detail_content
-    assert "Defines how submitted time is routed for approval." in detail_content
+    assert "Only project-based approval is available." in detail_content
+    assert detail_content.index('name="archive_after_years"') < detail_content.index(
+        'name="timesheet_cutoff_date"'
+    )
+    assert detail_content.index('name="timesheet_cutoff_date"') < detail_content.index(
+        'name="count_non_billable_in_daily_limit_flag"'
+    )
+    assert "Reserved switch. Set to always count all charged time" in detail_content
+    assert (
+        "Reserved switch for future integration that imports leave/absence data "
+        "into timesheet for this Office"
+    ) in detail_content
 
 
 @pytest.mark.django_db
@@ -3360,14 +3371,26 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
         employee_code="EMP-ASSIGN-1",
         full_name="Assigned Employee",
         email="assigned-employee@example.com",
-        primary_business_unit=foreign_business_unit,
+        primary_business_unit=business_units[0],
     )
     assign_employee_to_business_unit(
         employee=assigned_employee,
-        business_unit=foreign_business_unit,
+        business_unit=business_units[0],
         is_primary_flag=True,
     )
     assign_role(employee=assigned_employee, role_code="USER")
+    foreign_employee = create_employee(
+        employee_code="EMP-ASSIGN-FOREIGN",
+        full_name="Foreign Assignment Employee",
+        email="foreign-assignment@example.com",
+        primary_business_unit=foreign_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=foreign_employee,
+        business_unit=foreign_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=foreign_employee, role_code="USER")
     project = create_project(
         business_unit=business_units[0],
         project_code="PRJ-ASN",
@@ -3381,8 +3404,27 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
     )
 
     collection_response = client.get("/system/project-assignments/new/")
+    collection_content = collection_response.content.decode()
     assert collection_response.status_code == 200
-    assert "EMP-ASSIGN-1" in collection_response.content.decode()
+    assert "EMP-ASSIGN-1" in collection_content
+    assert "EMP-ASSIGN-FOREIGN" not in collection_content
+
+    foreign_create_response = client.post(
+        "/system/project-assignments/new/",
+        data={
+            "project_id": str(project.id),
+            "employee_id": str(foreign_employee.id),
+            "assignment_start_date": date(2026, 4, 7).isoformat(),
+            "status_code": "ACTIVE",
+        },
+        follow=False,
+    )
+
+    assert foreign_create_response.status_code == 200
+    assert "employee must be active in the project Business Unit" in (
+        foreign_create_response.content.decode()
+    )
+    assert not ProjectAssignment.objects.filter(project=project, employee=foreign_employee).exists()
 
     create_response = client.post(
         "/system/project-assignments/new/",
@@ -3443,11 +3485,11 @@ def test_project_owner_can_create_update_and_delete_assignments_for_owned_projec
         employee_code="EMP-OWNER-ASN",
         full_name="Owner Assignment Employee",
         email="owner-assignment@example.com",
-        primary_business_unit=business_units[1],
+        primary_business_unit=business_units[0],
     )
     assign_employee_to_business_unit(
         employee=assigned_employee,
-        business_unit=business_units[1],
+        business_unit=business_units[0],
         is_primary_flag=True,
     )
     assign_role(employee=assigned_employee, role_code="USER")
@@ -3588,11 +3630,11 @@ def test_project_manager_can_manage_assignments_for_managed_projects_only() -> N
         employee_code="EMP-MGR-ASN",
         full_name="Managed Assignment Employee",
         email="managed-assignment@example.com",
-        primary_business_unit=business_units[1],
+        primary_business_unit=business_units[0],
     )
     assign_employee_to_business_unit(
         employee=assigned_employee,
-        business_unit=business_units[1],
+        business_unit=business_units[0],
         is_primary_flag=True,
     )
     assign_role(employee=assigned_employee, role_code="USER")
@@ -4888,6 +4930,39 @@ def test_office_management_create_and_update_via_html() -> None:
     assert "Office Setup" in create_screen_content
     assert "Current State" not in create_screen_content
     assert 'name="office_name"' in create_screen_content
+    approval_mode_field = create_screen_content[
+        create_screen_content.index('name="approval_mode_code"') :
+        create_screen_content.index('name="enable_copy_previous_week_flag"')
+    ]
+    assert 'value="PROJECT"' in approval_mode_field
+    assert 'value="LINE"' not in approval_mode_field
+    assert 'value="MIXED"' not in approval_mode_field
+    assert "Line and Mixed modes are reserved compatibility values" in create_screen_content
+    assert create_screen_content.index('name="archive_after_years"') < (
+        create_screen_content.index('name="timesheet_cutoff_date"')
+    )
+    assert create_screen_content.index('name="timesheet_cutoff_date"') < (
+        create_screen_content.index('name="count_non_billable_in_daily_limit_flag"')
+    )
+    cutoff_field = create_screen_content[
+        create_screen_content.index('name="timesheet_cutoff_date"') :
+        create_screen_content.index("Reserved date.")
+    ]
+    assert "disabled" in cutoff_field
+    assert "muted-field" in create_screen_content
+    assert 'name="count_non_billable_in_daily_limit_flag"' in create_screen_content
+    non_billable_field = create_screen_content[
+        create_screen_content.index('name="count_non_billable_in_daily_limit_flag"') :
+        create_screen_content.index("Reserved switch. Set to always count")
+    ]
+    assert "disabled" in non_billable_field
+    assert "Reserved switch. Set to always count all charged time" in (
+        create_screen_content
+    )
+    assert (
+        "Reserved switch for future integration that imports leave/absence data "
+        "into timesheet for this Office"
+    ) in create_screen_content
 
     create_response = client.post(
         "/system/offices/new/",
@@ -4901,7 +4976,7 @@ def test_office_management_create_and_update_via_html() -> None:
             "bootstrap_admin_employee_code": "EMP-CHI-ADMIN-001",
             "bootstrap_admin_full_name": "Chile Office Admin",
             "bootstrap_admin_email": "chile.admin@example.com",
-            "approval_mode_code": "PROJECT",
+            "approval_mode_code": "LINE",
             "allow_employee_withdraw_flag": "on",
             "timesheet_cutoff_date": "2026-05-31",
             "count_non_billable_in_daily_limit_flag": "on",
@@ -4918,9 +4993,13 @@ def test_office_management_create_and_update_via_html() -> None:
     configuration = OfficeConfiguration.objects.get(office=office)
     bootstrap_business_unit = BusinessUnit.objects.get(bu_code="CHI-ADMIN")
     bootstrap_admin = Employee.objects.get(canonical_email="chile.admin@example.com")
+    assert configuration.approval_mode.value_code == "PROJECT"
     assert configuration.allow_employee_withdraw_flag is True
-    assert configuration.timesheet_cutoff_date == date(2026, 5, 31)
+    assert configuration.timesheet_cutoff_date is None
+    assert configuration.count_non_billable_in_daily_limit_flag is False
     assert configuration.archive_after_years == 7
+    assert configuration.enable_timer_flag is False
+    assert configuration.enable_leave_integration_flag is False
     assert office.country_id == country.id
     assert bootstrap_business_unit.office_id == office.id
     assert bootstrap_business_unit.name == "Chile Administration"
@@ -4978,19 +5057,34 @@ def test_office_management_create_and_update_via_html() -> None:
     office.refresh_from_db()
     assert office.office_name == "Chile Updated"
     assert office.status.value_code == "INACTIVE"
+    OfficeConfiguration.objects.filter(id=configuration.id).update(
+        timesheet_cutoff_date=date(2026, 6, 30),
+        count_non_billable_in_daily_limit_flag=True,
+        enable_timer_flag=True,
+        enable_leave_integration_flag=True,
+    )
     configuration_update_response = client.post(
         f"/system/offices/{office.id}/",
         data={
             "form_name": "configuration",
-            "approval_mode_code": "PROJECT",
+            "approval_mode_code": "MIXED",
+            "timesheet_cutoff_date": "2026-07-31",
+            "count_non_billable_in_daily_limit_flag": "",
             "archive_after_years": "9",
+            "enable_timer_flag": "",
+            "enable_leave_integration_flag": "",
         },
         follow=False,
     )
 
     assert configuration_update_response.status_code == 302
     configuration.refresh_from_db()
+    assert configuration.approval_mode.value_code == "PROJECT"
     assert configuration.archive_after_years == 9
+    assert configuration.timesheet_cutoff_date == date(2026, 6, 30)
+    assert configuration.count_non_billable_in_daily_limit_flag is True
+    assert configuration.enable_timer_flag is True
+    assert configuration.enable_leave_integration_flag is True
     assert AuditLog.objects.filter(entity_name="office", entity_id=office.id).count() == 3
     assert (
         AuditLog.objects.filter(
