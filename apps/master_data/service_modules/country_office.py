@@ -508,9 +508,7 @@ class OfficeManagementService:
         employee = employees[0]
         if employee.primary_business_unit_id != business_unit.id:
             return None
-        role_codes = set(
-            employee.role_assignments.values_list("role__value_code", flat=True)
-        )
+        role_codes = set(employee.role_assignments.values_list("role__value_code", flat=True))
         if "TS_ADMIN" not in role_codes:
             return None
         if role_codes - {"USER", "TS_ADMIN", "TS_ADMIN_MASTER"}:
@@ -562,12 +560,8 @@ class OfficeManagementService:
                 actor_employee=audit_actor,
             )
 
-        AuditLog.objects.filter(actor_employee_id__in=employee_ids).update(
-            actor_employee=None
-        )
-        AuditLog.objects.filter(business_unit_id__in=business_unit_ids).update(
-            business_unit=None
-        )
+        AuditLog.objects.filter(actor_employee_id__in=employee_ids).update(actor_employee=None)
+        AuditLog.objects.filter(business_unit_id__in=business_unit_ids).update(business_unit=None)
 
         try:
             for employee in employees:
@@ -698,9 +692,11 @@ class OfficeManagementService:
         actor_employee: Employee | None,
         create_if_missing: bool,
     ) -> None:
-        configuration = OfficeConfiguration.objects.select_related("approval_mode").filter(
-            office=office
-        ).first()
+        configuration = (
+            OfficeConfiguration.objects.select_related("approval_mode")
+            .filter(office=office)
+            .first()
+        )
         defaults = _default_office_configuration_data()
 
         approval_mode_code = str(

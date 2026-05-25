@@ -92,10 +92,9 @@ def consolidate_yearly_calendars(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('master_data', '0010_special_day_type_refresh'),
-        ('reference_data', '0002_refdomain_refvalue_delete_referencevalue_and_more'),
+        ("master_data", "0010_special_day_type_refresh"),
+        ("reference_data", "0002_refdomain_refvalue_delete_referencevalue_and_more"),
     ]
 
     operations = [
@@ -104,22 +103,22 @@ class Migration(migrations.Migration):
             migrations.RunPython.noop,
         ),
         migrations.AlterModelOptions(
-            name='yearlycalendar',
-            options={'ordering': ['office__office_name', 'calendar_year', 'calendar_name']},
+            name="yearlycalendar",
+            options={"ordering": ["office__office_name", "calendar_year", "calendar_name"]},
         ),
         migrations.RemoveConstraint(
-            model_name='yearlycalendar',
-            name='yearly_calendar_bu_year_name_uniq',
+            model_name="yearlycalendar",
+            name="yearly_calendar_bu_year_name_uniq",
         ),
         migrations.RemoveField(
-            model_name='yearlycalendar',
-            name='business_unit',
+            model_name="yearlycalendar",
+            name="business_unit",
         ),
         migrations.AddConstraint(
-            model_name='yearlycalendar',
+            model_name="yearlycalendar",
             constraint=models.UniqueConstraint(
-                fields=('office', 'calendar_year'),
-                name='yearly_calendar_office_year_uniq',
+                fields=("office", "calendar_year"),
+                name="yearly_calendar_office_year_uniq",
             ),
         ),
     ]

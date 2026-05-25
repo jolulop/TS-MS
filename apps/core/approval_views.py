@@ -83,8 +83,7 @@ def _approver_label(approval_item: dict) -> str:
     approver_roles = approval_item.get("approver_roles", [])
     if approver_roles:
         return ", ".join(
-            f"{approver_role['code']} - {approver_role['name']}"
-            for approver_role in approver_roles
+            f"{approver_role['code']} - {approver_role['name']}" for approver_role in approver_roles
         )
     return "Unassigned"
 
@@ -178,9 +177,7 @@ def _oversight_filter_options(
         elif option_type == "project":
             project = approval_item.get("project")
             if project is not None:
-                option_map[str(project["id"])] = (
-                    f"{project['project_code']} - {project['name']}"
-                )
+                option_map[str(project["id"])] = f"{project['project_code']} - {project['name']}"
     options = [{"value": "", "label": "All", "selected": selected_value == ""}]
     options.extend(
         {
@@ -210,15 +207,11 @@ def _apply_admin_oversight_filters(
     filtered_items = approval_items
     if business_unit_id.isdigit():
         filtered_items = [
-            item
-            for item in filtered_items
-            if item["business_unit"]["id"] == int(business_unit_id)
+            item for item in filtered_items if item["business_unit"]["id"] == int(business_unit_id)
         ]
     if employee_id.isdigit():
         filtered_items = [
-            item
-            for item in filtered_items
-            if item["timesheet_employee"]["id"] == int(employee_id)
+            item for item in filtered_items if item["timesheet_employee"]["id"] == int(employee_id)
         ]
     if project_id.isdigit():
         filtered_items = [
@@ -519,8 +512,7 @@ def approval_worklist(request: HttpRequest) -> HttpResponse:
                 "No completed approval decisions exist yet in your current scope."
             ),
             "pending_section_intro": (
-                "Open a work item to review the routed project lines and record "
-                "the final decision."
+                "Open a work item to review the routed project lines and record the final decision."
             ),
             "decided_section_intro": (
                 "Approved and rejected items stay visible here for follow-up and "

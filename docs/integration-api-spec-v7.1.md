@@ -1,10 +1,10 @@
-# Integration API Specification v7.0
+# Integration API Specification v7.1
 
 ## 1. Purpose
 
 Describe the currently implemented JSON API surface under `/api/v1`.
 
-No JSON API versioning change was introduced in the v7.0 documentation promotion. The main implemented deltas in the current surface are:
+No JSON API versioning change was introduced in the v7.1 documentation promotion. The main implemented deltas in the current surface are:
 
 - the user-initiated `Copy Prev. Week` flow on the existing timesheet create surface
 - `TS_ADMIN_MASTER` JSON parity for Country administration

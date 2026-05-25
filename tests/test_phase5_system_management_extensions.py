@@ -8,7 +8,7 @@ from django.test import Client
 from apps.audit.models import AuditLog
 from apps.auth.errors import AuthError
 from apps.auth.services import CurrentUserService
-from apps.master_data.models import BusinessUnit, Employee, Project
+from apps.master_data.models import BusinessUnit, Employee, Project, ProjectAssignment
 from apps.master_data.services import (
     CrossOfficeProjectAssignmentManagementService,
     ProjectAssignmentManagementService,
@@ -476,6 +476,77 @@ def test_ts_admin_can_create_and_update_project_assignment_via_api() -> None:
         ).count()
         == 1
     )
+
+
+@pytest.mark.django_db
+def test_project_assignment_api_rejects_employee_outside_project_business_unit() -> None:
+    seed_reference_data()
+    (
+        business_unit,
+        admin_employee,
+        project_owner,
+        project_manager,
+        _worker,
+        project_client,
+        category,
+        cost_center,
+        pricing_model,
+    ) = _build_admin_context()
+    other_business_unit = create_business_unit(
+        bu_code="BU-ASSIGN-OTHER",
+        name="Assignment Other BU",
+        office=business_unit.office,
+    )
+    out_of_bu_employee = create_employee(
+        employee_code="EMP-ASSIGN-OTHER",
+        full_name="Assignment Other BU Employee",
+        email="assignment-other-bu@example.com",
+        primary_business_unit=other_business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=out_of_bu_employee,
+        business_unit=other_business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=out_of_bu_employee, role_code="USER")
+    project = create_project(
+        business_unit=business_unit,
+        project_code="PRJ-ASN-BU-GUARD",
+        name="Assignment BU Guard Project",
+        project_owner_employee=project_owner,
+        project_manager_employee=project_manager,
+        client=project_client,
+        internal_category=category,
+        cost_center=cost_center,
+        pricing_model=pricing_model,
+        start_date=date(2026, 4, 1),
+    )
+    client = Client()
+    initialize_session(client, admin_employee.email)
+
+    response = client.post(
+        "/api/v1/admin/project-assignments/",
+        data=json.dumps(
+            {
+                "project_id": project.id,
+                "employee_id": out_of_bu_employee.id,
+                "assignment_start_date": "2026-04-07",
+                "status_code": "ACTIVE",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "PROJECT_ASSIGNMENT_EMPLOYEE_BU_SCOPE_INVALID"
+    assert not ProjectAssignment.objects.filter(
+        project=project,
+        employee=out_of_bu_employee,
+    ).exists()
+    assert not AuditLog.objects.filter(
+        entity_name="project_assignment",
+        action_type__value_code="CREATE",
+    ).exists()
 
 
 @pytest.mark.django_db

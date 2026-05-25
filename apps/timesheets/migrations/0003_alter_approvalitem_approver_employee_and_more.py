@@ -5,35 +5,93 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('master_data', '0018_generalchargecodeapprovalrole_and_more'),
-        ('reference_data', '0002_refdomain_refvalue_delete_referencevalue_and_more'),
-        ('timesheets', '0002_weeklytimesheet_period_lock_override_flag'),
+        ("master_data", "0018_generalchargecodeapprovalrole_and_more"),
+        ("reference_data", "0002_refdomain_refvalue_delete_referencevalue_and_more"),
+        ("timesheets", "0002_weeklytimesheet_period_lock_override_flag"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='approvalitem',
-            name='approver_employee',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='approval_items', to='master_data.employee'),
+            model_name="approvalitem",
+            name="approver_employee",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="approval_items",
+                to="master_data.employee",
+            ),
         ),
         migrations.CreateModel(
-            name='ApprovalItemApproverRole',
+            name="ApprovalItemApproverRole",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('created_by', models.CharField(max_length=320)),
-                ('updated_by', models.CharField(max_length=320)),
-                ('approval_item', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='approver_roles', to='timesheets.approvalitem')),
-                ('approval_role', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='approval_item_assignments', to='master_data.generalchargecodeapprovalrole')),
-                ('existing_role', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='reference_data.refvalue')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("created_by", models.CharField(max_length=320)),
+                ("updated_by", models.CharField(max_length=320)),
+                (
+                    "approval_item",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="approver_roles",
+                        to="timesheets.approvalitem",
+                    ),
+                ),
+                (
+                    "approval_role",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="approval_item_assignments",
+                        to="master_data.generalchargecodeapprovalrole",
+                    ),
+                ),
+                (
+                    "existing_role",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="+",
+                        to="reference_data.refvalue",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'approval_item_approver_role',
-                'ordering': ['approval_item', 'id'],
-                'constraints': [models.CheckConstraint(condition=models.Q(models.Q(('approval_role__isnull', True), ('existing_role__isnull', False)), models.Q(('approval_role__isnull', False), ('existing_role__isnull', True)), _connector='OR'), name='approval_item_approver_role_target_xor_chk'), models.UniqueConstraint(condition=models.Q(('existing_role__isnull', False)), fields=('approval_item', 'existing_role'), name='approval_item_approver_existing_uniq'), models.UniqueConstraint(condition=models.Q(('approval_role__isnull', False)), fields=('approval_item', 'approval_role'), name='approval_item_approver_ad_hoc_uniq')],
+                "db_table": "approval_item_approver_role",
+                "ordering": ["approval_item", "id"],
+                "constraints": [
+                    models.CheckConstraint(
+                        condition=models.Q(
+                            models.Q(
+                                ("approval_role__isnull", True), ("existing_role__isnull", False)
+                            ),
+                            models.Q(
+                                ("approval_role__isnull", False), ("existing_role__isnull", True)
+                            ),
+                            _connector="OR",
+                        ),
+                        name="approval_item_approver_role_target_xor_chk",
+                    ),
+                    models.UniqueConstraint(
+                        condition=models.Q(("existing_role__isnull", False)),
+                        fields=("approval_item", "existing_role"),
+                        name="approval_item_approver_existing_uniq",
+                    ),
+                    models.UniqueConstraint(
+                        condition=models.Q(("approval_role__isnull", False)),
+                        fields=("approval_item", "approval_role"),
+                        name="approval_item_approver_ad_hoc_uniq",
+                    ),
+                ],
             },
         ),
     ]

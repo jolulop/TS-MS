@@ -2,8 +2,8 @@ from django.contrib import admin
 
 from apps.master_data.models import (
     BusinessUnit,
-    CrossOfficeProjectAssignment,
     Country,
+    CrossOfficeProjectAssignment,
     Employee,
     EmployeeBusinessUnit,
     EmployeeRole,

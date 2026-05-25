@@ -13,8 +13,9 @@ def backfill_general_charge_code_cost_centers(apps, schema_editor):
     missing_offices = sorted(
         {
             office_id
-            for office_id in GeneralChargeCode.objects.filter(cost_center_id__isnull=True)
-            .values_list("office_id", flat=True)
+            for office_id in GeneralChargeCode.objects.filter(
+                cost_center_id__isnull=True
+            ).values_list("office_id", flat=True)
             if office_id not in office_cost_centers
         }
     )

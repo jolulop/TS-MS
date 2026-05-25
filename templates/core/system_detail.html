@@ -332,4 +332,67 @@
       });
     </script>
   {% endif %}
+  {% if project_assignment_dynamic_form %}
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const projectSelect = document.getElementById("project_id");
+        const employeeSelect = document.getElementById("employee_id");
+
+        if (!projectSelect || !employeeSelect) {
+          return;
+        }
+
+        const allEmployeeOptions = Array.from(employeeSelect.options).map(function (option) {
+          return {
+            value: option.value,
+            label: option.textContent,
+            businessUnitIds: (option.dataset.businessUnitIds || "")
+              .split(",")
+              .filter(Boolean),
+          };
+        });
+
+        function syncEmployeeOptions() {
+          const selectedProjectOption = projectSelect.selectedOptions[0];
+          const selectedBusinessUnitId = selectedProjectOption
+            ? selectedProjectOption.dataset.businessUnitId || ""
+            : "";
+          const currentValue = employeeSelect.value;
+          employeeSelect.innerHTML = "";
+
+          allEmployeeOptions.forEach(function (optionData) {
+            const isBlank = !optionData.value;
+            if (
+              !isBlank &&
+              (!selectedBusinessUnitId ||
+                !optionData.businessUnitIds.includes(selectedBusinessUnitId))
+            ) {
+              return;
+            }
+
+            const option = document.createElement("option");
+            option.value = optionData.value;
+            option.textContent = optionData.label;
+            if (optionData.businessUnitIds.length) {
+              option.dataset.businessUnitIds = optionData.businessUnitIds.join(",");
+            }
+            if (optionData.value === currentValue) {
+              option.selected = true;
+            }
+            employeeSelect.appendChild(option);
+          });
+
+          if (
+            employeeSelect.value &&
+            employeeSelect.selectedOptions.length === 0
+          ) {
+            employeeSelect.value = "";
+          }
+        }
+
+        projectSelect.addEventListener("change", syncEmployeeOptions);
+        syncEmployeeOptions();
+      });
+    </script>
+  {% endif %}
 {% endblock %}

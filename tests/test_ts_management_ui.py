@@ -325,9 +325,7 @@ def test_my_timesheets_page_shows_missing_weeks_and_links_to_preselected_create_
         f'href="/ts/?week_start_date={fixtures["week_start"].isoformat()}#create-timesheet"'
         in content
     )
-    assert (
-        f'href="/ts/?week_start_date={two_weeks_ago.isoformat()}#create-timesheet"' in content
-    )
+    assert f'href="/ts/?week_start_date={two_weeks_ago.isoformat()}#create-timesheet"' in content
     assert f"/ts/timesheets/{WeeklyTimesheet.objects.get(employee=employee).id}/" in content
 
     preselected_response = client.get(f"/ts/?week_start_date={two_weeks_ago.isoformat()}")
@@ -388,6 +386,7 @@ def test_my_timesheets_page_filters_real_and_missing_rows() -> None:
 
     missing_content = missing_only_response.content.decode()
     submitted_content = submitted_only_response.content.decode()
+    submitted_rows = submitted_only_response.context["table_rows"]
 
     assert missing_only_response.status_code == 200
     assert two_weeks_ago.strftime("%m/%d/%Y") in missing_content
@@ -396,7 +395,7 @@ def test_my_timesheets_page_filters_real_and_missing_rows() -> None:
     assert submitted_only_response.status_code == 200
     assert previous_week.strftime("%m/%d/%Y") in submitted_content
     assert two_weeks_ago.strftime("%m/%d/%Y") not in submitted_content
-    assert fixtures["week_start"].strftime("%m/%d/%Y") not in submitted_content
+    assert [row["cells"][0] for row in submitted_rows] == [previous_week.strftime("%m/%d/%Y")]
 
 
 @pytest.mark.django_db
@@ -420,8 +419,7 @@ def test_missing_timesheets_start_from_first_monday_after_employee_creation_date
         in content
     )
     assert (
-        f'href="/ts/?week_start_date={previous_monday.isoformat()}#create-timesheet"'
-        not in content
+        f'href="/ts/?week_start_date={previous_monday.isoformat()}#create-timesheet"' not in content
     )
 
 
@@ -564,7 +562,9 @@ def test_timesheet_editor_saves_lines_and_submits_via_html() -> None:
 
 
 @pytest.mark.django_db
-def test_timesheet_editor_shows_submission_blocker_for_legacy_general_code_requiring_approval() -> None:
+def test_timesheet_editor_shows_submission_blocker_for_legacy_general_code_requiring_approval() -> (
+    None
+):
     client, employee, fixtures = _build_timesheet_ui_client(
         employee_email="timesheet-blocked@example.com",
         employee_code="EMP-TS-BLOCKED",
@@ -866,7 +866,10 @@ def test_ts_admin_can_reopen_approved_timesheet_from_detail_ui() -> None:
     )
 
     assert reopen_response.status_code == 302
-    assert reopen_response.headers["Location"] == f"/ts/timesheets/{timesheet.id}/?next=%2Fapprovals%2F"
+    assert (
+        reopen_response.headers["Location"]
+        == f"/ts/timesheets/{timesheet.id}/?next=%2Fapprovals%2F"
+    )
     timesheet.refresh_from_db()
     assert timesheet.status.value_code == "CREATED"
     assert timesheet.final_approval_datetime is None

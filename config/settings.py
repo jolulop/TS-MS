@@ -70,9 +70,7 @@ def validate_production_settings(
         errors.append("TSMS_ENABLE_PROXY_SSL_HEADER must be true in production")
 
     if errors:
-        raise ImproperlyConfigured(
-            "Production settings are invalid: " + "; ".join(errors)
-        )
+        raise ImproperlyConfigured("Production settings are invalid: " + "; ".join(errors))
 
 
 def build_database_config() -> dict[str, object]:

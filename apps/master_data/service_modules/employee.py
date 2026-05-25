@@ -830,9 +830,7 @@ class EmployeeManagementService:
         *,
         actor_employee: Employee | None,
     ) -> None:
-        assignments = list(
-            employee.business_unit_assignments.select_related("business_unit").all()
-        )
+        assignments = list(employee.business_unit_assignments.select_related("business_unit").all())
         for assignment in assignments:
             write_audit_event(
                 action_code="DELETE",

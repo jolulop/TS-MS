@@ -372,12 +372,8 @@ def test_ts_admin_can_update_business_unit_core_and_configuration_with_audit() -
     assert payload["configuration"]["allow_employee_withdraw_flag"] is False
     assert payload["configuration"]["timesheet_cutoff_date"] is None
     assert payload["configuration"]["archive_after_years"] == 5
-    assert (
-        AuditLog.objects.filter(entity_name="business_unit", field_name="bu_code").count() == 1
-    )
-    assert (
-        AuditLog.objects.filter(entity_name="business_unit", field_name="status").count() == 1
-    )
+    assert AuditLog.objects.filter(entity_name="business_unit", field_name="bu_code").count() == 1
+    assert AuditLog.objects.filter(entity_name="business_unit", field_name="status").count() == 1
 
 
 @pytest.mark.django_db

@@ -1,5 +1,5 @@
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
@@ -12,7 +12,12 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="CrossOfficeProjectAssignment",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("created_by", models.CharField(max_length=320)),
@@ -80,7 +85,11 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="crossofficeprojectassignment",
             constraint=models.CheckConstraint(
-                condition=models.Q(("assignment_end_date__isnull", True), ("assignment_end_date__gte", models.F("assignment_start_date")), _connector="OR"),
+                condition=models.Q(
+                    ("assignment_end_date__isnull", True),
+                    ("assignment_end_date__gte", models.F("assignment_start_date")),
+                    _connector="OR",
+                ),
                 name="cross_office_project_assignment_date_order_chk",
             ),
         ),

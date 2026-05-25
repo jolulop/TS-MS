@@ -298,8 +298,7 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         {
                             "title": "Project Assignments",
                             "summary": (
-                                "Create, edit, and delete assignments for the projects "
-                                "you own."
+                                "Create, edit, and delete assignments for the projects you own."
                             ),
                             "status": "Ready now",
                             "href": "/system/project-assignments/",
@@ -322,8 +321,7 @@ def _overview_cards(section: str, current_user: CurrentUser) -> list[dict]:
                         {
                             "title": "Project Assignments",
                             "summary": (
-                                "Create, edit, and delete assignments for the projects "
-                                "you manage."
+                                "Create, edit, and delete assignments for the projects you manage."
                             ),
                             "status": "Ready now",
                             "href": "/system/project-assignments/",

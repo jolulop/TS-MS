@@ -665,30 +665,48 @@ def _scoped_employee_options(
     *,
     selected: object = None,
     include_blank: bool = False,
+    blank_label: str = "Select an Employee",
     required_role_code: str | None = None,
     business_unit_id: int | None = None,
     restrict_to_current_country: bool = False,
     include_all_employees: bool = False,
+    active_only: bool = False,
+    include_business_unit_metadata: bool = False,
 ) -> list[dict]:
     selected_values = _selected_values(selected)
     options = []
     if include_blank:
-        options.append(_option("", "Select an Employee", selected_values=selected_values))
-    employees = (
-        Employee.objects.select_related("primary_business_unit")
-        .prefetch_related(
-            "role_assignments__role",
-            "role_assignments__status__domain",
-            "business_unit_assignments__status__domain",
-        )
+        options.append(_option("", blank_label, selected_values=selected_values))
+    employees = Employee.objects.select_related("primary_business_unit").prefetch_related(
+        "role_assignments__role",
+        "role_assignments__status__domain",
+        "business_unit_assignments__status__domain",
     )
+    if active_only:
+        employees = employees.filter(
+            status__domain__domain_code="EMPLOYEE_STATUS",
+            status__value_code="ACTIVE",
+        )
     if include_all_employees:
         employees = employees.order_by("primary_business_unit__bu_code", "employee_code")
     else:
-        employees = (
-            employees.filter(
-                business_unit_assignments__business_unit_id__in=current_user.scoped_business_unit_ids
+        scope_filter = {
+            "business_unit_assignments__business_unit_id__in": (
+                current_user.scoped_business_unit_ids
+            ),
+        }
+        if active_only:
+            scope_filter.update(
+                {
+                    "business_unit_assignments__status__domain__domain_code": (
+                        "EMPLOYEE_BU_STATUS"
+                    ),
+                    "business_unit_assignments__status__value_code": "ACTIVE",
+                    "business_unit_assignments__valid_to__isnull": True,
+                }
             )
+        employees = (
+            employees.filter(**scope_filter)
             .distinct()
             .order_by("primary_business_unit__bu_code", "employee_code")
         )
@@ -701,6 +719,7 @@ def _scoped_employee_options(
             business_unit_assignments__status__value_code="ACTIVE",
             business_unit_assignments__valid_to__isnull=True,
         )
+    employees = employees.distinct()
     employee_options = []
     for employee in employees:
         if required_role_code is not None:
@@ -713,6 +732,13 @@ def _scoped_employee_options(
             }
             if required_role_code not in active_role_codes:
                 continue
+        active_business_unit_ids = {
+            str(assignment.business_unit_id)
+            for assignment in employee.business_unit_assignments.all()
+            if assignment.status.domain.domain_code == "EMPLOYEE_BU_STATUS"
+            and assignment.status.value_code == "ACTIVE"
+            and assignment.valid_to is None
+        }
         employee_options.append(
             _option(
                 employee.id,
@@ -721,6 +747,13 @@ def _scoped_employee_options(
                     f"{employee.employee_code} - {employee.full_name}"
                 ),
                 selected_values=selected_values,
+                attrs=(
+                    {
+                        "data-business-unit-ids": ",".join(sorted(active_business_unit_ids)),
+                    }
+                    if include_business_unit_metadata
+                    else None
+                ),
             )
         )
     options.extend(employee_options)
@@ -766,8 +799,7 @@ def _general_charge_code_approver_options(
                 f" ({_member_count_label(active_member_count)})"
                 if approval_role.status.value_code == "ACTIVE" and active_member_count > 0
                 else (
-                    f"[Ad hoc] {approval_role.role_code} - {approval_role.name} "
-                    "(inactive role)"
+                    f"[Ad hoc] {approval_role.role_code} - {approval_role.name} (inactive role)"
                     if approval_role.status.value_code != "ACTIVE"
                     else f"[Ad hoc] {approval_role.role_code} - {approval_role.name} "
                     "(no active members)"
@@ -784,11 +816,11 @@ def _general_charge_code_approver_options(
         .order_by("role_code")
         for active_member_count in [
             approval_role.member_assignments.filter(
-                    status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
-                    status__value_code="ACTIVE",
-                    valid_to__isnull=True,
-                    employee__status__value_code="ACTIVE",
-                ).count()
+                status__domain__domain_code="ROLE_ASSIGNMENT_STATUS",
+                status__value_code="ACTIVE",
+                valid_to__isnull=True,
+                employee__status__value_code="ACTIVE",
+            ).count()
         ]
     )
     return options
@@ -839,6 +871,7 @@ def _scoped_project_options(
             selected_values=selected_values,
             attrs=(
                 {
+                    "data-business-unit-id": str(project.business_unit_id),
                     "data-office-name": project.office.office_name,
                     "data-bu-label": (
                         f"{project.business_unit.bu_code} - {project.business_unit.name}"
@@ -891,11 +924,9 @@ def _scoped_yearly_calendar_options(
     options = []
     if include_blank:
         options.append(_option("", "Select a Calendar", selected_values=selected_values))
-    calendars = (
-        YearlyCalendar.objects.filter(office_id=current_user.office_id).order_by(
-            "calendar_year",
-            "calendar_name",
-        )
+    calendars = YearlyCalendar.objects.filter(office_id=current_user.office_id).order_by(
+        "calendar_year",
+        "calendar_name",
     )
     options.extend(
         _option(
@@ -914,9 +945,7 @@ def _employee_create_fields(
     post_data: QueryDict | None = None,
 ) -> list[dict]:
     selected_business_units = (
-        post_data.getlist("business_unit_ids")
-        if post_data is not None
-        else []
+        post_data.getlist("business_unit_ids") if post_data is not None else []
     )
     return [
         _office_display_field(current_user.office_name),
@@ -1160,7 +1189,7 @@ def _employee_transfer_source_fields(
                 "and recreated in another Office."
             ),
             width_mode="full",
-        )
+        ),
     ]
 
 
@@ -1279,8 +1308,7 @@ def _employee_transfer_source_rows(source_employee: dict) -> list[tuple[str, str
             "Business Unit Scope",
             (
                 ", ".join(
-                    business_unit["bu_code"]
-                    for business_unit in source_employee["business_units"]
+                    business_unit["bu_code"] for business_unit in source_employee["business_units"]
                 )
                 or "None"
             ),
@@ -1364,9 +1392,7 @@ def _client_form_fields(
             kind="select",
             options=_ref_options(
                 "CLIENT_STATUS",
-                selected=submitted_data.get(
-                    "status_code", entity["status"] if entity else "ACTIVE"
-                )
+                selected=submitted_data.get("status_code", entity["status"] if entity else "ACTIVE")
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -1453,9 +1479,7 @@ def _simple_master_fields(
             kind="select",
             options=_ref_options(
                 status_domain,
-                selected=submitted_data.get(
-                    "status_code", entity["status"] if entity else "ACTIVE"
-                )
+                selected=submitted_data.get("status_code", entity["status"] if entity else "ACTIVE")
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -1513,9 +1537,7 @@ def _cost_center_fields(
             kind="select",
             options=_ref_options(
                 "COST_CENTER_STATUS",
-                selected=submitted_data.get(
-                    "status_code", entity["status"] if entity else "ACTIVE"
-                )
+                selected=submitted_data.get("status_code", entity["status"] if entity else "ACTIVE")
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -1723,9 +1745,7 @@ def _general_charge_code_approval_role_fields(
             kind="select",
             options=_ref_options(
                 "GENERAL_CHARGE_CODE_APPROVAL_ROLE_STATUS",
-                selected=submitted_data.get(
-                    "status_code", entity["status"] if entity else "ACTIVE"
-                )
+                selected=submitted_data.get("status_code", entity["status"] if entity else "ACTIVE")
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -1889,9 +1909,7 @@ def _general_charge_code_fields(
             kind="select",
             options=_ref_options(
                 "GENERAL_CHARGE_CODE_STATUS",
-                selected=submitted_data.get(
-                    "status_code", entity["status"] if entity else "ACTIVE"
-                )
+                selected=submitted_data.get("status_code", entity["status"] if entity else "ACTIVE")
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -2000,9 +2018,7 @@ def _project_form_fields(
             options=_scoped_client_options(
                 current_user,
                 business_unit_id=scoped_business_unit_id,
-                selected=submitted_data.get(
-                    "client_id", entity["client"]["id"] if entity else ""
-                )
+                selected=submitted_data.get("client_id", entity["client"]["id"] if entity else "")
                 if post_data is not None or entity is not None
                 else "",
                 include_blank=entity is None,
@@ -2105,9 +2121,7 @@ def _project_form_fields(
             kind="select",
             options=_ref_options(
                 "PROJECT_STATUS",
-                selected=submitted_data.get(
-                    "status_code", entity["status"] if entity else "DRAFT"
-                )
+                selected=submitted_data.get("status_code", entity["status"] if entity else "DRAFT")
                 if post_data is not None or entity is not None
                 else "DRAFT",
             ),
@@ -2116,13 +2130,73 @@ def _project_form_fields(
     ]
 
 
+def _scope_project_assignment_employee_options(
+    employee_options: list[dict],
+    *,
+    selected_business_unit_id: int | None,
+) -> None:
+    selected_business_unit_value = (
+        str(selected_business_unit_id) if selected_business_unit_id is not None else ""
+    )
+    for option in employee_options:
+        if option["value"] == "":
+            continue
+        business_unit_values = set(
+            filter(None, option.get("attrs", {}).get("data-business-unit-ids", "").split(","))
+        )
+        if (
+            not selected_business_unit_value
+            or selected_business_unit_value not in business_unit_values
+        ):
+            option.setdefault("attrs", {})
+            option["attrs"]["hidden"] = "hidden"
+            option["attrs"]["disabled"] = "disabled"
+
+
 def _project_assignment_fields(
     current_user: CurrentUser,
     *,
     post_data: QueryDict | None = None,
     entity: dict | None = None,
+    initial_project_id: object = "",
+    filter_employee_options_by_project: bool = False,
 ) -> list[dict]:
     submitted_data = post_data or QueryDict("")
+    selected_project_id = (
+        submitted_data.get("project_id", entity["project"]["id"] if entity else initial_project_id)
+        if post_data is not None or entity is not None or initial_project_id
+        else ""
+    )
+    selected_employee_id = (
+        submitted_data.get("employee_id", entity["employee"]["id"] if entity else "")
+        if post_data is not None or entity is not None
+        else ""
+    )
+    selected_project = _selected_cross_office_staffing_project(current_user, selected_project_id)
+    selected_business_unit_id = (
+        selected_project.business_unit_id
+        if selected_project is not None
+        else entity["project"]["business_unit"]["id"]
+        if entity is not None
+        else None
+    )
+    employee_options = _scoped_employee_options(
+        current_user,
+        selected=selected_employee_id,
+        include_blank=entity is None,
+        blank_label=(
+            "Select a Project first"
+            if filter_employee_options_by_project and selected_business_unit_id is None
+            else "Select an Employee"
+        ),
+        active_only=filter_employee_options_by_project,
+        include_business_unit_metadata=filter_employee_options_by_project,
+    )
+    if filter_employee_options_by_project:
+        _scope_project_assignment_employee_options(
+            employee_options,
+            selected_business_unit_id=selected_business_unit_id,
+        )
     return [
         _field(
             name="project_id",
@@ -2130,13 +2204,9 @@ def _project_assignment_fields(
             kind="select",
             options=_scoped_project_options(
                 current_user,
-                selected=submitted_data.get(
-                    "project_id",
-                    entity["project"]["id"] if entity else "",
-                )
-                if post_data is not None or entity is not None
-                else "",
+                selected=selected_project_id,
                 include_blank=entity is None,
+                include_scope_metadata=filter_employee_options_by_project,
             ),
             required=True,
         ),
@@ -2144,16 +2214,7 @@ def _project_assignment_fields(
             name="employee_id",
             label="Employee",
             kind="select",
-            options=_scoped_employee_options(
-                current_user,
-                selected=submitted_data.get(
-                    "employee_id",
-                    entity["employee"]["id"] if entity else "",
-                )
-                if post_data is not None or entity is not None
-                else "",
-                include_blank=entity is None,
-            ),
+            options=employee_options,
             required=True,
         ),
         _field(
@@ -2340,10 +2401,7 @@ def _cross_office_staffing_fields(
         else ""
     )
     origin_business_unit_label = (
-        (
-            f"{entity['origin_business_unit']['bu_code']} - "
-            f"{entity['origin_business_unit']['name']}"
-        )
+        (f"{entity['origin_business_unit']['bu_code']} - {entity['origin_business_unit']['name']}")
         if entity is not None
         else (
             f"{selected_employee.primary_business_unit.bu_code} - "
@@ -2536,9 +2594,7 @@ def _cross_office_staffing_filter_fields(
         int(str(selected_client_id)) if str(selected_client_id).isdigit() else None
     )
     normalized_origin_office_id = (
-        int(str(selected_origin_office_id))
-        if str(selected_origin_office_id).isdigit()
-        else None
+        int(str(selected_origin_office_id)) if str(selected_origin_office_id).isdigit() else None
     )
     return [
         _field(name="status", label="", kind="hidden", value=selected_status_code),
@@ -2725,11 +2781,7 @@ def _calendar_period_rule_fields(
             checked=(
                 _bool_from_post(submitted_data, "working_on_saturdays_flag")
                 if post_data is not None
-                else (
-                    entity["working_on_saturdays_flag"]
-                    if entity is not None
-                    else False
-                )
+                else (entity["working_on_saturdays_flag"] if entity is not None else False)
             ),
             help_text="Treat Saturdays as normal working days for this Business Unit period.",
         ),
@@ -2751,11 +2803,7 @@ def _calendar_period_rule_fields(
             checked=(
                 _bool_from_post(submitted_data, "working_on_sundays_flag")
                 if post_data is not None
-                else (
-                    entity["working_on_sundays_flag"]
-                    if entity is not None
-                    else False
-                )
+                else (entity["working_on_sundays_flag"] if entity is not None else False)
             ),
             help_text="Treat Sundays as normal working days for this Business Unit period.",
         ),
@@ -3902,9 +3950,7 @@ def _office_bootstrap_fields(*, post_data: QueryDict | None = None) -> list[dict
             label="Initial Admin Employee Code",
             kind="text",
             value=(
-                post_data.get("bootstrap_admin_employee_code", "")
-                if post_data is not None
-                else ""
+                post_data.get("bootstrap_admin_employee_code", "") if post_data is not None else ""
             ),
             required=True,
             help_text="Required employee code for the first Office administrator.",
@@ -4025,8 +4071,7 @@ def _configuration_fields(
             disabled=True,
             muted=True,
             help_text=(
-                "Reserved switch. Set to always count all charged time, "
-                "billable and non-billable"
+                "Reserved switch. Set to always count all charged time, billable and non-billable"
             ),
             width_mode="column" if paired_layout else "auto",
         ),
@@ -4037,10 +4082,7 @@ def _configuration_fields(
             checked=bool(configuration["enable_timer_flag"]),
             disabled=True,
             muted=True,
-            help_text=(
-                "Reserved switch for future timer-based time capture within "
-                f"{help_scope}."
-            ),
+            help_text=(f"Reserved switch for future timer-based time capture within {help_scope}."),
             width_mode="column" if paired_layout else "auto",
         ),
         _field(
@@ -4105,9 +4147,7 @@ def _business_unit_general_fields(
             kind="select",
             options=_ref_options(
                 "BUSINESS_UNIT_STATUS",
-                selected=submitted_data.get(
-                    "status_code", entity["status"] if entity else "ACTIVE"
-                )
+                selected=submitted_data.get("status_code", entity["status"] if entity else "ACTIVE")
                 if post_data is not None or entity is not None
                 else "ACTIVE",
             ),
@@ -4273,8 +4313,7 @@ OFFICE_CONFIG = MasterUiConfig(
     detail_title="Office Detail",
     detail_eyebrow="SCR-101",
     detail_intro=(
-        "Update Office identity, lifecycle state, and inherited operational "
-        "configuration."
+        "Update Office identity, lifecycle state, and inherited operational configuration."
     ),
     singular_label="Office",
     plural_label="Offices",
@@ -4306,8 +4345,7 @@ CLIENT_CONFIG = MasterUiConfig(
     list_title="Client Management",
     list_eyebrow="SCR-130",
     list_intro=(
-        "Office-scoped client list with server-rendered create form for "
-        "Timesheet Administrators."
+        "Office-scoped client list with server-rendered create form for Timesheet Administrators."
     ),
     detail_title="Client Detail",
     detail_eyebrow="SCR-131",
@@ -4398,8 +4436,7 @@ GENERAL_CHARGE_CODE_APPROVAL_ROLE_CONFIG = MasterUiConfig(
     detail_path_prefix="/system/general-charge-code-approval-roles/",
     table_headers=("Role Code", "Name", "Members", "GCCs", "Coverage", "Status"),
     empty_message=(
-        "No ad-hoc General Charge Code approval roles are available in your active "
-        "Office yet."
+        "No ad-hoc General Charge Code approval roles are available in your active Office yet."
     ),
 )
 
@@ -4506,9 +4543,7 @@ YEARLY_CALENDAR_CONFIG = MasterUiConfig(
     section_key="calendars",
     list_title="Calendar Management",
     list_eyebrow="SCR-115",
-    list_intro=(
-        "Manage yearly calendars and navigate into each calendar's special-day workspace."
-    ),
+    list_intro=("Manage yearly calendars and navigate into each calendar's special-day workspace."),
     detail_title="Calendar Detail",
     detail_eyebrow="SCR-116",
     detail_intro="Review yearly calendar summary, month view, and special-day configuration.",
@@ -4935,15 +4970,11 @@ def office_create(request: HttpRequest) -> HttpResponse:
                     "status_code": request.POST.get("status_code", "ACTIVE"),
                     "bootstrap_bu_code": request.POST.get("bootstrap_bu_code", ""),
                     "bootstrap_bu_name": request.POST.get("bootstrap_bu_name", ""),
-                    "bootstrap_bu_description": request.POST.get(
-                        "bootstrap_bu_description", ""
-                    ),
+                    "bootstrap_bu_description": request.POST.get("bootstrap_bu_description", ""),
                     "bootstrap_admin_employee_code": request.POST.get(
                         "bootstrap_admin_employee_code", ""
                     ),
-                    "bootstrap_admin_full_name": request.POST.get(
-                        "bootstrap_admin_full_name", ""
-                    ),
+                    "bootstrap_admin_full_name": request.POST.get("bootstrap_admin_full_name", ""),
                     "bootstrap_admin_email": request.POST.get("bootstrap_admin_email", ""),
                     "approval_mode_code": "PROJECT",
                     "allow_employee_withdraw_flag": _bool_from_post(
@@ -5462,8 +5493,10 @@ def employee_transfer_create(request: HttpRequest) -> HttpResponse:
                     },
                 )
             except (AuthError, ValueError) as error:
-                form_error = error.message if isinstance(error, AuthError) else (
-                    "Select a valid source employee before starting the transfer."
+                form_error = (
+                    error.message
+                    if isinstance(error, AuthError)
+                    else ("Select a valid source employee before starting the transfer.")
                 )
             else:
                 selected_source_id = str(transfer_result["source_employee"]["id"])
@@ -5475,8 +5508,10 @@ def employee_transfer_create(request: HttpRequest) -> HttpResponse:
                 int(selected_source_id),
             )
         except (AuthError, ValueError) as error:
-            form_error = error.message if isinstance(error, AuthError) else (
-                "Select a valid source employee to continue."
+            form_error = (
+                error.message
+                if isinstance(error, AuthError)
+                else ("Select a valid source employee to continue.")
             )
             selected_source_id = ""
 
@@ -5758,8 +5793,7 @@ def client_projects_redirect(
         )
 
     return redirect(
-        "/system/projects/"
-        f"?status=ALL&client_id={client['id']}&business_unit_id={business_unit_id}"
+        f"/system/projects/?status=ALL&client_id={client['id']}&business_unit_id={business_unit_id}"
     )
 
 
@@ -6352,17 +6386,15 @@ def general_charge_code_approval_roles_collection(request: HttpRequest) -> HttpR
     post_data = request.POST if request.method == "POST" else None
     if request.method == "POST":
         try:
-            approval_role = (
-                GeneralChargeCodeApprovalRoleManagementService.create_approval_role(
-                    current_user,
-                    {
-                        "role_code": request.POST.get("role_code", ""),
-                        "name": request.POST.get("name", ""),
-                        "description": request.POST.get("description", ""),
-                        "member_employee_ids": request.POST.getlist("member_employee_ids"),
-                        "status_code": request.POST.get("status_code", "ACTIVE"),
-                    },
-                )
+            approval_role = GeneralChargeCodeApprovalRoleManagementService.create_approval_role(
+                current_user,
+                {
+                    "role_code": request.POST.get("role_code", ""),
+                    "name": request.POST.get("name", ""),
+                    "description": request.POST.get("description", ""),
+                    "member_employee_ids": request.POST.getlist("member_employee_ids"),
+                    "status_code": request.POST.get("status_code", "ACTIVE"),
+                },
             )
         except AuthError as error:
             form_error = error.message
@@ -6505,14 +6537,12 @@ def general_charge_code_approval_role_detail(
                     "Review active members, referenced General Charge Codes, and "
                     "coverage warnings before changing this role."
                 ),
-                detail_rows=_general_charge_code_approval_role_coverage_detail_rows(
-                    approval_role
-                ),
+                detail_rows=_general_charge_code_approval_role_coverage_detail_rows(approval_role),
             ),
             _delete_action_section(
                 submit_label="Delete General Charge Code Approval Role",
                 form_error=form_error if active_form == "delete" else "",
-            )
+            ),
         ],
     )
 
@@ -6710,14 +6740,12 @@ def general_charge_code_detail(
                     "Review the effective approval routing health before updating "
                     "this General Charge Code."
                 ),
-                detail_rows=_general_charge_code_routing_detail_rows(
-                    general_charge_code
-                ),
+                detail_rows=_general_charge_code_routing_detail_rows(general_charge_code),
             ),
             _delete_action_section(
                 submit_label="Delete General Charge Code",
                 form_error=form_error if active_form == "delete" else "",
-            )
+            ),
         ],
     )
 
@@ -6794,9 +6822,7 @@ def projects_collection(request: HttpRequest) -> HttpResponse:
         status_code=_service_status_code(selected_status_code),
         client_id=int(selected_client_id) if selected_client_id.isdigit() else None,
         business_unit_id=(
-            int(selected_business_unit_id)
-            if selected_business_unit_id.isdigit()
-            else None
+            int(selected_business_unit_id) if selected_business_unit_id.isdigit() else None
         ),
     )
     return _render_master_collection(
@@ -7055,6 +7081,9 @@ def project_assignment_create(request: HttpRequest) -> HttpResponse:
 
     form_error = ""
     post_data = request.POST if request.method == "POST" else None
+    initial_project_id = (
+        request.GET.get("project_id", "").strip() if request.method == "GET" else ""
+    )
     if request.method == "POST":
         try:
             assignment = ProjectAssignmentManagementService.create_assignment(
@@ -7076,9 +7105,15 @@ def project_assignment_create(request: HttpRequest) -> HttpResponse:
         request,
         current_user,
         config=PROJECT_ASSIGNMENT_CONFIG,
-        form_fields=_project_assignment_fields(current_user, post_data=post_data),
+        form_fields=_project_assignment_fields(
+            current_user,
+            post_data=post_data,
+            initial_project_id=initial_project_id,
+            filter_employee_options_by_project=True,
+        ),
         form_error=form_error,
         form_intro="Create a new Project Assignment in your assigned Business Unit scope.",
+        extra_context={"project_assignment_dynamic_form": True},
     )
 
 
@@ -7299,8 +7334,7 @@ def cross_office_staffing_create(request: HttpRequest) -> HttpResponse:
         form_fields=_cross_office_staffing_fields(current_user, post_data=post_data),
         form_error=form_error,
         form_intro=(
-            "Create a new Cross-Office Staffing record in your current "
-            "target-project scope."
+            "Create a new Cross-Office Staffing record in your current target-project scope."
         ),
         extra_context={"cross_office_staffing_dynamic_form": True},
     )
@@ -7864,8 +7898,8 @@ def calendar_period_rule_detail(request: HttpRequest, period_rule_id: int) -> Ht
                         "effective_to": request.POST.get("effective_to", ""),
                         "monday_max_hours": request.POST.get("monday_max_hours", ""),
                         "tuesday_max_hours": request.POST.get("tuesday_max_hours", ""),
-                    "wednesday_max_hours": request.POST.get("wednesday_max_hours", ""),
-                    "thursday_max_hours": request.POST.get("thursday_max_hours", ""),
+                        "wednesday_max_hours": request.POST.get("wednesday_max_hours", ""),
+                        "thursday_max_hours": request.POST.get("thursday_max_hours", ""),
                         "friday_max_hours": request.POST.get("friday_max_hours", ""),
                         "working_on_saturdays_flag": _bool_from_post(
                             request.POST,

@@ -288,9 +288,7 @@ class BusinessUnitManagementService:
         if "description" in payload:
             new_description = str(payload.get("description", "")).strip()
             if new_description != business_unit.description:
-                changed_fields.append(
-                    ("description", business_unit.description, new_description)
-                )
+                changed_fields.append(("description", business_unit.description, new_description))
                 business_unit.description = new_description
 
         if "status_code" in payload:

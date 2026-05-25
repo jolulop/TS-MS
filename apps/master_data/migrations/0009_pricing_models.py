@@ -31,7 +31,6 @@ def backfill_project_pricing_models(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("master_data", "0008_cost_centers_office_level"),
     ]

@@ -244,8 +244,7 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         label="Project Assignments",
                         href="/system/project-assignments/",
                         summary=(
-                            "Owned project staffing and assignment lifecycle management "
-                            "screens."
+                            "Owned project staffing and assignment lifecycle management screens."
                         ),
                         current_path=current_path,
                     ),
@@ -264,8 +263,7 @@ def build_navigation(current_user: CurrentUser, *, current_path: str) -> tuple[N
                         label="Project Assignments",
                         href="/system/project-assignments/",
                         summary=(
-                            "Managed project staffing and assignment lifecycle management "
-                            "screens."
+                            "Managed project staffing and assignment lifecycle management screens."
                         ),
                         current_path=current_path,
                     ),

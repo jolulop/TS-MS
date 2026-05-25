@@ -1,5 +1,5 @@
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 
 import pytest
 from django.test import Client
@@ -151,7 +151,9 @@ def _build_project_management_context() -> dict:
     initialize_ui_session(pm_client, project_manager.email)
     initialize_ui_session(admin_client, ts_admin.email)
 
-    def _create_and_submit_timesheet(week_start: date, hours: str, comment_text: str) -> WeeklyTimesheet:
+    def _create_and_submit_timesheet(
+        week_start: date, hours: str, comment_text: str
+    ) -> WeeklyTimesheet:
         create_response = employee_client.post(
             "/ts/",
             data={"week_start_date": week_start.isoformat()},
@@ -231,15 +233,16 @@ def test_project_owner_project_management_grid_shows_summary_links(monkeypatch) 
 
     assert response.status_code == 200
     content = response.content.decode()
+    project_id = context["project"].id
     assert "Project Management" in content
     assert "<th>Client</th>" in content
     assert "Pend. Appr." in content
     assert "Pend. TS" not in content
     assert "Project Mgmt Client" in content
-    assert '<a href="/system/projects/%d/">Project Mgmt Project</a>' % context["project"].id in content
-    assert 'href="/reports/project-time/?project_id=%d">6.00</a>' % context["project"].id in content
-    assert 'href="/approvals/?project_id=%d">1</a>' % context["project"].id in content
-    assert 'href="/reports/missing-timesheets/?project_ids=%d">1</a>' % context["project"].id in content
+    assert f'<a href="/system/projects/{project_id}/">Project Mgmt Project</a>' in content
+    assert f'href="/reports/project-time/?project_id={project_id}">6.00</a>' in content
+    assert f'href="/approvals/?project_id={project_id}">1</a>' in content
+    assert f'href="/reports/missing-timesheets/?project_ids={project_id}">1</a>' in content
 
 
 @pytest.mark.django_db
@@ -251,10 +254,11 @@ def test_project_manager_project_management_hides_owner_only_links(monkeypatch) 
 
     assert response.status_code == 200
     content = response.content.decode()
-    assert 'href="/system/projects/%d/"' % context["project"].id not in content
-    assert 'href="/approvals/?project_id=%d">1</a>' % context["project"].id in content
-    assert 'href="/reports/project-time/?project_id=%d">6.00</a>' % context["project"].id in content
-    assert 'href="/reports/missing-timesheets/?project_ids=%d">1</a>' % context["project"].id in content
+    project_id = context["project"].id
+    assert f'href="/system/projects/{project_id}/"' not in content
+    assert f'href="/approvals/?project_id={project_id}">1</a>' in content
+    assert f'href="/reports/project-time/?project_id={project_id}">6.00</a>' in content
+    assert f'href="/reports/missing-timesheets/?project_ids={project_id}">1</a>' in content
 
 
 @pytest.mark.django_db
@@ -266,8 +270,9 @@ def test_ts_admin_project_management_links_to_project_and_approval_worklist(monk
 
     assert response.status_code == 200
     content = response.content.decode()
-    assert '<a href="/system/projects/%d/">Project Mgmt Project</a>' % context["project"].id in content
-    assert 'href="/approvals/?project_id=%d">1</a>' % context["project"].id in content
+    project_id = context["project"].id
+    assert f'<a href="/system/projects/{project_id}/">Project Mgmt Project</a>' in content
+    assert f'href="/approvals/?project_id={project_id}">1</a>' in content
 
 
 @pytest.mark.django_db
@@ -286,7 +291,9 @@ def test_project_management_missing_timesheets_include_cross_office_staffing(mon
         email="project-mgmt-foreign@example.com",
         primary_business_unit=foreign_business_unit,
     )
-    assign_calendar(employee=foreign_employee, yearly_calendar=context["project_owner"].assigned_calendar)
+    assign_calendar(
+        employee=foreign_employee, yearly_calendar=context["project_owner"].assigned_calendar
+    )
     assign_employee_to_business_unit(
         employee=foreign_employee,
         business_unit=foreign_business_unit,
@@ -306,7 +313,8 @@ def test_project_management_missing_timesheets_include_cross_office_staffing(mon
 
     assert response.status_code == 200
     content = response.content.decode()
-    assert 'href="/reports/missing-timesheets/?project_ids=%d">2</a>' % context["project"].id in content
+    project_id = context["project"].id
+    assert f'href="/reports/missing-timesheets/?project_ids={project_id}">2</a>' in content
 
 
 @pytest.mark.django_db
@@ -333,9 +341,7 @@ def test_project_manager_and_ts_admin_can_open_filtered_project_approval_worklis
     context = _build_project_management_context()
 
     pm_response = context["pm_client"].get(f"/approvals/?project_id={context['project'].id}")
-    admin_response = context["admin_client"].get(
-        f"/approvals/?project_id={context['project'].id}"
-    )
+    admin_response = context["admin_client"].get(f"/approvals/?project_id={context['project'].id}")
 
     assert pm_response.status_code == 200
     pm_content = pm_response.content.decode()
@@ -365,7 +371,8 @@ def test_zero_pending_count_renders_as_plain_text(monkeypatch) -> None:
 
     assert response.status_code == 200
     content = response.content.decode()
-    assert 'href="/approvals/?project_id=%d">0</a>' % context["project"].id not in content
+    project_id = context["project"].id
+    assert f'href="/approvals/?project_id={project_id}">0</a>' not in content
     assert re.search(r"<td>\s*0\s*</td>", content) is not None
 
 
@@ -399,12 +406,13 @@ def test_project_management_client_filter_preserves_status_and_filters_rows(monk
     assert response.status_code == 200
     content = response.content.decode()
     filter_links = response.context["filter_links"]
+    client_id = context["client"].id
     assert "Project Mgmt Project" in content
-    assert 'href="/system/projects/%d/">Other Project</a>' % other_project.id not in content
-    assert '<option value="%d" selected>Project Mgmt Client</option>' % context["client"].id in content
+    assert f'href="/system/projects/{other_project.id}/">Other Project</a>' not in content
+    assert f'<option value="{client_id}" selected>Project Mgmt Client</option>' in content
     assert [link["href"] for link in filter_links] == [
-        "/ts/projects/?client_id=%d" % context["client"].id,
-        "/ts/projects/?status=ACTIVE&client_id=%d" % context["client"].id,
-        "/ts/projects/?status=CLOSED&client_id=%d" % context["client"].id,
-        "/ts/projects/?status=DRAFT&client_id=%d" % context["client"].id,
+        f"/ts/projects/?client_id={client_id}",
+        f"/ts/projects/?status=ACTIVE&client_id={client_id}",
+        f"/ts/projects/?status=CLOSED&client_id={client_id}",
+        f"/ts/projects/?status=DRAFT&client_id={client_id}",
     ]

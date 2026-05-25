@@ -1,8 +1,8 @@
-# UI Screen Specification v7.0
+# UI Screen Specification v7.1
 
 ## 1. Purpose
 
-Describe the approved v7.0 server-rendered UI screens and behaviors for the
+Describe the approved v7.1 server-rendered UI screens and behaviors for the
 repository baseline.
 
 ## 2. Navigation

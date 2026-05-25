@@ -156,20 +156,24 @@ class ProjectManagementService:
         business_unit_id: int | None = None,
     ) -> list[dict]:
         _ensure_ts_admin_or_project_owner(current_user)
-        projects = Project.objects.select_related(
-            "business_unit",
-            "office",
-            "project_owner_employee",
-            "project_manager_employee",
-            "client",
-            "internal_category",
-            "cost_center",
-            "pricing_model",
-            "status",
-        ).filter(
-            business_unit_id__in=current_user.scoped_business_unit_ids,
-            office_id=current_user.office_id,
-        ).annotate(employee_count=Count("assignments__employee_id", distinct=True))
+        projects = (
+            Project.objects.select_related(
+                "business_unit",
+                "office",
+                "project_owner_employee",
+                "project_manager_employee",
+                "client",
+                "internal_category",
+                "cost_center",
+                "pricing_model",
+                "status",
+            )
+            .filter(
+                business_unit_id__in=current_user.scoped_business_unit_ids,
+                office_id=current_user.office_id,
+            )
+            .annotate(employee_count=Count("assignments__employee_id", distinct=True))
+        )
         if not current_user.is_ts_admin:
             projects = projects.filter(project_owner_employee_id=current_user.employee_id)
         if client_id is not None:

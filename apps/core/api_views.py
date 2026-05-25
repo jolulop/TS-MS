@@ -47,7 +47,9 @@ def create_missing_timesheets_export(request: HttpRequest) -> JsonResponse:
                 400,
             )
         else:
-            raw_project_id_values = [str(project_id).strip() for project_id in raw_project_ids if str(project_id).strip()]
+            raw_project_id_values = [
+                str(project_id).strip() for project_id in raw_project_ids if str(project_id).strip()
+            ]
 
         effective_project_ids, _, _ = _resolved_project_selection(
             current_user,

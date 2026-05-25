@@ -365,9 +365,9 @@ class ClientManagementService:
     @staticmethod
     def _get_scoped_client(current_user: CurrentUser, client_id: int) -> ClientRecord:
         try:
-            client = ClientRecord.objects.select_related(
-                "office", "parent_client", "status"
-            ).get(id=client_id)
+            client = ClientRecord.objects.select_related("office", "parent_client", "status").get(
+                id=client_id
+            )
         except ClientRecord.DoesNotExist as exc:
             raise AuthError("CLIENT_NOT_FOUND", "Client not found.", 404) from exc
 
@@ -380,9 +380,9 @@ class ClientManagementService:
 
     @staticmethod
     def _refresh_client(client_id: int) -> ClientRecord:
-        return ClientRecord.objects.select_related(
-            "office", "parent_client", "status"
-        ).get(id=client_id)
+        return ClientRecord.objects.select_related("office", "parent_client", "status").get(
+            id=client_id
+        )
 
     @staticmethod
     def _resolve_parent_client(
@@ -922,9 +922,11 @@ class PricingModelManagementService:
     @staticmethod
     def list_pricing_models(current_user: CurrentUser) -> list[dict]:
         _ensure_ts_admin(current_user)
-        pricing_models = PricingModelRecord.objects.select_related("office").filter(
-            office_id=current_user.office_id
-        ).order_by("name")
+        pricing_models = (
+            PricingModelRecord.objects.select_related("office")
+            .filter(office_id=current_user.office_id)
+            .order_by("name")
+        )
         return [_serialize_pricing_model(pricing_model) for pricing_model in pricing_models]
 
     @staticmethod

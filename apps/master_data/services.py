@@ -761,9 +761,7 @@ def _serialize_general_charge_code_routing_health(
         return {
             "status": "ATTENTION",
             "warning": f"Ad-hoc approver roles without active members: {role_list}.",
-            "ad_hoc_roles_without_active_members": sorted(
-                ad_hoc_roles_without_active_members
-            ),
+            "ad_hoc_roles_without_active_members": sorted(ad_hoc_roles_without_active_members),
             "inactive_ad_hoc_roles": [],
         }
 
@@ -951,8 +949,7 @@ def _clone_default_calendar_rules_to_business_unit(
         CalendarPeriodRule.objects.filter(
             yearly_calendar=yearly_calendar,
             business_unit_id__isnull=False,
-        )
-        .order_by("business_unit_id", "effective_from", "id")
+        ).order_by("business_unit_id", "effective_from", "id")
     )
     donor_business_unit_ids = sorted({rule.business_unit_id for rule in donor_rules})
     if len(donor_business_unit_ids) != 1:
@@ -1103,9 +1100,7 @@ def _validate_weekend_hours(
             message="saturday_max_hours must be a valid decimal value.",
         )
         if payload.get("saturday_max_hours") not in (None, "")
-        else (
-            period_rule.saturday_max_hours if period_rule is not None else Decimal("0")
-        )
+        else (period_rule.saturday_max_hours if period_rule is not None else Decimal("0"))
     )
     sunday_max_hours = (
         _parse_decimal(
@@ -1114,9 +1109,7 @@ def _validate_weekend_hours(
             message="sunday_max_hours must be a valid decimal value.",
         )
         if payload.get("sunday_max_hours") not in (None, "")
-        else (
-            period_rule.sunday_max_hours if period_rule is not None else Decimal("0")
-        )
+        else (period_rule.sunday_max_hours if period_rule is not None else Decimal("0"))
     )
     working_on_saturdays_flag = (
         _parse_bool(payload.get("working_on_saturdays_flag"))
@@ -1473,8 +1466,7 @@ class GeneralChargeCodeApprovalRoleManagementService:
             code_prefix="GENERAL_CHARGE_CODE_APPROVAL_ROLE",
             expected_office_id=current_office.id,
             mismatch_message=(
-                "General Charge Code approval role office must match your active "
-                "office."
+                "General Charge Code approval role office must match your active office."
             ),
         )
 
@@ -1654,15 +1646,12 @@ class GeneralChargeCodeApprovalRoleManagementService:
                 actor_employee=actor_employee,
                 member_employee_ids=member_employee_ids,
                 reason=(
-                    "General Charge Code approval role members updated by Timesheet "
-                    "Administrator."
+                    "General Charge Code approval role members updated by Timesheet Administrator."
                 ),
             )
 
         return _serialize_general_charge_code_approval_role(
-            GeneralChargeCodeApprovalRoleManagementService._refresh_approval_role(
-                approval_role.id
-            )
+            GeneralChargeCodeApprovalRoleManagementService._refresh_approval_role(approval_role.id)
         )
 
     @staticmethod
@@ -1811,8 +1800,9 @@ class GeneralChargeCodeApprovalRoleManagementService:
         active_status = _ref_value("ROLE_ASSIGNMENT_STATUS", "ACTIVE")
         inactive_status = _ref_value("ROLE_ASSIGNMENT_STATUS", "INACTIVE")
         active_assignments = list(
-            approval_role.member_assignments.select_related("employee", "status", "status__domain")
-            .filter(valid_to__isnull=True)
+            approval_role.member_assignments.select_related(
+                "employee", "status", "status__domain"
+            ).filter(valid_to__isnull=True)
         )
         current_active_employee_ids = {
             assignment.employee_id
@@ -2331,15 +2321,19 @@ class GeneralChargeCodeManagementService:
         general_charge_code_id: int,
     ) -> GeneralChargeCodeRecord:
         try:
-            general_charge_code = GeneralChargeCodeRecord.objects.select_related(
-                "business_unit", "office", "charge_type", "cost_center", "status"
-            ).prefetch_related(
-                "approver_roles__existing_role",
-                "approver_roles__approval_role",
-                "approver_roles__approval_role__status",
-                "approver_roles__approval_role__member_assignments__employee__status",
-                "approver_roles__approval_role__member_assignments__status__domain",
-            ).get(id=general_charge_code_id)
+            general_charge_code = (
+                GeneralChargeCodeRecord.objects.select_related(
+                    "business_unit", "office", "charge_type", "cost_center", "status"
+                )
+                .prefetch_related(
+                    "approver_roles__existing_role",
+                    "approver_roles__approval_role",
+                    "approver_roles__approval_role__status",
+                    "approver_roles__approval_role__member_assignments__employee__status",
+                    "approver_roles__approval_role__member_assignments__status__domain",
+                )
+                .get(id=general_charge_code_id)
+            )
         except GeneralChargeCodeRecord.DoesNotExist as exc:
             raise AuthError(
                 "GENERAL_CHARGE_CODE_NOT_FOUND",
@@ -2359,15 +2353,19 @@ class GeneralChargeCodeManagementService:
     def _refresh_general_charge_code(
         general_charge_code_id: int,
     ) -> GeneralChargeCodeRecord:
-        return GeneralChargeCodeRecord.objects.select_related(
-            "business_unit", "office", "charge_type", "cost_center", "status"
-        ).prefetch_related(
-            "approver_roles__existing_role",
-            "approver_roles__approval_role",
-            "approver_roles__approval_role__status",
-            "approver_roles__approval_role__member_assignments__employee__status",
-            "approver_roles__approval_role__member_assignments__status__domain",
-        ).get(id=general_charge_code_id)
+        return (
+            GeneralChargeCodeRecord.objects.select_related(
+                "business_unit", "office", "charge_type", "cost_center", "status"
+            )
+            .prefetch_related(
+                "approver_roles__existing_role",
+                "approver_roles__approval_role",
+                "approver_roles__approval_role__status",
+                "approver_roles__approval_role__member_assignments__employee__status",
+                "approver_roles__approval_role__member_assignments__status__domain",
+            )
+            .get(id=general_charge_code_id)
+        )
 
     @staticmethod
     def _replace_approver_roles(
@@ -2494,8 +2492,7 @@ class GeneralChargeCodeManagementService:
                 ) from exc
 
         existing_roles = [
-            _ref_value("ROLE_CODE", role_code)
-            for role_code in sorted(existing_role_codes)
+            _ref_value("ROLE_CODE", role_code) for role_code in sorted(existing_role_codes)
         ]
         ad_hoc_roles = list(
             GeneralChargeCodeApprovalRole.objects.select_related("status")

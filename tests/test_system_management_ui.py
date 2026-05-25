@@ -393,9 +393,9 @@ def test_employee_transfer_source_filters_limit_visible_candidates() -> None:
 
     assert response.status_code == 200
     content = response.content.decode()
-    assert "name=\"filter_office_id\"" in content
-    assert "name=\"filter_primary_business_unit_id\"" in content
-    assert "name=\"filter_full_name\"" in content
+    assert 'name="filter_office_id"' in content
+    assert 'name="filter_primary_business_unit_id"' in content
+    assert 'name="filter_full_name"' in content
     assert "Apply Filters" in content
     assert "Alice Alpha" in content
     assert "Bob Beta" not in content
@@ -1463,7 +1463,7 @@ def test_employee_detail_shows_assigned_projects_section() -> None:
         re.S,
     )
     assert primary_match is not None
-    assert 'selected' in primary_match.group(2)
+    assert "selected" in primary_match.group(2)
     match = re.search(
         r'<select\s+id="business_unit_ids"\s+name="business_unit_ids"\s+multiple.*?>(.*?)</select>',
         content,
@@ -2327,8 +2327,9 @@ def test_general_charge_code_approval_role_management_create_via_html() -> None:
 
 
 @pytest.mark.django_db
-def test_general_charge_code_approval_role_collection_shows_dependency_and_coverage_via_html(
-) -> None:
+def test_general_charge_code_approval_role_collection_shows_dependency_and_coverage_via_html() -> (
+    None
+):
     client, employee, business_units = _build_ts_admin_client()
     member_employee = create_employee(
         employee_code="EMP-GCC-ROLE-MEMBER-DETAIL",
@@ -2544,8 +2545,9 @@ def test_general_charge_code_collection_uses_attention_when_approval_route_is_mi
 
 
 @pytest.mark.django_db
-def test_general_charge_code_approval_role_detail_can_clear_unreferenced_last_member_via_html(
-) -> None:
+def test_general_charge_code_approval_role_detail_can_clear_unreferenced_last_member_via_html() -> (
+    None
+):
     client, employee, business_units = _build_ts_admin_client()
     member_employee = create_employee(
         employee_code="EMP-GCC-CLEAR-LAST",
@@ -2921,10 +2923,7 @@ def test_client_management_project_link_requires_assignment_to_row_business_unit
     )
     assert managed_row["cells"][3] == {
         "text": "1",
-        "href": (
-            f"/system/clients/{managed_client.id}/projects/"
-            f"{out_of_scope_business_unit.id}/"
-        ),
+        "href": (f"/system/clients/{managed_client.id}/projects/{out_of_scope_business_unit.id}/"),
     }
 
     projects_response = client.get(managed_row["cells"][3]["href"])
@@ -3379,6 +3378,18 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
         is_primary_flag=True,
     )
     assign_role(employee=assigned_employee, role_code="USER")
+    other_scoped_employee = create_employee(
+        employee_code="EMP-ASSIGN-BU2",
+        full_name="Other Scoped Assignment Employee",
+        email="other-scoped-assignment@example.com",
+        primary_business_unit=business_units[1],
+    )
+    assign_employee_to_business_unit(
+        employee=other_scoped_employee,
+        business_unit=business_units[1],
+        is_primary_flag=True,
+    )
+    assign_role(employee=other_scoped_employee, role_code="USER")
     foreign_employee = create_employee(
         employee_code="EMP-ASSIGN-FOREIGN",
         full_name="Foreign Assignment Employee",
@@ -3408,6 +3419,28 @@ def test_project_assignment_management_create_and_update_via_html() -> None:
     assert collection_response.status_code == 200
     assert "EMP-ASSIGN-1" in collection_content
     assert "EMP-ASSIGN-FOREIGN" not in collection_content
+    selected_project_response = client.get(
+        f"/system/project-assignments/new/?project_id={project.id}"
+    )
+    selected_project_content = selected_project_response.content.decode()
+    assert selected_project_response.status_code == 200
+    assert f'data-business-unit-id="{business_units[0].id}"' in selected_project_content
+    assert "projectSelect.addEventListener" in selected_project_content
+    assigned_option = re.search(
+        rf'<option value="{assigned_employee.id}"(?P<attrs>[^>]*)>[^<]*EMP-ASSIGN-1',
+        selected_project_content,
+    )
+    other_scoped_option = re.search(
+        rf'<option value="{other_scoped_employee.id}"(?P<attrs>[^>]*)>[^<]*EMP-ASSIGN-BU2',
+        selected_project_content,
+    )
+    assert assigned_option is not None
+    assert other_scoped_option is not None
+    assert "data-business-unit-ids" in assigned_option.group("attrs")
+    assert "hidden" not in assigned_option.group("attrs")
+    assert "disabled" not in assigned_option.group("attrs")
+    assert "hidden" in other_scoped_option.group("attrs")
+    assert "disabled" in other_scoped_option.group("attrs")
 
     foreign_create_response = client.post(
         "/system/project-assignments/new/",
@@ -3864,8 +3897,7 @@ def test_cross_office_staffing_admin_can_create_update_and_delete_assignments() 
     assert "EMP-CO-ASSIGN-1" in create_content
     assert f'value="{project.office.office_name}"' in create_content
     assert (
-        f'value="{project.business_unit.bu_code} - {project.business_unit.name}"'
-        in create_content
+        f'value="{project.business_unit.bu_code} - {project.business_unit.name}"' in create_content
     )
     assert f'data-office-name="{project.office.office_name}"' in create_content
     assert (
@@ -4931,8 +4963,9 @@ def test_office_management_create_and_update_via_html() -> None:
     assert "Current State" not in create_screen_content
     assert 'name="office_name"' in create_screen_content
     approval_mode_field = create_screen_content[
-        create_screen_content.index('name="approval_mode_code"') :
-        create_screen_content.index('name="enable_copy_previous_week_flag"')
+        create_screen_content.index('name="approval_mode_code"') : create_screen_content.index(
+            'name="enable_copy_previous_week_flag"'
+        )
     ]
     assert 'value="PROJECT"' in approval_mode_field
     assert 'value="LINE"' not in approval_mode_field
@@ -4945,20 +4978,20 @@ def test_office_management_create_and_update_via_html() -> None:
         create_screen_content.index('name="count_non_billable_in_daily_limit_flag"')
     )
     cutoff_field = create_screen_content[
-        create_screen_content.index('name="timesheet_cutoff_date"') :
-        create_screen_content.index("Reserved date.")
+        create_screen_content.index('name="timesheet_cutoff_date"') : create_screen_content.index(
+            "Reserved date."
+        )
     ]
     assert "disabled" in cutoff_field
     assert "muted-field" in create_screen_content
     assert 'name="count_non_billable_in_daily_limit_flag"' in create_screen_content
     non_billable_field = create_screen_content[
-        create_screen_content.index('name="count_non_billable_in_daily_limit_flag"') :
-        create_screen_content.index("Reserved switch. Set to always count")
+        create_screen_content.index(
+            'name="count_non_billable_in_daily_limit_flag"'
+        ) : create_screen_content.index("Reserved switch. Set to always count")
     ]
     assert "disabled" in non_billable_field
-    assert "Reserved switch. Set to always count all charged time" in (
-        create_screen_content
-    )
+    assert "Reserved switch. Set to always count all charged time" in (create_screen_content)
     assert (
         "Reserved switch for future integration that imports leave/absence data "
         "into timesheet for this Office"

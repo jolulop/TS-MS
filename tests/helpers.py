@@ -11,10 +11,10 @@ from apps.master_data.models import (
     CrossOfficeProjectAssignment,
     Employee,
     EmployeeBusinessUnit,
+    EmployeeRole,
     GeneralChargeCodeApprovalRole,
     GeneralChargeCodeApprovalRoleAssignment,
     GeneralChargeCodeApproverRole,
-    EmployeeRole,
     Office,
     OfficeConfiguration,
     Project,
@@ -348,9 +348,12 @@ def create_general_charge_code(
     approver_role_codes: list[str] | None = None,
     ad_hoc_approval_roles: list[GeneralChargeCodeApprovalRole] | None = None,
 ) -> GeneralChargeCodeRecord:
-    resolved_cost_center = cost_center or CostCenterRecord.objects.filter(
-        office=business_unit.office
-    ).order_by("cost_center_code", "id").first()
+    resolved_cost_center = (
+        cost_center
+        or CostCenterRecord.objects.filter(office=business_unit.office)
+        .order_by("cost_center_code", "id")
+        .first()
+    )
     if resolved_cost_center is None:
         resolved_cost_center = create_cost_center(
             business_unit=business_unit,
@@ -398,8 +401,8 @@ def create_yearly_calendar(
     calendar_year: int,
     calendar_name: str,
 ) -> YearlyCalendar:
-    calendar_office = (
-        office or (business_unit.office if business_unit is not None else get_office())
+    calendar_office = office or (
+        business_unit.office if business_unit is not None else get_office()
     )
     calendar = YearlyCalendar.objects.update_or_create(
         office=calendar_office,

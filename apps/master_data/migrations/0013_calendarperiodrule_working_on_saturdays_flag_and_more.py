@@ -4,20 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('master_data', '0012_alter_calendarperiodrule_options_and_more'),
+        ("master_data", "0012_alter_calendarperiodrule_options_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='calendarperiodrule',
-            name='working_on_saturdays_flag',
+            model_name="calendarperiodrule",
+            name="working_on_saturdays_flag",
             field=models.BooleanField(default=False),
         ),
         migrations.AddField(
-            model_name='calendarperiodrule',
-            name='working_on_sundays_flag',
+            model_name="calendarperiodrule",
+            name="working_on_sundays_flag",
             field=models.BooleanField(default=False),
         ),
     ]

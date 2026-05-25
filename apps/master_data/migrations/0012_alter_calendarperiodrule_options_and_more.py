@@ -29,15 +29,14 @@ def assign_business_units_to_unambiguous_period_rules(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('master_data', '0011_office_level_yearly_calendars'),
+        ("master_data", "0011_office_level_yearly_calendars"),
     ]
 
     operations = [
         migrations.AlterModelOptions(
-            name='calendarperiodrule',
-            options={'ordering': ['yearly_calendar', 'business_unit', 'effective_from']},
+            name="calendarperiodrule",
+            options={"ordering": ["yearly_calendar", "business_unit", "effective_from"]},
         ),
         migrations.AddField(
             model_name="calendarperiodrule",

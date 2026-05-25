@@ -297,8 +297,8 @@ def _timesheet_detail_queryset():
 
 def _get_timesheet_for_update(current_user: CurrentUser, timesheet_id: int) -> WeeklyTimesheet:
     try:
-        timesheet = _timesheet_detail_queryset().select_for_update(of=("self",)).get(
-            id=timesheet_id
+        timesheet = (
+            _timesheet_detail_queryset().select_for_update(of=("self",)).get(id=timesheet_id)
         )
     except WeeklyTimesheet.DoesNotExist as exc:
         raise AuthError("TIMESHEET_NOT_FOUND", "Timesheet not found.", 404) from exc
@@ -825,12 +825,9 @@ def _available_projects_for_week(timesheet: WeeklyTimesheet) -> list[dict]:
     if not staffed_project_ids:
         return []
 
-    projects = (
-        Project.objects.filter(
-            id__in=staffed_project_ids,
-        )
-        .order_by("project_code")
-    )
+    projects = Project.objects.filter(
+        id__in=staffed_project_ids,
+    ).order_by("project_code")
     return [
         {
             "id": project.id,
@@ -1556,10 +1553,14 @@ class TimesheetService:
             )
 
         try:
-            submission_cycle = timesheet.submission_cycles.select_for_update().select_related(
-                "cycle_status",
-                "outcome_status",
-            ).get(submission_no=timesheet.current_submission_no)
+            submission_cycle = (
+                timesheet.submission_cycles.select_for_update()
+                .select_related(
+                    "cycle_status",
+                    "outcome_status",
+                )
+                .get(submission_no=timesheet.current_submission_no)
+            )
         except TimesheetSubmissionCycle.DoesNotExist as exc:
             raise AuthError(
                 "TIMESHEET_SUBMISSION_CYCLE_NOT_FOUND",

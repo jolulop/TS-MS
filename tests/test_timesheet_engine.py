@@ -1,9 +1,10 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from django.db.models.query import QuerySet
 from django.test import Client
+from django.utils import timezone
 
 from apps.audit.models import AuditLog
 from apps.auth.services import CurrentUserService
@@ -333,12 +334,13 @@ def test_user_can_create_list_and_view_own_weekly_timesheet() -> None:
     client = Client()
     initialize_session(client, "user1@example.com")
 
-    created = create_timesheet(client, "2026-05-04")
+    current_week_start = timezone.localdate() - timedelta(days=timezone.localdate().weekday())
+    created = create_timesheet(client, current_week_start.isoformat())
     list_response = client.get("/api/v1/timesheets/")
     detail_response = client.get(f"/api/v1/timesheets/{created['id']}/")
 
-    assert created["week_start_date"] == "2026-05-04"
-    assert created["week_end_date"] == "2026-05-10"
+    assert created["week_start_date"] == current_week_start.isoformat()
+    assert created["week_end_date"] == (current_week_start + timedelta(days=6)).isoformat()
     assert created["status"] == "CREATED"
     assert list_response.status_code == 200
     assert len(list_response.json()["timesheets"]) == 1

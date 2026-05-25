@@ -1,12 +1,11 @@
 import unicodedata
-from django.db import migrations, models
+
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 def _country_code_from_name(name: str) -> str:
-    normalized = (
-        unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
-    )
+    normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
     cleaned = "".join(char if char.isalnum() else "_" for char in normalized.upper()).strip("_")
     while "__" in cleaned:
         cleaned = cleaned.replace("__", "_")

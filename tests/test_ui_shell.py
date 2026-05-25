@@ -96,7 +96,7 @@ def test_project_owner_sees_project_management_and_approval_worklist() -> None:
     )
     assert dashboard_response.status_code == 200
     assert "System Management" in dashboard_content
-    assert '/ts/projects/' in dashboard_content
+    assert "/ts/projects/" in dashboard_content
     assert "/system/projects/" in dashboard_content
     assert "/system/project-assignments/" in dashboard_content
     assert "/system/cross-office-staffing/" in dashboard_content
@@ -156,7 +156,7 @@ def test_project_manager_sees_approval_worklist_and_profile_context() -> None:
     assert dashboard_response.status_code == 200
     assert "My info" in dashboard_content
     assert "TS/Project Management" in dashboard_content
-    assert '/ts/projects/' in dashboard_content
+    assert "/ts/projects/" in dashboard_content
     assert "Approval Worklist" in dashboard_content
     assert "Project Time Inquiry" in dashboard_content
     assert "System Management" in dashboard_content
@@ -223,7 +223,7 @@ def test_ts_admin_can_open_system_management_and_reports() -> None:
     assert dashboard_response.status_code == 200
     assert "Office: Holding" in dashboard_content
     assert "fixed to Holding" in dashboard_content
-    assert '/ts/projects/' in dashboard_content
+    assert "/ts/projects/" in dashboard_content
     assert "System Management" in dashboard_content
     assert "Admin Employee Scope" in dashboard_content
     assert "-> 1" in dashboard_content

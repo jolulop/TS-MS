@@ -89,18 +89,14 @@ REPORT_DEFINITIONS = {
     "employee-utilization": ReportDefinition(
         code="employee-utilization",
         title="Employee Utilization",
-        summary=(
-            "Worked versus expected capacity by employee inside the current "
-            "TS admin scope."
-        ),
+        summary=("Worked versus expected capacity by employee inside the current TS admin scope."),
         audience="TS_ADMIN",
     ),
     "office-bu-time-summary": ReportDefinition(
         code="office-bu-time-summary",
         title="Office / BU Time Summary",
         summary=(
-            "Aggregated worked hours by Office and Business Unit inside the "
-            "current TS admin scope."
+            "Aggregated worked hours by Office and Business Unit inside the current TS admin scope."
         ),
         audience="TS_ADMIN",
     ),
@@ -114,8 +110,7 @@ REPORT_DEFINITIONS = {
         code="approval-turnaround",
         title="Approval Turnaround",
         summary=(
-            "Elapsed approval timing and stalled-item visibility inside the "
-            "current TS admin scope."
+            "Elapsed approval timing and stalled-item visibility inside the current TS admin scope."
         ),
         audience="TS_ADMIN",
     ),
@@ -973,27 +968,30 @@ def _project_time_report(current_user: CurrentUser, request: HttpRequest) -> dic
         "empty_message": "No project time lines match the current filters.",
     }
 
+
 def _pending_approvals_report(current_user: CurrentUser, request: HttpRequest) -> dict:
     active_ad_hoc_role_ids = (
-        AuthorizationPolicyService._active_general_charge_code_approval_role_ids(
-            current_user
-        )
+        AuthorizationPolicyService._active_general_charge_code_approval_role_ids(current_user)
     )
-    queryset = ApprovalItem.objects.select_related(
-        "status",
-        "project",
-        "project__business_unit",
-        "project__office",
-        "general_charge_code",
-        "approver_employee",
-        "submission_cycle",
-        "submission_cycle__weekly_timesheet",
-        "submission_cycle__weekly_timesheet__employee",
-        "submission_cycle__weekly_timesheet__business_unit",
-    ).prefetch_related(
-        "approver_roles__existing_role",
-        "approver_roles__approval_role",
-    ).filter(status__value_code="PENDING")
+    queryset = (
+        ApprovalItem.objects.select_related(
+            "status",
+            "project",
+            "project__business_unit",
+            "project__office",
+            "general_charge_code",
+            "approver_employee",
+            "submission_cycle",
+            "submission_cycle__weekly_timesheet",
+            "submission_cycle__weekly_timesheet__employee",
+            "submission_cycle__weekly_timesheet__business_unit",
+        )
+        .prefetch_related(
+            "approver_roles__existing_role",
+            "approver_roles__approval_role",
+        )
+        .filter(status__value_code="PENDING")
+    )
     if current_user.is_ts_admin:
         queryset = queryset.filter(ts_admin_visible_approval_items_q(current_user))
     else:
@@ -1446,9 +1444,7 @@ def _employee_utilization_report(current_user: CurrentUser, request: HttpRequest
         non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
         timesheet_count=Count("weekly_timesheet", distinct=True),
     )
-    line_summary_by_employee = {
-        row["weekly_timesheet__employee_id"]: row for row in summary_rows
-    }
+    line_summary_by_employee = {row["weekly_timesheet__employee_id"]: row for row in summary_rows}
 
     rows: list[list[str]] = []
     total_expected_hours = Decimal("0.00")
@@ -1591,22 +1587,26 @@ def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpReque
         effective_business_unit_name=F("project__business_unit__name"),
     )
 
-    grouped_rows = queryset.values(
-        "effective_office_name",
-        "effective_business_unit_name",
-        "project__project_code",
-        "project__name",
-    ).annotate(
-        employee_count=Count("weekly_timesheet__employee", distinct=True),
-        timesheet_count=Count("weekly_timesheet", distinct=True),
-        line_count=Count("id"),
-        total_hours=Sum("hours"),
-        billable_hours=Sum("hours", filter=Q(billable_flag=True)),
-        non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
-    ).order_by(
-        "effective_office_name",
-        "effective_business_unit_name",
-        "project__project_code",
+    grouped_rows = (
+        queryset.values(
+            "effective_office_name",
+            "effective_business_unit_name",
+            "project__project_code",
+            "project__name",
+        )
+        .annotate(
+            employee_count=Count("weekly_timesheet__employee", distinct=True),
+            timesheet_count=Count("weekly_timesheet", distinct=True),
+            line_count=Count("id"),
+            total_hours=Sum("hours"),
+            billable_hours=Sum("hours", filter=Q(billable_flag=True)),
+            non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
+        )
+        .order_by(
+            "effective_office_name",
+            "effective_business_unit_name",
+            "project__project_code",
+        )
     )
 
     rows = [
@@ -1680,8 +1680,7 @@ def _office_bu_time_summary_report(current_user: CurrentUser, request: HttpReque
             },
         ],
         "empty_message": (
-            "No Office, Business Unit, or project summary rows match the "
-            "current filters."
+            "No Office, Business Unit, or project summary rows match the current filters."
         ),
     }
 
@@ -1725,18 +1724,22 @@ def _general_charge_code_usage_report(current_user: CurrentUser, request: HttpRe
     if resolved_end is not None:
         queryset = queryset.filter(work_date__lte=resolved_end)
 
-    grouped_rows = queryset.values(
-        "weekly_timesheet__business_unit__office__office_name",
-        "weekly_timesheet__business_unit__bu_code",
-        "general_charge_code__code",
-        "general_charge_code__name",
-    ).annotate(
-        employee_count=Count("weekly_timesheet__employee", distinct=True),
-        line_count=Count("id"),
-        total_hours=Sum("hours"),
-        billable_hours=Sum("hours", filter=Q(billable_flag=True)),
-        non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
-    ).order_by("general_charge_code__code")
+    grouped_rows = (
+        queryset.values(
+            "weekly_timesheet__business_unit__office__office_name",
+            "weekly_timesheet__business_unit__bu_code",
+            "general_charge_code__code",
+            "general_charge_code__name",
+        )
+        .annotate(
+            employee_count=Count("weekly_timesheet__employee", distinct=True),
+            line_count=Count("id"),
+            total_hours=Sum("hours"),
+            billable_hours=Sum("hours", filter=Q(billable_flag=True)),
+            non_billable_hours=Sum("hours", filter=Q(billable_flag=False)),
+        )
+        .order_by("general_charge_code__code")
+    )
 
     rows = [
         [
@@ -1887,21 +1890,25 @@ def _approval_turnaround_report(current_user: CurrentUser, request: HttpRequest)
     submitted_from = _selected_value(request, "submitted_from")
     submitted_to = _selected_value(request, "submitted_to")
 
-    queryset = ApprovalItem.objects.select_related(
-        "status",
-        "project",
-        "general_charge_code",
-        "approver_employee",
-        "submission_cycle",
-        "submission_cycle__weekly_timesheet",
-        "submission_cycle__weekly_timesheet__employee",
-        "submission_cycle__weekly_timesheet__business_unit",
-        "project__business_unit",
-        "project__office",
-    ).prefetch_related(
-        "approver_roles__existing_role",
-        "approver_roles__approval_role",
-    ).filter(ts_admin_visible_approval_items_q(current_user))
+    queryset = (
+        ApprovalItem.objects.select_related(
+            "status",
+            "project",
+            "general_charge_code",
+            "approver_employee",
+            "submission_cycle",
+            "submission_cycle__weekly_timesheet",
+            "submission_cycle__weekly_timesheet__employee",
+            "submission_cycle__weekly_timesheet__business_unit",
+            "project__business_unit",
+            "project__office",
+        )
+        .prefetch_related(
+            "approver_roles__existing_role",
+            "approver_roles__approval_role",
+        )
+        .filter(ts_admin_visible_approval_items_q(current_user))
+    )
     if business_unit_id:
         scoped_business_unit_ids = _scoped_business_unit_filter_ids(
             current_user,

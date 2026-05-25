@@ -121,10 +121,7 @@ def test_calendar_services_are_reexported_from_extracted_module() -> None:
 def test_project_staffing_services_are_reexported_from_extracted_module() -> None:
     assert ProjectManagementService is ExtractedProjectManagementService
     assert ProjectAssignmentManagementService is ExtractedProjectAssignmentManagementService
-    assert (
-        CrossOfficeProjectAssignmentManagementService
-        is ExtractedCrossOfficeAssignmentService
-    )
+    assert CrossOfficeProjectAssignmentManagementService is ExtractedCrossOfficeAssignmentService
 
 
 def test_safe_local_path_allows_only_single_slash_local_paths() -> None:

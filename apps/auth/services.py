@@ -173,8 +173,7 @@ class SessionInitializationService:
             actor_email=normalized_email,
             business_unit=employee.primary_business_unit,
             reason_text=(
-                "Internal session initialized from "
-                f"{identity_claims.provider} external identity."
+                f"Internal session initialized from {identity_claims.provider} external identity."
             ),
         )
         return current_user
@@ -313,9 +312,8 @@ class ExternalIdentityAdapterService:
     @staticmethod
     def _resolve_development_email_claims(payload: dict[str, Any]) -> ExternalIdentityClaims:
         raw_email = str(payload.get("validated_email", "")).strip()
-        if (
-            getattr(settings, "TSMS_ENVIRONMENT", "development") == "production"
-            or not getattr(settings, "TSMS_ENABLE_DEV_AUTH", False)
+        if getattr(settings, "TSMS_ENVIRONMENT", "development") == "production" or not getattr(
+            settings, "TSMS_ENABLE_DEV_AUTH", False
         ):
             normalized_email = canonicalize_email(raw_email)
             SessionInitializationService._audit_denial(

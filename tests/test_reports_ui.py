@@ -519,8 +519,7 @@ def test_reports_hub_is_role_aware() -> None:
     assert "Access Denied" in user_response.content.decode()
     assert "Missing Timesheets by Project" in pm_content
     assert (
-        "Missing Timesheets by Project"
-        in context["owner_client"].get("/reports/").content.decode()
+        "Missing Timesheets by Project" in context["owner_client"].get("/reports/").content.decode()
     )
     assert "Pending Approvals" in pm_content
     assert "Project Time Report" in pm_content
@@ -769,9 +768,7 @@ def test_cross_office_staffing_reports_include_foreign_employee_time() -> None:
     pm_response = context["pm_client"].get("/reports/pending-approvals/")
     admin_pending_response = context["admin_client"].get("/reports/pending-approvals/")
     admin_turnaround_response = context["admin_client"].get("/reports/approval-turnaround/")
-    admin_office_summary_response = context["admin_client"].get(
-        "/reports/office-bu-time-summary/"
-    )
+    admin_office_summary_response = context["admin_client"].get("/reports/office-bu-time-summary/")
     foreign_admin_pending_response = foreign_admin_client.get("/reports/pending-approvals/")
     foreign_admin_office_summary_response = foreign_admin_client.get(
         "/reports/office-bu-time-summary/"
@@ -819,9 +816,7 @@ def test_cross_office_staffing_reports_include_foreign_employee_time() -> None:
     assert "PRJ-RPT" not in foreign_admin_pending_content
 
     assert foreign_admin_office_summary_response.status_code == 200
-    foreign_admin_office_summary_content = (
-        foreign_admin_office_summary_response.content.decode()
-    )
+    foreign_admin_office_summary_content = foreign_admin_office_summary_response.content.decode()
     assert "Office / BU Time Summary" in foreign_admin_office_summary_content
     assert "Reports BU" in foreign_admin_office_summary_content
     assert "Reports Foreign BU" not in foreign_admin_office_summary_content
@@ -1308,8 +1303,7 @@ def test_project_missing_timesheets_csv_export_downloads_attachment_and_audits()
     content = response.content.decode()
     assert "Project Name,Employee Name,Employee Email,Missing TS Week Start" in content
     assert (
-        "Reports Project,Reports Missing Employee,reports-missing@example.com,"
-        "2026-05-04" in content
+        "Reports Project,Reports Missing Employee,reports-missing@example.com,2026-05-04" in content
     )
     assert AuditLog.objects.filter(
         entity_name="project_missing_timesheets_report",
@@ -1337,8 +1331,7 @@ def test_project_time_report_csv_export_downloads_filtered_rows_and_audits() -> 
     )
     assert (
         "BU-RPT,PRJ-RPT,Reports Project,2026-05-04,EMP-RPT-USER,Reports User,"
-        "2026-05-04,5.00,Billable,PENDING,Billable delivery"
-        in content
+        "2026-05-04,5.00,Billable,PENDING,Billable delivery" in content
     )
     assert "BU-RPT,PRJ-RPT,Reports Project,,,,,12.00,12.00,," not in content
     assert AuditLog.objects.filter(
@@ -1361,10 +1354,7 @@ def test_pending_approvals_report_csv_export_downloads_rows_and_audits() -> None
     assert response["Content-Disposition"].startswith("attachment; filename=")
     assert response["Content-Type"].startswith("text/csv")
     content = response.content.decode()
-    assert (
-        "Week Start Date,Employee Code,Employee,Target Code,Target,BU,Submission No."
-        in content
-    )
+    assert "Week Start Date,Employee Code,Employee,Target Code,Target,BU,Submission No." in content
     assert "Approval Item" not in content
     assert "Status" not in content
     assert "EMP-RPT-USER" in content
@@ -1459,8 +1449,7 @@ def test_project_missing_timesheets_export_api_returns_uri_and_downloads_csv() -
     csv_content = download_response.content.decode()
     assert (
         "Reports Project,Reports Missing Employee,reports-missing@example.com,"
-        "2026-05-04"
-        in csv_content
+        "2026-05-04" in csv_content
     )
     assert AuditLog.objects.filter(
         entity_name="project_missing_timesheets_report",

@@ -2,7 +2,6 @@ from datetime import date
 
 from django.db import migrations
 
-
 SYSTEM_ACTOR = "migration:0021_backfill_employee_calendar_setup"
 
 
@@ -27,7 +26,9 @@ def _preferred_calendar(yearly_calendar_model, *, office_id: int):
     return calendars[0]
 
 
-def _clone_default_rules(calendar_period_rule_model, *, yearly_calendar, business_unit_id: int) -> None:
+def _clone_default_rules(
+    calendar_period_rule_model, *, yearly_calendar, business_unit_id: int
+) -> None:
     if calendar_period_rule_model.objects.filter(
         yearly_calendar_id=yearly_calendar.id,
         business_unit_id=business_unit_id,
@@ -43,8 +44,7 @@ def _clone_default_rules(calendar_period_rule_model, *, yearly_calendar, busines
         calendar_period_rule_model.objects.filter(
             yearly_calendar_id=yearly_calendar.id,
             business_unit_id__isnull=False,
-        )
-        .order_by("business_unit_id", "effective_from", "id")
+        ).order_by("business_unit_id", "effective_from", "id")
     )
     donor_business_unit_ids = sorted({rule.business_unit_id for rule in donor_rules})
     if len(donor_business_unit_ids) != 1:

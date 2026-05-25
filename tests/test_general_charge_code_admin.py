@@ -182,9 +182,10 @@ def test_ts_admin_can_create_and_update_general_charge_code_with_audit() -> None
         ).count()
         == 1
     )
-    assert AuditLog.objects.filter(
-        entity_name="general_charge_code", field_name="cost_center"
-    ).count() == 1
+    assert (
+        AuditLog.objects.filter(entity_name="general_charge_code", field_name="cost_center").count()
+        == 1
+    )
     assert (
         AuditLog.objects.filter(
             entity_name="general_charge_code",
@@ -461,8 +462,9 @@ def test_general_charge_code_rejects_unmanned_ad_hoc_approver_role() -> None:
 
 
 @pytest.mark.django_db
-def test_general_charge_code_approval_role_api_reports_dependencies_and_blocks_unsafe_changes(
-) -> None:
+def test_general_charge_code_approval_role_api_reports_dependencies_and_blocks_unsafe_changes() -> (
+    None
+):
     seed_reference_data()
     business_unit = create_business_unit(bu_code="BU-GCC-DEP", name="Admin BU")
     cost_center = create_cost_center(

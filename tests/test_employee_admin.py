@@ -636,9 +636,9 @@ def test_ts_admin_can_list_scoped_employees_with_status_filter() -> None:
         "EMP-LIST-INACTIVE",
     ]
     assert inactive_response.status_code == 200
-    assert [
-        employee["employee_code"] for employee in inactive_response.json()["employees"]
-    ] == ["EMP-LIST-INACTIVE"]
+    assert [employee["employee_code"] for employee in inactive_response.json()["employees"]] == [
+        "EMP-LIST-INACTIVE"
+    ]
 
 
 @pytest.mark.django_db
