@@ -28,7 +28,7 @@ with other Azure work.
 | Networking for dev | Start simple with restricted public PostgreSQL access. | Confirmed | Test/prod should move to private access/private endpoint. |
 | Google SSO | Use a dev-only Google OAuth client owned by `jose.luis.lopez@timia.ai` and wired to App Service Authentication. | Confirmed | Do not reuse production/test OAuth client secrets. |
 | API access model for Milestone 1 | Support authenticated human/session-cookie API access first. | Proposed | Browserless API clients remain an explicit later decision. |
-| Azure DevOps project | Create a new Azure DevOps project for TSMS. | Confirmed | The Azure Repos Git repository will live in this new project. |
+| Azure DevOps project | Create a new Azure DevOps project for TSMS in `https://dev.azure.com/timia-innovacion`. | Confirmed | The Azure Repos Git repository will live in this new project. |
 | Dev seed data | Run reference seed data and dev sample data in Azure dev. | Confirmed | Dev sample data must not be used in test or production. |
 | Production domain | Not needed for Milestone 1. | Proposed | Dev can start with `app-tsms-dev.azurewebsites.net`. |
 | Production HA | Not needed for Milestone 1. | Proposed | Decide before production sizing. |
@@ -44,6 +44,7 @@ with other Azure work.
 - App name base: `app-tsms-dev`
 - Dev networking: restricted public PostgreSQL access for Milestone 1
 - Google SSO owner: `jose.luis.lopez@timia.ai`
+- Azure DevOps organization: `https://dev.azure.com/timia-innovacion`
 - Azure DevOps: create a new project
 - Dev PostgreSQL SKU: `Standard_B1ms`
 - Dev seed data: reference data plus dev sample data
@@ -60,6 +61,7 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
 - Key Vault name `kv-tsms-dev`: available
 - PostgreSQL Flexible Server name `pg-tsms-dev`: available
 - PostgreSQL Flexible Server SKU `Standard_B1ms`: available in `westeurope`
+- Azure DevOps organization: `https://dev.azure.com/timia-innovacion`
 
 ## Azure Resource Creation Log
 
@@ -68,6 +70,16 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
   - Tags: `application=tsms`, `environment=dev`,
     `workstream=azure-migration`, `owner=jose.luis.lopez@timia.ai`,
     `managed-by=manual-bootstrap`
+- 2026-05-26: Created Azure DevOps project `TSMS` in organization
+  `https://dev.azure.com/timia-innovacion`.
+  - Project ID: `05e24c41-9f94-4839-8708-f2075a261802`
+  - Visibility: private
+  - Process: Agile
+  - Source control: Git
+  - Default team: `TSMS Team`
+  - Default repo: `TSMS`
+  - Repo ID: `0174ef9e-fb75-48e6-865b-65e757cf644b`
+  - Repo URL: `https://dev.azure.com/timia-innovacion/TSMS/_git/TSMS`
 
 ## Recommended Milestone 1 Defaults
 
