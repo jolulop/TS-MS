@@ -55,11 +55,19 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
 - Active subscription: `Suscripción de Azure 1`
   (`43bef7fd-2d3e-4f34-8c31-5c40cfc24ca0`)
 - Tenant: `f7ffa10c-7401-4641-bcd7-f80610180c42`
-- Resource group `rg-tsms-dev`: does not exist yet
+- Resource group `rg-tsms-dev`: did not exist before creation
 - App Service name `app-tsms-dev`: available
 - Key Vault name `kv-tsms-dev`: available
 - PostgreSQL Flexible Server name `pg-tsms-dev`: available
 - PostgreSQL Flexible Server SKU `Standard_B1ms`: available in `westeurope`
+
+## Azure Resource Creation Log
+
+- 2026-05-26: Created resource group `rg-tsms-dev` in `westeurope` under
+  subscription `43bef7fd-2d3e-4f34-8c31-5c40cfc24ca0`.
+  - Tags: `application=tsms`, `environment=dev`,
+    `workstream=azure-migration`, `owner=jose.luis.lopez@timia.ai`,
+    `managed-by=manual-bootstrap`
 
 ## Recommended Milestone 1 Defaults
 
