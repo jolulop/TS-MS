@@ -2,6 +2,12 @@
 
 ## Active Plans
 
+- `2026-05-26`: `docs/plans/2026-05-26-azure-migration.md`
+  - status: proposed
+  - focus: define the Azure target architecture, deployment readiness gates, and code migration/testing plan for dev, test, and production
+- `2026-05-26`: `docs/plans/2026-05-26-azure-open-decisions.md`
+  - status: in progress
+  - focus: confirm subscription, region, isolated dev naming, networking, SSO, Azure DevOps, and seed-data choices before creating Azure dev resources
 - `2026-05-23`: `docs/plans/2026-05-23-docs-v6.1-promotion.md`
   - status: completed
   - focus: publish the v6.1 markdown source-of-truth set and repoint repo guidance away from the v6.0 baseline
