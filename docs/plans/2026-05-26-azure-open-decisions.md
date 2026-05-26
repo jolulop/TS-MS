@@ -24,11 +24,12 @@ with other Azure work.
 | Resource naming | Use `app-tsms-dev`, `plan-tsms-dev`, `pg-tsms-dev`, `kv-tsms-dev`, `appi-tsms-dev`, `log-tsms-dev`, with suffixes only if Azure global uniqueness requires them. | Confirmed | App Service, Key Vault, and PostgreSQL names may need globally unique suffixes. |
 | Dev environment hardening | Set `TSMS_ENVIRONMENT=production` in Azure dev to exercise production fail-closed checks, while using dev resources and dev data. | Proposed | Local development still uses `development` and SQLite if desired. |
 | Database for dev | Use Azure Database for PostgreSQL Flexible Server. | Proposed | SQLite remains local-only. |
-| Dev PostgreSQL SKU | Use a low-cost dev SKU initially. | Pending confirmation | Burstable is acceptable for dev; testing/prod should use General Purpose or better. |
+| Dev PostgreSQL SKU | Use `Standard_B1ms` for the first dev instance. | Confirmed | SKU is available in `westeurope`; testing/prod should use General Purpose or better. |
 | Networking for dev | Start simple with restricted public PostgreSQL access. | Confirmed | Test/prod should move to private access/private endpoint. |
 | Google SSO | Use a dev-only Google OAuth client owned by `jose.luis.lopez@timia.ai` and wired to App Service Authentication. | Confirmed | Do not reuse production/test OAuth client secrets. |
 | API access model for Milestone 1 | Support authenticated human/session-cookie API access first. | Proposed | Browserless API clients remain an explicit later decision. |
 | Azure DevOps project | Create a new Azure DevOps project for TSMS. | Confirmed | The Azure Repos Git repository will live in this new project. |
+| Dev seed data | Run reference seed data and dev sample data in Azure dev. | Confirmed | Dev sample data must not be used in test or production. |
 | Production domain | Not needed for Milestone 1. | Proposed | Dev can start with `app-tsms-dev.azurewebsites.net`. |
 | Production HA | Not needed for Milestone 1. | Proposed | Decide before production sizing. |
 | Initial production data | Leave undecided until dev and test migration flow works. | Pending | Options: empty launch with reference data, or migrate from an existing source. |
@@ -44,6 +45,21 @@ with other Azure work.
 - Dev networking: restricted public PostgreSQL access for Milestone 1
 - Google SSO owner: `jose.luis.lopez@timia.ai`
 - Azure DevOps: create a new project
+- Dev PostgreSQL SKU: `Standard_B1ms`
+- Dev seed data: reference data plus dev sample data
+
+## Azure Read-Only Checks
+
+Performed on 2026-05-26 with Azure CLI after device-code login:
+
+- Active subscription: `Suscripción de Azure 1`
+  (`43bef7fd-2d3e-4f34-8c31-5c40cfc24ca0`)
+- Tenant: `f7ffa10c-7401-4641-bcd7-f80610180c42`
+- Resource group `rg-tsms-dev`: does not exist yet
+- App Service name `app-tsms-dev`: available
+- Key Vault name `kv-tsms-dev`: available
+- PostgreSQL Flexible Server name `pg-tsms-dev`: available
+- PostgreSQL Flexible Server SKU `Standard_B1ms`: available in `westeurope`
 
 ## Recommended Milestone 1 Defaults
 
@@ -59,21 +75,22 @@ Unless a decision above changes, use:
 - Key Vault: `kv-tsms-dev` plus unique suffix if needed
 - Application Insights: `appi-tsms-dev`
 - Log Analytics: `log-tsms-dev`
+- PostgreSQL SKU: `Standard_B1ms`
 - App URL: `https://app-tsms-dev.azurewebsites.net`
 - Auth: Google SSO through App Service Authentication
 - Django environment in Azure dev: `TSMS_ENVIRONMENT=production`
 - Dev auth: disabled
 - Database: PostgreSQL, not SQLite
-- Sample data: allowed only in dev
+- Seed data: reference data plus dev sample data
 
 ## Remaining Questions Before Creating Azure Dev
 
-1. Should the first Azure dev deployment seed sample dev data, or only
-   reference data plus a manually created test employee?
-2. What low-cost PostgreSQL SKU should be used for dev after checking current
-   regional availability and cost?
-3. Which globally unique suffix should be used if `app-tsms-dev`,
-   `pg-tsms-dev`, or `kv-tsms-dev` are unavailable?
+No blocking open questions remain for creating the isolated development
+resource group.
+
+If a later resource creation command reports a name collision despite the
+availability checks, append a short unique suffix to that specific globally
+scoped resource name and update this decision log.
 
 ## Exit Criteria
 
@@ -86,4 +103,4 @@ The open-decisions task can close when:
 - Dev networking posture is confirmed. Done.
 - Google SSO ownership is confirmed. Done.
 - Azure DevOps project/repo location is confirmed. Done.
-- Dev seed-data approach is confirmed.
+- Dev seed-data approach is confirmed. Done.
