@@ -80,6 +80,66 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
   - Default repo: `TSMS`
   - Repo ID: `0174ef9e-fb75-48e6-865b-65e757cf644b`
   - Repo URL: `https://dev.azure.com/timia-innovacion/TSMS/_git/TSMS`
+- 2026-05-26: Created dev observability and runtime foundation resources in
+  `rg-tsms-dev`.
+  - Log Analytics workspace: `log-tsms-dev`
+  - Application Insights: `appi-tsms-dev`
+  - Key Vault: `kv-tsms-dev`
+  - App Service plan: `plan-tsms-dev`, Linux Basic B1
+  - Web app: `app-tsms-dev`
+  - Web app URL: `https://app-tsms-dev.azurewebsites.net`
+  - Web app runtime: Python 3.12
+  - Web app settings: HTTPS-only, TLS 1.2 minimum, FTPS disabled, client
+    affinity disabled
+  - Web app managed identity principal ID:
+    `a27e9dac-1f42-4845-8971-407d77bd2f9c`
+- 2026-05-26: Granted Key Vault RBAC for dev secret handling.
+  - `app-tsms-dev` managed identity: `Key Vault Secrets User`
+  - Signed-in user object ID `785c8835-5a64-4ac7-ac0f-62ade3ccca82`:
+    `Key Vault Secrets Officer`
+- 2026-05-26: Created and configured PostgreSQL dev database resources.
+  - Flexible Server: `pg-tsms-dev`
+  - SKU: `Standard_B1ms`
+  - PostgreSQL version: 16
+  - Host: `pg-tsms-dev.postgres.database.azure.com`
+  - Database: `tsms_dev`
+  - Public access: Azure services/resources allowed for Milestone 1
+  - Admin user: `tsmsadmin`
+  - Password storage: `tsms-db-password` in `kv-tsms-dev`
+  - The initial generated PostgreSQL password was rotated immediately because
+    Azure CLI printed it in the server-create JSON output.
+- 2026-05-26: Stored dev application secrets in Key Vault.
+  - `tsms-secret-key`
+  - `tsms-db-password`
+  - App Service Key Vault references for `TSMS_SECRET_KEY` and
+    `TSMS_DB_PASSWORD` are resolved.
+- 2026-05-26: Configured `app-tsms-dev` application settings for hardened Azure
+  dev.
+  - `TSMS_ENVIRONMENT=production`
+  - `TSMS_DEBUG=0`
+  - `TSMS_AUTH_PROVIDER=trusted-header`
+  - `TSMS_ENABLE_DEV_AUTH=0`
+  - PostgreSQL environment values for `tsms_dev`
+  - secure cookie and proxy HTTPS settings
+  - JSON logging and Application Insights connection string
+
+## Current Blockers
+
+- Azure Repos Git push from this machine is pending credentials.
+  - Azure DevOps project and repo exist.
+  - Local Git remote `azure` was added to this worktree.
+  - Azure CLI can manage DevOps resources, but Git push rejected the Azure CLI
+    access token.
+  - Git Credential Manager is not installed in this environment.
+  - Next options: create a short-lived Azure DevOps PAT for initial push, or
+    install/configure Git Credential Manager locally.
+- Google SSO is pending the dev Google OAuth client ID and secret.
+  - Owner: `jose.luis.lopez@timia.ai`
+  - Target app URL: `https://app-tsms-dev.azurewebsites.net`
+- Application code is not deployed yet.
+  - Runtime resources and app settings exist.
+  - Code still needs Azure runtime changes, packaging, deployment pipeline, and
+    migration/seed execution.
 
 ## Recommended Milestone 1 Defaults
 
