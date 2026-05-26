@@ -122,6 +122,14 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
   - PostgreSQL environment values for `tsms_dev`
   - secure cookie and proxy HTTPS settings
   - JSON logging and Application Insights connection string
+- 2026-05-26: Verified Google SSO ingress for `app-tsms-dev`.
+  - Google OAuth client exists for the dev App Service.
+  - Azure App Service Authentication is enabled with Google as the default
+    provider.
+  - Unauthenticated browser access can be sent through
+    `/.auth/login/google`.
+  - After Google login, Azure serves the default App Service placeholder page
+    because TSMS application code has not been deployed yet.
 
 ## Current Blockers
 
@@ -134,8 +142,8 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
   - Next options: create a short-lived Azure DevOps PAT for initial push, or
     install/configure Git Credential Manager locally.
 - Google SSO is pending the dev Google OAuth client ID and secret.
-  - Owner: `jose.luis.lopez@timia.ai`
-  - Target app URL: `https://app-tsms-dev.azurewebsites.net`
+  - Resolved for Azure ingress.
+  - Remaining code work: Django trusted-header browser session bootstrap.
 - Application code is not deployed yet.
   - Runtime resources and app settings exist.
   - Code still needs Azure runtime changes, packaging, deployment pipeline, and
