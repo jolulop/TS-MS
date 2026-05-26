@@ -91,7 +91,33 @@ def test_build_database_config_uses_postgres_environment(monkeypatch: pytest.Mon
         "PASSWORD": "prod-password",
         "HOST": "prod-host.postgres.database.azure.com",
         "PORT": "5432",
+        "CONN_MAX_AGE": 60,
+        "OPTIONS": {"sslmode": "require"},
     }
+
+
+def test_build_database_config_allows_database_runtime_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TSMS_DB_BACKEND", "postgres")
+    monkeypatch.setenv("TSMS_DB_CONN_MAX_AGE", "120")
+    monkeypatch.setenv("TSMS_DB_SSLMODE", "verify-full")
+
+    database_config = settings.build_database_config()
+
+    assert database_config["CONN_MAX_AGE"] == 120
+    assert database_config["OPTIONS"] == {"sslmode": "verify-full"}
+
+
+def test_build_database_config_can_disable_postgres_sslmode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TSMS_DB_BACKEND", "postgres")
+    monkeypatch.setenv("TSMS_DB_SSLMODE", "")
+
+    database_config = settings.build_database_config()
+
+    assert "OPTIONS" not in database_config
 
 
 def test_env_list_parses_comma_separated_values(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,3 +130,36 @@ def test_env_list_parses_comma_separated_values(monkeypatch: pytest.MonkeyPatch)
         "https://tsms.example.com",
         "https://tsms.azurewebsites.net",
     ]
+
+
+def test_static_runtime_uses_development_storage_by_default() -> None:
+    assert "whitenoise.middleware.WhiteNoiseMiddleware" in settings.MIDDLEWARE
+    assert settings.STORAGES["staticfiles"] == {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    }
+
+
+def test_static_runtime_uses_whitenoise_storage_for_production() -> None:
+    assert settings.build_staticfiles_storage_backend(is_production=True) == (
+        "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    )
+
+
+def test_static_runtime_allows_storage_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TSMS_STATICFILES_STORAGE", "example.StaticStorage")
+
+    assert settings.build_staticfiles_storage_backend(is_production=True) == "example.StaticStorage"
+
+
+def test_static_runtime_ignores_blank_storage_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TSMS_STATICFILES_STORAGE", "")
+
+    assert settings.build_staticfiles_storage_backend(is_production=False) == (
+        "django.contrib.staticfiles.storage.StaticFilesStorage"
+    )
+
+
+def test_static_root_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TSMS_STATIC_ROOT", "/tmp/tsms-staticfiles")
+
+    assert str(settings.build_static_root()) == "/tmp/tsms-staticfiles"

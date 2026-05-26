@@ -27,6 +27,20 @@ def env_list(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
 
 
+def build_staticfiles_storage_backend(*, is_production: bool) -> str:
+    default_backend = (
+        "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        if is_production
+        else "django.contrib.staticfiles.storage.StaticFilesStorage"
+    )
+    override = os.getenv("TSMS_STATICFILES_STORAGE", "").strip()
+    return override or default_backend
+
+
+def build_static_root() -> Path:
+    return Path(os.getenv("TSMS_STATIC_ROOT", str(BASE_DIR / "staticfiles")))
+
+
 def validate_production_settings(
     *,
     environment: str,
@@ -76,14 +90,19 @@ def validate_production_settings(
 def build_database_config() -> dict[str, object]:
     backend = os.getenv("TSMS_DB_BACKEND", "sqlite").strip().lower()
     if backend == "postgres":
-        return {
+        config: dict[str, object] = {
             "ENGINE": "django.db.backends.postgresql",
             "NAME": os.getenv("TSMS_DB_NAME", "tsms"),
             "USER": os.getenv("TSMS_DB_USER", "tsms"),
             "PASSWORD": os.getenv("TSMS_DB_PASSWORD", "tsms"),
             "HOST": os.getenv("TSMS_DB_HOST", "127.0.0.1"),
             "PORT": os.getenv("TSMS_DB_PORT", "5432"),
+            "CONN_MAX_AGE": env_int("TSMS_DB_CONN_MAX_AGE", 60),
         }
+        sslmode = os.getenv("TSMS_DB_SSLMODE", "require").strip()
+        if sslmode:
+            config["OPTIONS"] = {"sslmode": sslmode}
+        return config
     return {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
@@ -141,6 +160,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -197,7 +217,15 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_ROOT = build_static_root()
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": build_staticfiles_storage_backend(is_production=IS_PRODUCTION),
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

@@ -141,13 +141,43 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
   - Git Credential Manager is not installed in this environment.
   - Next options: create a short-lived Azure DevOps PAT for initial push, or
     install/configure Git Credential Manager locally.
-- Google SSO is pending the dev Google OAuth client ID and secret.
-  - Resolved for Azure ingress.
+- Google SSO is resolved for Azure ingress.
   - Remaining code work: Django trusted-header browser session bootstrap.
 - Application code is not deployed yet.
   - Runtime resources and app settings exist.
-  - Code still needs Azure runtime changes, packaging, deployment pipeline, and
+  - Phase 3 runtime code changes are verified locally.
+  - Code still needs deployment pipeline, trusted-header bootstrap, and
     migration/seed execution.
+
+## Phase 3 Runtime Readiness
+
+- Added production runtime dependencies to the Python package.
+  - `gunicorn`
+  - `whitenoise`
+- Added `scripts/azure-startup.sh` as the App Service startup script.
+  - runs static collection
+  - runs `manage.py check --deploy`
+  - starts Gunicorn on Azure's `$PORT`
+- Added WhiteNoise middleware and compressed manifest static-file storage.
+- Added PostgreSQL runtime settings:
+  - `TSMS_DB_CONN_MAX_AGE`
+  - `TSMS_DB_SSLMODE`
+- Added Azure dev App Service app settings for:
+  - `TSMS_DB_CONN_MAX_AGE=60`
+  - `TSMS_DB_SSLMODE=require`
+- Verified locally:
+  - focused production settings and smoke tests
+  - full test suite
+  - `manage.py check`
+  - development-mode `collectstatic`
+  - production-mode `collectstatic`
+  - production-mode `manage.py check --deploy`, with only expected HSTS and
+    dummy-local-secret warnings
+
+Pending Phase 3 follow-up:
+
+- Configure App Service startup command to `bash scripts/azure-startup.sh`
+  after code deployment is wired.
 
 ## Recommended Milestone 1 Defaults
 

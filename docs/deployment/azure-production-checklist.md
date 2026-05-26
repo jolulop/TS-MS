@@ -27,6 +27,12 @@ Use PostgreSQL for production parity:
 - `TSMS_DB_PASSWORD=<Key Vault backed secret>`
 - `TSMS_DB_HOST=<postgres-host>`
 - `TSMS_DB_PORT=5432`
+- `TSMS_DB_CONN_MAX_AGE=60`
+- `TSMS_DB_SSLMODE=require`
+
+`TSMS_DB_SSLMODE=require` is the Azure PostgreSQL default expectation. Raise it
+to `verify-full` only after certificate authority and hostname validation are
+configured deliberately.
 
 ## HTTPS And Cookies
 
@@ -68,3 +74,17 @@ Production defaults emit JSON application logs suitable for Azure log ingestion:
 Route stdout/stderr to Azure Application Insights, Azure Monitor, or the
 equivalent platform log pipeline. Structured observability events currently
 cover access denials, approval workflow conflicts, and report CSV exports.
+
+## Runtime
+
+Production App Service deployments should use:
+
+- startup command: `bash scripts/azure-startup.sh`
+- WSGI server: Gunicorn
+- static files: WhiteNoise compressed manifest storage
+
+Tune these only after load testing:
+
+- `WEB_CONCURRENCY`
+- `GUNICORN_THREADS`
+- `GUNICORN_TIMEOUT`
