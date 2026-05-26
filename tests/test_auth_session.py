@@ -111,6 +111,72 @@ def test_html_development_email_login_is_disabled_in_production() -> None:
     TSMS_AUTH_PROVIDER="trusted-header",
     TSMS_TRUSTED_EMAIL_HEADER="HTTP_X_AUTH_EMAIL",
 )
+def test_html_home_initializes_internal_session_from_trusted_header() -> None:
+    seed_reference_data()
+    business_unit = create_business_unit(bu_code="BU-HTML-SSO", name="HTML SSO BU")
+    employee = create_employee(
+        employee_code="EMP-HTML-SSO",
+        full_name="HTML SSO User",
+        email="html-sso@example.com",
+        primary_business_unit=business_unit,
+    )
+    assign_employee_to_business_unit(
+        employee=employee,
+        business_unit=business_unit,
+        is_primary_flag=True,
+    )
+    assign_role(employee=employee, role_code="USER")
+
+    client = Client()
+    response = client.get("/", HTTP_X_AUTH_EMAIL="HTML-SSO@example.com")
+    session_response = client.get("/api/v1/auth/session")
+    second_home_response = client.get("/")
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/"
+    assert session_response.status_code == 200
+    assert session_response.json()["session"]["employee"]["employee_code"] == "EMP-HTML-SSO"
+    assert second_home_response.status_code == 302
+    assert second_home_response.headers["Location"] == "/ts/"
+    assert AuditLog.objects.filter(
+        entity_name="internal_session",
+        action_type__value_code="LOGIN_IDENTIFICATION",
+        actor_email="html-sso@example.com",
+        reason_text__contains="trusted-header external identity",
+    ).exists()
+
+
+@pytest.mark.django_db
+@override_settings(
+    DEBUG=False,
+    TSMS_ENVIRONMENT="production",
+    TSMS_AUTH_PROVIDER="trusted-header",
+    TSMS_TRUSTED_EMAIL_HEADER="HTTP_X_AUTH_EMAIL",
+)
+def test_html_home_denies_missing_trusted_header_claim() -> None:
+    seed_reference_data()
+    client = Client()
+
+    response = client.get("/")
+    session_response = client.get("/api/v1/auth/session")
+
+    assert response.status_code == 401
+    assert "Trusted external identity email claim is missing." in response.content.decode()
+    assert session_response.status_code == 401
+    assert AuditLog.objects.filter(
+        entity_name="internal_session",
+        action_type__value_code="DENY",
+        reason_text__contains="AUTH_EXTERNAL_IDENTITY_MISSING",
+    ).exists()
+
+
+@pytest.mark.django_db
+@override_settings(
+    DEBUG=False,
+    TSMS_ENVIRONMENT="production",
+    TSMS_AUTH_PROVIDER="trusted-header",
+    TSMS_TRUSTED_EMAIL_HEADER="HTTP_X_AUTH_EMAIL",
+)
 def test_trusted_header_session_initialization_requires_email_claim() -> None:
     seed_reference_data()
     client = Client()

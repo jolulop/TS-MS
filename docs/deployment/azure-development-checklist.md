@@ -125,6 +125,17 @@ Expected Django claim header:
 HTTP_X_MS_CLIENT_PRINCIPAL_NAME
 ```
 
+Expected Django behavior:
+
+- Azure App Service Authentication performs Google login before traffic reaches
+  Django.
+- On the first authenticated browser `GET /`, Django reads the trusted email
+  claim, initializes the internal TS session, and redirects to `/`.
+- The next `GET /` renders the normal role-aware landing page or redirects a
+  basic user to `/ts/`.
+- The local `validated_email` access-entry form remains a local development
+  path only.
+
 ## Database
 
 Use PostgreSQL in Azure dev. SQLite remains local-only.

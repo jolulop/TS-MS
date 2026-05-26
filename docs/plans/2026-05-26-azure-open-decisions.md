@@ -142,12 +142,13 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
   - Next options: create a short-lived Azure DevOps PAT for initial push, or
     install/configure Git Credential Manager locally.
 - Google SSO is resolved for Azure ingress.
-  - Remaining code work: Django trusted-header browser session bootstrap.
+  - Django trusted-header browser session bootstrap is implemented and covered
+    by regression tests.
 - Application code is not deployed yet.
   - Runtime resources and app settings exist.
   - Phase 3 runtime code changes are verified locally.
-  - Code still needs deployment pipeline, trusted-header bootstrap, and
-    migration/seed execution.
+  - Phase 4 trusted-header session bootstrap is verified locally.
+  - Code still needs deployment pipeline and migration/seed execution.
 
 ## Phase 3 Runtime Readiness
 
@@ -178,6 +179,20 @@ Pending Phase 3 follow-up:
 
 - Configure App Service startup command to `bash scripts/azure-startup.sh`
   after code deployment is wired.
+
+## Phase 4 Identity Bootstrap Readiness
+
+- Added browser-session bootstrap for `TSMS_AUTH_PROVIDER=trusted-header`.
+  - First authenticated `GET /` initializes the internal TS session from the
+    trusted ingress email claim.
+  - Missing trusted email claims return an access-denied response instead of the
+    local development access-entry form.
+  - Local `development-email` access entry remains unchanged for local
+    development.
+- Added regression tests for:
+  - trusted-header browser bootstrap
+  - missing trusted-header denial
+  - existing `/api/v1/auth/session/initialize` trusted-header behavior
 
 ## Recommended Milestone 1 Defaults
 

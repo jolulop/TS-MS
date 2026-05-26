@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -20,6 +21,13 @@ def _require_user(request: HttpRequest) -> CurrentUser | HttpResponse:
     if current_user is None:
         return redirect("home")
     return current_user
+
+
+def _trusted_header_auth_enabled() -> bool:
+    return (
+        getattr(settings, "TSMS_AUTH_PROVIDER", "")
+        == ExternalIdentityAdapterService.TRUSTED_HEADER_PROVIDER
+    )
 
 
 def _page_context(
@@ -421,6 +429,16 @@ def home(request: HttpRequest) -> HttpResponse:
         return redirect("home")
 
     if current_user is None:
+        if _trusted_header_auth_enabled():
+            try:
+                ExternalIdentityAdapterService.initialize_session(request, {})
+            except AuthError as exc:
+                return _render_access_denied(
+                    request,
+                    message=exc.message,
+                    status=exc.status,
+                )
+            return redirect("home")
         return render(request, "core/access_entry.html")
     if current_user.is_basic_user:
         return redirect("/ts/")
