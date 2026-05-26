@@ -36,6 +36,42 @@ def backfill_countries_for_offices(apps, schema_editor):
         office.save(update_fields=["country"])
 
 
+def prepare_office_postgresql_artifacts(apps, schema_editor):
+    if schema_editor.connection.vendor != "postgresql":
+        return
+
+    schema_editor.execute(
+        """
+        DO $$
+        BEGIN
+            IF to_regclass('public.country_pkey') IS NOT NULL
+               AND to_regclass('public.office_pkey') IS NULL THEN
+                ALTER INDEX public.country_pkey RENAME TO office_pkey;
+            END IF;
+            IF to_regclass('public.country_country_name_key') IS NOT NULL
+               AND to_regclass('public.office_office_name_key') IS NULL THEN
+                ALTER INDEX public.country_country_name_key RENAME TO office_office_name_key;
+            END IF;
+            IF to_regclass('public.country_country_name_7fbf0aaa_like') IS NOT NULL
+               AND to_regclass('public.office_office_name_like') IS NULL THEN
+                ALTER INDEX public.country_country_name_7fbf0aaa_like
+                RENAME TO office_office_name_like;
+            END IF;
+            IF to_regclass('public.country_status_id_2696fdeb') IS NOT NULL
+               AND to_regclass('public.office_status_id_idx') IS NULL THEN
+                ALTER INDEX public.country_status_id_2696fdeb RENAME TO office_status_id_idx;
+            END IF;
+            PERFORM setval(
+                pg_get_serial_sequence('office', 'id'),
+                COALESCE((SELECT MAX(id) FROM public.office), 1),
+                true
+            );
+        END
+        $$;
+        """
+    )
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("master_data", "0018_generalchargecodeapprovalrole_and_more"),
@@ -43,6 +79,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(
+            prepare_office_postgresql_artifacts,
+            migrations.RunPython.noop,
+        ),
         migrations.CreateModel(
             name="Country",
             fields=[

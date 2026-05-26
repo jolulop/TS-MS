@@ -1,6 +1,6 @@
 # Azure Migration Open Decisions
 
-Status: in progress
+Status: completed
 Date: 2026-05-26
 Related epic: TSMS Azure Migration
 Related milestone: Milestone 1 - Working Azure Development Instance
@@ -23,11 +23,11 @@ with other Azure work.
 | Dev resource isolation | Create `rg-tsms-dev` and environment-specific resources. | Confirmed | Do not share database, Key Vault, App Service, Google OAuth client, or pipeline deploy target with other developments. |
 | Resource naming | Use `app-tsms-dev`, `plan-tsms-dev`, `pg-tsms-dev`, `kv-tsms-dev`, `appi-tsms-dev`, `log-tsms-dev`, with suffixes only if Azure global uniqueness requires them. | Confirmed | App Service, Key Vault, and PostgreSQL names may need globally unique suffixes. |
 | Dev environment hardening | Set `TSMS_ENVIRONMENT=production` in Azure dev to exercise production fail-closed checks, while using dev resources and dev data. | Proposed | Local development still uses `development` and SQLite if desired. |
-| Database for dev | Use Azure Database for PostgreSQL Flexible Server. | Proposed | SQLite remains local-only. |
+| Database for dev | Use Azure Database for PostgreSQL Flexible Server. | Confirmed | SQLite remains local-only. |
 | Dev PostgreSQL SKU | Use `Standard_B1ms` for the first dev instance. | Confirmed | SKU is available in `westeurope`; testing/prod should use General Purpose or better. |
 | Networking for dev | Start simple with restricted public PostgreSQL access. | Confirmed | Test/prod should move to private access/private endpoint. |
 | Google SSO | Use a dev-only Google OAuth client owned by `jose.luis.lopez@timia.ai` and wired to App Service Authentication. | Confirmed | Do not reuse production/test OAuth client secrets. |
-| API access model for Milestone 1 | Support authenticated human/session-cookie API access first. | Proposed | Browserless API clients remain an explicit later decision. |
+| API access model for Milestone 1 | Support authenticated human/session-cookie API access first. | Confirmed | Browserless API clients remain an explicit later decision. |
 | Azure DevOps project | Create a new Azure DevOps project for TSMS in `https://dev.azure.com/timia-innovacion`. | Confirmed | The Azure Repos Git repository will live in this new project. |
 | Dev seed data | Run reference seed data and dev sample data in Azure dev. | Confirmed | Dev sample data must not be used in test or production. |
 | Production domain | Not needed for Milestone 1. | Proposed | Dev can start with `app-tsms-dev.azurewebsites.net`. |
@@ -128,8 +128,11 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
     provider.
   - Unauthenticated browser access can be sent through
     `/.auth/login/google`.
-  - After Google login, Azure serves the default App Service placeholder page
-    because TSMS application code has not been deployed yet.
+  - After Google login, Azure ingress provides the trusted identity header used
+    by the deployed Django app for internal session bootstrap.
+- 2026-05-26: Deployed the KAN branch package to `app-tsms-dev`, ran
+  migrations against Azure PostgreSQL, seeded reference/dev data, and confirmed
+  browser SSO access to the deployed TSMS app.
 
 ## Current Blockers
 
@@ -144,11 +147,11 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
 - Google SSO is resolved for Azure ingress.
   - Django trusted-header browser session bootstrap is implemented and covered
     by regression tests.
-- Application code is not deployed yet.
-  - Runtime resources and app settings exist.
-  - Phase 3 runtime code changes are verified locally.
-  - Phase 4 trusted-header session bootstrap is verified locally.
-  - Code still needs deployment pipeline and migration/seed execution.
+- KAN-121 Phase 5 is complete for the dev instance.
+  - Application code is deployed to `app-tsms-dev`.
+  - App Service startup command is configured.
+  - Azure PostgreSQL migrations and seed commands have completed.
+  - Browser Google SSO smoke was confirmed against the deployed app.
 
 ## Phase 3 Runtime Readiness
 
@@ -175,10 +178,9 @@ Performed on 2026-05-26 with Azure CLI after device-code login:
   - production-mode `manage.py check --deploy`, with only expected HSTS and
     dummy-local-secret warnings
 
-Pending Phase 3 follow-up:
+Phase 3 follow-up is complete:
 
-- Configure App Service startup command to `bash scripts/azure-startup.sh`
-  after code deployment is wired.
+- App Service startup command is configured as `bash scripts/azure-startup.sh`.
 
 ## Phase 4 Identity Bootstrap Readiness
 
@@ -193,6 +195,34 @@ Pending Phase 3 follow-up:
   - trusted-header browser bootstrap
   - missing trusted-header denial
   - existing `/api/v1/auth/session/initialize` trusted-header behavior
+
+## Phase 5 Database Migration And Seed Readiness
+
+- Deployed the KAN branch package to `app-tsms-dev`.
+- Configured the App Service startup command to `bash scripts/azure-startup.sh`.
+- Added `requirements.txt` for Azure App Service / Oryx dependency detection.
+- Fixed PostgreSQL migration compatibility in
+  `master_data.0019_country_entity_for_offices`.
+  - PostgreSQL preserved historical `country_*` index names on the renamed
+    `office` table.
+  - The migration now renames those Office indexes before recreating the
+    standalone `country` table.
+  - The migration also resets the Office sequence after historical explicit-id
+    seed rows so later Office inserts do not collide.
+- Ran `python manage.py migrate --noinput` from the Azure App Service SSH
+  environment against `pg-tsms-dev` / `tsms_dev`.
+- Ran `python manage.py migrate --check`.
+- Ran `python manage.py seed_reference_data` twice successfully.
+- Ran `python manage.py seed_dev_data` twice successfully.
+- Verified the deployed app database vendor is PostgreSQL and seeded data is
+  present.
+
+Phase 5 validation notes:
+
+- Unauthenticated HTTPS request to `https://app-tsms-dev.azurewebsites.net/`
+  returns App Service Authentication `401`, confirming ingress protection is
+  active for non-browser/non-authenticated requests.
+- Browser SSO smoke was confirmed by a user with an internal employee record.
 
 ## Recommended Milestone 1 Defaults
 
@@ -227,7 +257,7 @@ scoped resource name and update this decision log.
 
 ## Exit Criteria
 
-The open-decisions task can close when:
+The open-decisions task is closed because:
 
 - Subscription is confirmed. Done.
 - Region is confirmed. Done.

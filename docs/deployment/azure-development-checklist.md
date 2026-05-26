@@ -169,7 +169,11 @@ The script:
 Required runtime dependencies:
 
 - `gunicorn`
+- `psycopg[binary]`
 - `whitenoise`
+
+Azure App Service / Oryx detects these from the repository `requirements.txt`
+file during deployment.
 
 Static files are served through WhiteNoise with compressed manifest storage.
 

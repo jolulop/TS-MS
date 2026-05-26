@@ -6,8 +6,11 @@
   - status: proposed
   - focus: define the Azure target architecture, deployment readiness gates, and code migration/testing plan for dev, test, and production
 - `2026-05-26`: `docs/plans/2026-05-26-azure-open-decisions.md`
-  - status: in progress
+  - status: completed
   - focus: confirm subscription, region, isolated dev naming, networking, SSO, Azure DevOps, and seed-data choices before creating Azure dev resources
+- `2026-05-26`: `docs/plans/2026-05-26-docs-v8.0-promotion.md`
+  - status: completed
+  - focus: publish the v8.0 markdown source-of-truth set after the Azure dev instance, Google SSO, and PostgreSQL migration/seed milestone
 - `2026-05-23`: `docs/plans/2026-05-23-docs-v6.1-promotion.md`
   - status: completed
   - focus: publish the v6.1 markdown source-of-truth set and repoint repo guidance away from the v6.0 baseline
@@ -158,7 +161,7 @@
 
 Historical note:
 - completed plan files intentionally preserve the source-document references and milestone wording that existed when those plans were written
-- use `AGENTS.md`, this file, and the v6.1 markdown spec set for current implementation work
+- use `AGENTS.md`, this file, and the v8.0 markdown spec set for current implementation work
 
 ## Purpose
 
